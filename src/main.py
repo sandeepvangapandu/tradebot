@@ -39,6 +39,12 @@ from zoneinfo import ZoneInfo
 
 from src.utils.holidays import is_trading_day
 
+from src.agents.llm_client import LLMClient
+from src.agents.pipeline import AgentPipeline
+from src.memory.memory_db import MemoryDB
+from src.memory.outcome_analyzer import OutcomeAnalyzer
+from src.memory.mistake_classifier import MistakeClassifier
+
 IST = ZoneInfo("Asia/Kolkata")
 
 
@@ -64,6 +70,13 @@ class TradingBot:
         self.trade_log: TradeLog | None = None
         self.scheduler: BackgroundScheduler | None = None
         self.health_monitor: HealthMonitor | None = None
+
+        # AI agent pipeline
+        self.llm_client: LLMClient | None = None
+        self.agent_pipeline: AgentPipeline | None = None
+        self.memory_db: MemoryDB | None = None
+        self.outcome_analyzer: OutcomeAnalyzer | None = None
+        self.mistake_classifier: MistakeClassifier | None = None
 
         # Signal queue for strategy -> order communication
         self.signal_queue: queue.Queue[Any] = queue.Queue()
@@ -215,6 +228,32 @@ class TradingBot:
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
         logger.info("Signal handlers registered")
+
+        # 14. Initialize AI agent pipeline
+        if self.settings.agent_pipeline_enabled:
+            self.llm_client = LLMClient(
+                api_key=self.settings.groq_api_key,
+                model=self.settings.groq_model,
+                fallback_model=self.settings.groq_fallback_model,
+                temperature=self.settings.groq_temperature,
+                max_tokens=self.settings.groq_max_tokens,
+                rate_limit_rpm=self.settings.groq_rate_limit_rpm,
+            )
+            self.memory_db = MemoryDB(
+                decay_rate=self.settings.memory_decay_rate,
+                decay_start_days=self.settings.memory_decay_start_days,
+            )
+            self.agent_pipeline = AgentPipeline(
+                llm_client=self.llm_client,
+                memory_db=self.memory_db,
+                regime_confidence_threshold=self.settings.regime_confidence_threshold,
+            )
+            self.outcome_analyzer = OutcomeAnalyzer()
+            self.mistake_classifier = MistakeClassifier()
+            logger.info(
+                "AI Agent Pipeline initialized | LLM configured={}",
+                self.llm_client.is_configured,
+            )
 
         self._running = True
         logger.info("=" * 60)

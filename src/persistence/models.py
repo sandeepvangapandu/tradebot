@@ -232,3 +232,56 @@ class StrategyPerformanceRecord(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow)
 
     __table_args__ = (UniqueConstraint("strategy_name", "date", name="uq_strategy_date"),)
+
+
+class AgentDecisionRecord(Base):
+    """Records every AI agent decision for observability."""
+
+    __tablename__ = "agent_decisions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    agent_name = Column(String(64), nullable=False, index=True)
+    instrument_key = Column(String(64), nullable=False, index=True)
+    timestamp = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    input_summary = Column(Text, nullable=True)
+    output_summary = Column(Text, nullable=True)
+    confidence = Column(Float, nullable=False, default=0.5)
+    used_fallback = Column(Integer, default=0, nullable=False)
+    latency_ms = Column(Integer, default=0, nullable=False)
+    lessons_injected = Column(Integer, default=0, nullable=False)
+
+
+class MemoryLessonRecord(Base):
+    """Persistent storage for memory lessons with decay tracking."""
+
+    __tablename__ = "memory_lessons"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    lesson_id = Column(String(64), unique=True, nullable=False, index=True)
+    category = Column(String(32), nullable=False, index=True)
+    strategy = Column(String(128), nullable=False, index=True)
+    regime = Column(String(32), nullable=False, index=True)
+    description = Column(Text, nullable=False)
+    severity = Column(String(16), nullable=False)
+    base_score = Column(Float, nullable=False, default=1.0)
+    times_injected = Column(Integer, default=0, nullable=False)
+    times_useful = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow)
+
+
+class MistakeRecord(Base):
+    """Records classified mistakes for analysis."""
+
+    __tablename__ = "trade_mistakes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    trade_id = Column(String(64), nullable=False, index=True)
+    category = Column(String(32), nullable=False, index=True)
+    severity = Column(String(16), nullable=False)
+    description = Column(Text, nullable=False)
+    lesson = Column(Text, nullable=False)
+    regime = Column(String(32), nullable=False)
+    strategy = Column(String(128), nullable=False)
+    score = Column(Float, nullable=False, default=1.0)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)

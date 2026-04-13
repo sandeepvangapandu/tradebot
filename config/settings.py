@@ -118,6 +118,31 @@ class Settings(BaseSettings):
     learning_generate_daily_report: bool = True
     learning_export_lessons_path: str = "data/lessons.json"
 
+    # AI Agent Pipeline Configuration
+    groq_api_key: str = ""
+    groq_model: str = "llama-3.3-70b-versatile"
+    groq_fallback_model: str = "llama-3.1-8b-instant"
+    groq_temperature: float = 0.1
+    groq_max_tokens: int = 1024
+    groq_rate_limit_rpm: int = 30  # Free tier: 30 requests/min
+
+    # Agent pipeline settings
+    agent_pipeline_enabled: bool = True
+    regime_confidence_threshold: float = 0.3  # Skip pipeline if below
+    signal_min_confidence: float = 0.5  # Reject signals below this
+    news_sentiment_weight: float = 0.35
+    volatility_sentiment_weight: float = 0.35
+    breadth_sentiment_weight: float = 0.30
+    news_cache_ttl_seconds: int = 300  # 5 minutes
+    sentiment_cache_ttl_seconds: int = 600  # 10 minutes
+
+    # Memory system settings
+    memory_enabled: bool = True
+    memory_decay_rate: float = 0.05  # 5% per week
+    memory_decay_start_days: int = 30  # Start decay after 30 days
+    memory_max_lessons_per_agent: int = 5  # Top N lessons injected
+    memory_boost_factor: float = 1.1  # Boost useful lessons (capped at 2x)
+
 
 from typing import Optional
 _settings: Optional[Settings] = None

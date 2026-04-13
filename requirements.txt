@@ -140,3 +140,17 @@ pytest-cov>=4.1.0
 
 # Freeze time in tests for deterministic market-hour testing
 freezegun>=1.2.0
+
+# -----------------------------------------------------------------------------
+# AI Agent Pipeline
+# -----------------------------------------------------------------------------
+# LLM orchestration framework for agent pipeline
+langchain>=0.3.0
+langchain-groq>=0.2.0
+langgraph>=0.2.0
+
+# Groq SDK for free Llama-3.3-70b inference
+groq>=0.11.0
+
+# RSS feed parsing for news sentiment agent
+feedparser>=6.0.0

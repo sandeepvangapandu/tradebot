@@ -1,0 +1,142 @@
+# =============================================================================
+# TRADING BOT — Python Dependencies
+# =============================================================================
+# Install with: pip install -r requirements.txt
+# Requires: Python 3.11+
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# Upstox Broker API
+# -----------------------------------------------------------------------------
+# Upstox Python SDK for API v2/v3 (OAuth2, orders, positions, market data)
+# Docs: https://upstox.com/developer/api-documentation/
+upstox-python-sdk>=2.19.0
+
+# Automated TOTP-based login (generates 2FA codes from secret key)
+# Used by src/auth/auto_login.py for daily token refresh without manual OTP
+upstox-totp>=1.0.8
+
+# TOTP code generation (dependency of upstox-totp, listed explicitly)
+pyotp>=2.9.0
+
+# Protobuf decoder for Upstox WebSocket binary market data frames
+protobuf>=4.25.0
+
+# WebSocket client for real-time market data and portfolio feeds
+# Used by src/data/websocket_feed.py and src/data/portfolio_feed.py
+websocket-client>=1.6.0
+
+# Async HTTP client for API calls with connection pooling
+# Used by src/data/historical.py and src/auth/ modules
+httpx>=0.27.2
+requests>=2.32.3
+
+
+# -----------------------------------------------------------------------------
+# Data & Technical Analysis
+# -----------------------------------------------------------------------------
+# DataFrame operations for OHLCV data, indicator computation, backtesting
+pandas>=2.0.0
+
+# 130+ technical indicators (EMA, RSI, MACD, Supertrend, VWAP, BBands, ADX, etc.)
+# Used by src/strategy/indicators.py and src/indicators/divergence.py
+# NOTE: May need to install from GitHub if PyPI version is unavailable:
+#   pip install git+https://github.com/twopirllc/pandas-ta.git
+pandas-ta>=0.3.14b
+
+# Numerical operations for indicator math, array manipulation
+numpy>=1.24.0
+
+
+# -----------------------------------------------------------------------------
+# Configuration & Validation
+# -----------------------------------------------------------------------------
+# Data validation, settings models, strategy config parsing
+# Used by src/strategy/builder.py, src/research/models.py, config/settings.py
+pydantic>=2.0.0
+
+# Environment variable loading into Pydantic models
+# Used by config/settings.py to load from .env file
+pydantic-settings>=2.0.0
+
+# .env file loading (backup for pydantic-settings)
+python-dotenv>=1.0.0
+
+# YAML config file parsing (config/config.yaml, instruments.yaml)
+PyYAML>=6.0
+
+
+# -----------------------------------------------------------------------------
+# Database & Persistence
+# -----------------------------------------------------------------------------
+# ORM for SQLite/PostgreSQL — all trade records, positions, P&L, research reports
+# Used by src/persistence/models.py and src/persistence/database.py
+sqlalchemy>=2.0.0
+
+# Database migrations (for future PostgreSQL upgrade)
+alembic>=1.13.0
+
+
+# -----------------------------------------------------------------------------
+# Scheduling & Concurrency
+# -----------------------------------------------------------------------------
+# Background job scheduler for daily tasks:
+#   - Token refresh (8:45 AM IST)
+#   - Instrument download (6:15 AM IST)
+#   - Intraday square-off (3:15 PM IST)
+#   - Daily P&L summary (3:30 PM IST)
+# Used by src/utils/scheduler.py
+APScheduler>=3.10.0
+
+
+# -----------------------------------------------------------------------------
+# Notifications
+# -----------------------------------------------------------------------------
+# Telegram bot for trade alerts, daily P&L, risk warnings
+# Used by src/notifications/telegram_bot.py
+# Setup: Talk to @BotFather on Telegram to create a bot
+python-telegram-bot>=20.0
+
+
+# -----------------------------------------------------------------------------
+# Dashboard & Visualization
+# -----------------------------------------------------------------------------
+# Web dashboard for monitoring positions, P&L, strategies, equity curve
+# Used by src/dashboard/dashboard.py (run with: streamlit run src/dashboard/dashboard.py)
+streamlit>=1.30.0
+
+# Interactive charts for equity curve, drawdown, P&L distribution
+# Used by src/backtest/report_generator.py and dashboard pages
+plotly>=5.18.0
+
+# Static chart generation for backtest reports (fallback if plotly unavailable)
+matplotlib>=3.8.0
+
+
+# -----------------------------------------------------------------------------
+# Logging & Resilience
+# -----------------------------------------------------------------------------
+# Structured logging with rotation, colors, and context
+# Used across all modules via: from loguru import logger
+loguru>=0.7.0
+
+# Retry logic with exponential backoff for API calls and WebSocket reconnection
+# Used by src/data/historical.py, src/auth/token_manager.py
+tenacity>=8.2.0
+
+
+# -----------------------------------------------------------------------------
+# Testing (dev dependencies)
+# -----------------------------------------------------------------------------
+# Test framework
+pytest>=7.4.0
+
+# Async test support for WebSocket and Telegram tests
+pytest-asyncio>=0.23.0
+
+# Test coverage reporting
+pytest-cov>=4.1.0
+
+# Freeze time in tests for deterministic market-hour testing
+freezegun>=1.2.0

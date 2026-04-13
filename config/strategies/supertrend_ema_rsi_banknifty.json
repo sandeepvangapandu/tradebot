@@ -1,0 +1,98 @@
+{
+  "name": "Supertrend_EMA_RSI_BankNifty_v2",
+  "version": "2.0.0",
+  "description": "Supertrend with wider ATR multiplier for filtering noise — INDEX-level complementary to primary Supertrend",
+  "enabled": false,
+  "underlying": {
+    "instrument_key": "NSE_INDEX|Nifty Bank",
+    "symbol": "BANKNIFTY",
+    "segment": "NSE_FO"
+  },
+  "trading_hours": {
+    "start_time": "10:00:00",
+    "end_time": "14:00:00",
+    "timezone": "Asia/Kolkata"
+  },
+  "timeframes": {
+    "primary": "5min"
+  },
+  "entry_sets": [
+    {
+      "name": "ST_Wide_Bullish",
+      "signal": "BUY",
+      "priority": 1,
+      "conditions": [
+        {
+          "indicator": "Spot_Price",
+          "comparison": "crosses_above",
+          "against": "Supertrend",
+          "parameters": { "period": 14, "multiplier": 2.5 }
+        },
+        {
+          "indicator": "EMA_9",
+          "comparison": ">",
+          "against": "EMA_21",
+          "parameters": {}
+        },
+        {
+          "indicator": "RSI",
+          "comparison": ">",
+          "value": 48,
+          "parameters": { "period": 14 }
+        },
+        {
+          "indicator": "Spot_Price",
+          "comparison": ">",
+          "against": "VWAP",
+          "parameters": {}
+        }
+      ]
+    },
+    {
+      "name": "ST_Wide_Bearish",
+      "signal": "SELL",
+      "priority": 1,
+      "conditions": [
+        {
+          "indicator": "Spot_Price",
+          "comparison": "crosses_below",
+          "against": "Supertrend",
+          "parameters": { "period": 14, "multiplier": 2.5 }
+        },
+        {
+          "indicator": "EMA_9",
+          "comparison": "<",
+          "against": "EMA_21",
+          "parameters": {}
+        },
+        {
+          "indicator": "RSI",
+          "comparison": "<",
+          "value": 52,
+          "parameters": { "period": 14 }
+        },
+        {
+          "indicator": "Spot_Price",
+          "comparison": "<",
+          "against": "VWAP",
+          "parameters": {}
+        }
+      ]
+    }
+  ],
+  "exit_rules": {
+    "stop_loss_pct": 0.5,
+    "target_pct": 1.0,
+    "trailing_stop_loss": { "enabled": false },
+    "time_based_exit": "14:00:00",
+    "max_holding_minutes": 120
+  },
+  "position_sizing": {
+    "method": "fixed_quantity",
+    "quantity": 1
+  },
+  "risk_management": {
+    "max_open_positions": 2,
+    "max_trades_per_day": 2
+  }
+}

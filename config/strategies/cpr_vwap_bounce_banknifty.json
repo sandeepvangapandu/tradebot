@@ -1,0 +1,146 @@
+{
+  "name": "CPR_VWAP_Bounce_BankNifty",
+  "description": "Mean reversion using Central Pivot Range and VWAP for BankNifty options",
+  "enabled": false,
+  "underlying": {
+    "instrument_key": "NSE_INDEX|Nifty Bank",
+    "symbol": "BANKNIFTY",
+    "segment": "NSE_FO"
+  },
+  "trading_hours": {
+    "start_time": "09:30:00",
+    "end_time": "14:30:00",
+    "timezone": "Asia/Kolkata",
+    "days": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ]
+  },
+  "instrument_selection": {
+    "type": "options",
+    "expiry_type": "weekly_current",
+    "strike_selection": "atm",
+    "option_types": [
+      "CE",
+      "PE"
+    ]
+  },
+  "timeframes": {
+    "primary": "5min",
+    "daily": "1d"
+  },
+  "entry_sets": [
+    {
+      "name": "CPR_Long_Bounce",
+      "signal": "CE",
+      "conditions": [
+        {
+          "indicator": "Spot_Price",
+          "comparison": ">=",
+          "against": "CPR_BC",
+          "timeframe": "5min",
+          "lookback": 0
+        },
+        {
+          "indicator": "Spot_Price",
+          "comparison": "<=",
+          "against": "CPR_PIVOT",
+          "timeframe": "5min",
+          "lookback": 0
+        },
+        {
+          "indicator": "Spot_Price",
+          "comparison": ">=",
+          "against": "VWAP",
+          "timeframe": "5min",
+          "lookback": 0
+        },
+        {
+          "indicator": "RSI",
+          "comparison": ">",
+          "value": 35,
+          "timeframe": "5min",
+          "parameters": {
+            "period": 14
+          }
+        },
+        {
+          "indicator": "ATR",
+          "comparison": "<",
+          "value": 1500,
+          "timeframe": "5min",
+          "parameters": {
+            "period": 14
+          }
+        }
+      ]
+    },
+    {
+      "name": "CPR_Short_Bounce",
+      "signal": "PE",
+      "conditions": [
+        {
+          "indicator": "Spot_Price",
+          "comparison": "<=",
+          "against": "CPR_TC",
+          "timeframe": "5min",
+          "lookback": 0
+        },
+        {
+          "indicator": "Spot_Price",
+          "comparison": ">=",
+          "against": "CPR_PIVOT",
+          "timeframe": "5min",
+          "lookback": 0
+        },
+        {
+          "indicator": "Spot_Price",
+          "comparison": "<=",
+          "against": "VWAP",
+          "timeframe": "5min",
+          "lookback": 0
+        },
+        {
+          "indicator": "RSI",
+          "comparison": "<",
+          "value": 65,
+          "timeframe": "5min",
+          "parameters": {
+            "period": 14
+          }
+        },
+        {
+          "indicator": "ATR",
+          "comparison": "<",
+          "value": 1500,
+          "timeframe": "5min",
+          "parameters": {
+            "period": 14
+          }
+        }
+      ]
+    }
+  ],
+  "exit_rules": {
+    "stop_loss_pct": 25,
+    "target_pct": 37,
+    "time_based_exit": "14:30:00"
+  },
+  "position_sizing": {
+    "method": "fixed_quantity",
+    "quantity": 2
+  },
+  "risk_management": {
+    "max_open_positions": 3,
+    "max_trades_per_day": 5,
+    "require_narrow_cpr": true
+  },
+  "params": {
+    "cpr_narrow_threshold": 0.4,
+    "vwap_lookback": "day",
+    "atr_threshold": 1500
+  }
+}

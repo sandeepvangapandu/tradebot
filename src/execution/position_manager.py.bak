@@ -1,0 +1,1276 @@
+"""Position Manager for tracking open positions and managing exits.
+
+This module provides the PositionManager class that tracks open positions,
+updates unrealized P&L on each tick, checks stop-loss/target/trailing SL
+conditions, and handles time-based exits including forced intraday square-off.
+
+Smart Exit Logic (C2):
+- Partial profit booking at 1:1 R:R (50% position)
+- ATR-based adaptive stop loss
+- Volatility-based target adjustment
+- Time-decay exit for options
+- Multiple exit price tracking for blended P&L
+
+Momentum-Based Trailing Stop (C2):
+- Dynamic trailing stops that adapt based on price momentum
+- Trail faster when momentum fades, slower when momentum is strong
+- Breakeven stop after 0.5R profit
+- Captures more of trending moves while protecting profits
+"""
+
+import threading
+from dataclasses import dataclass, field
+from datetime import datetime, time, timedelta
+from typing import TYPE_CHECKING, Callable, Optional
+from zoneinfo import ZoneInfo
+
+import pandas as pd
+from loguru import logger
+from pydantic import BaseModel, Field
+
+from src.execution.base_broker import BaseBroker, Order, OrderSide, OrderType, ProductType
+from src.execution.paper_broker import PaperBroker
+
+if TYPE_CHECKING:
+    from src.risk.risk_manager import RiskManager
+
+# Indian timezone
+IST = ZoneInfo("Asia/Kolkata")
+
+# Market timings
+INTRADAY_SQUARE_OFF_TIME = time(15, 15)  # 3:15 PM IST
+
+
+class PositionConfig(BaseModel):
+    """Configuration for position management."""
+
+    stop_loss_pct: float = Field(default=0.02, description="Stop loss percentage (e.g., 0.02 = 2%)")
+    target_pct: float = Field(default=0.04, description="Target profit percentage (e.g., 0.04 = 4%)")
+    trailing_sl_activation_pct: float = Field(
+        default=0.02, description="Profit % to activate trailing SL"
+    )
+    trailing_sl_pct: float = Field(default=0.01, description="Trailing SL percentage")
+    time_based_exit_time: Optional[time] = Field(
+        default=None, description="Time-based exit (None for no time exit)"
+    )
+    enable_trailing_sl: bool = Field(default=True, description="Enable trailing stop-loss")
+
+    # Smart exit configuration
+    enable_partial_profit_booking: bool = Field(
+        default=True, description="Enable partial profit booking at 1:1 R:R"
+    )
+    partial_booking_ratio: float = Field(
+        default=0.5, description="Fraction of position to book at 1:1 R:R (0.5 = 50%)"
+    )
+    partial_booking_rr_ratio: float = Field(
+        default=1.0, description="R:R ratio at which to book partial profits (1.0 = 1:1)"
+    )
+    trailing_sl_after_partial_multiplier: float = Field(
+        default=1.5, description="Wider SL multiplier after partial booking (1.5x original SL distance)"
+    )
+
+    # ATR-based SL configuration
+    use_atr_based_sl: bool = Field(default=True, description="Use ATR-based adaptive stop loss")
+    atr_period: int = Field(default=14, description="ATR period for SL calculation")
+    atr_multiplier_low_volatility: float = Field(default=1.5, description="ATR multiplier in low volatility")
+    atr_multiplier_normal_volatility: float = Field(default=2.0, description="ATR multiplier in normal volatility")
+    atr_multiplier_high_volatility: float = Field(default=2.5, description="ATR multiplier in high volatility")
+
+    # Volatility-based target adjustment
+    enable_volatility_target_adjustment: bool = Field(
+        default=True, description="Adjust targets based on volatility regime"
+    )
+    high_volatility_target_reduction: float = Field(
+        default=0.20, description="Reduce target by this % in high volatility (0.20 = 20%)"
+    )
+    low_volatility_target_extension: float = Field(
+        default=0.10, description="Extend target by this % in low volatility (0.10 = 10%)"
+    )
+    high_volatility_atr_threshold: float = Field(
+        default=1.5, description="ATR > 1.5x average = high volatility"
+    )
+    low_volatility_atr_threshold: float = Field(
+        default=0.7, description="ATR < 0.7x average = low volatility"
+    )
+
+    # Options time-decay configuration
+    enable_options_time_decay_exit: bool = Field(
+        default=True, description="Enable time-decay based exits for options"
+    )
+    options_dte_exit_threshold: int = Field(
+        default=2, description="Exit options with DTE < this if not profitable"
+    )
+    options_theta_threshold_pct: float = Field(
+        default=0.05, description="Exit if theta > 5% of premium per day"
+    )
+
+    # Momentum-based trailing stop configuration
+    trailing_stop_type: str = Field(
+        default="fixed", description="Trailing stop type: 'fixed' or 'momentum'"
+    )
+    momentum_trailing_base_atr_multiple: float = Field(
+        default=2.0, description="Base ATR multiplier for momentum trailing stop"
+    )
+    momentum_period: int = Field(
+        default=5, description="Period for momentum calculation (bars)"
+    )
+    momentum_breakeven_threshold_r: float = Field(
+        default=0.5, description="Move to breakeven after this R multiple profit"
+    )
+    momentum_update_interval_seconds: int = Field(
+        default=60, description="Minimum seconds between trailing stop updates"
+    )
+    momentum_strong_threshold: float = Field(
+        default=0.7, description="Momentum > this = strong (0-1 scale)"
+    )
+    momentum_moderate_threshold: float = Field(
+        default=0.3, description="Momentum > this = moderate (0-1 scale)"
+    )
+    momentum_strong_multiplier: float = Field(
+        default=1.5, description="Multiplier for strong momentum (trails slower)"
+    )
+    momentum_moderate_multiplier: float = Field(
+        default=1.0, description="Multiplier for moderate momentum"
+    )
+    momentum_neutral_multiplier: float = Field(
+        default=0.7, description="Multiplier for neutral momentum (trails faster)"
+    )
+    momentum_negative_multiplier: float = Field(
+        default=0.5, description="Multiplier for negative momentum (trails aggressively)"
+    )
+
+
+@dataclass
+class PartialExitRecord:
+    """Record of a partial exit."""
+
+    exit_price: int  # in paisa
+    quantity: int
+    exit_time: datetime
+    exit_reason: str
+    realized_pnl: int  # in paisa
+
+
+@dataclass
+class ManagedPosition:
+    """Extended position with management metadata."""
+
+    instrument_key: str
+    strategy_id: str
+    side: OrderSide  # BUY for long, SELL for short
+    quantity: int
+    entry_price: int  # in paisa
+    entry_time: datetime
+    product_type: ProductType
+    position_id: str = field(default_factory=lambda: f"POS_{datetime.now(IST).strftime('%Y%m%d%H%M%S')}_{id(object())}")
+
+    # Exit configuration
+    stop_loss_price: Optional[int] = None  # in paisa
+    target_price: Optional[int] = None  # in paisa
+    trailing_sl_activated: bool = False
+    highest_price_since_entry: Optional[int] = None  # for trailing SL (long)
+    lowest_price_since_entry: Optional[int] = None  # for trailing SL (short)
+    trailing_sl_price: Optional[int] = None  # current trailing SL price
+
+    # ATR-based SL configuration
+    entry_atr: Optional[int] = None  # ATR at entry time (in paisa)
+    volatility_regime: str = "normal"  # "low", "normal", "high"
+    atr_multiplier_used: float = 2.0  # Multiplier used for SL calculation
+
+    # Options-specific data
+    is_option: bool = False
+    option_dte: Optional[int] = None  # Days to expiry
+    option_theta: Optional[float] = None  # Daily theta decay
+    option_premium_at_entry: Optional[int] = None  # Premium at entry (paisa)
+
+    # Partial profit booking tracking
+    partial_exits: list[PartialExitRecord] = field(default_factory=list)
+    partial_booking_done: bool = False
+    original_quantity: int = 0  # Original position size before partial exits
+    remaining_quantity: int = 0  # Current remaining quantity
+
+    # P&L tracking
+    unrealized_pnl: int = 0  # in paisa
+    realized_pnl: int = 0  # in paisa (includes partial exits)
+    current_price: Optional[int] = None  # in paisa
+
+    # Momentum-based trailing stop tracking
+    momentum_trailing_sl_price: Optional[int] = None  # Current momentum-based trailing SL
+    last_momentum_update: Optional[datetime] = None  # Last time momentum SL was updated
+    breakeven_activated: bool = False  # Whether breakeven SL is active
+    highest_momentum_price: Optional[int] = None  # Highest price since momentum SL active (long)
+    lowest_momentum_price: Optional[int] = None  # Lowest price since momentum SL active (short)
+    current_momentum: float = 0.0  # Current momentum value (-1 to 1)
+    current_momentum_multiplier: float = 1.0  # Current ATR multiplier based on momentum
+
+    # Exit tracking
+    exit_reason: Optional[str] = None
+    exit_time: Optional[datetime] = None
+    exit_price: Optional[int] = None  # Final exit price (blended if partial exits)
+    is_closed: bool = False
+
+    def __post_init__(self):
+        """Initialize tracking variables."""
+        if self.highest_price_since_entry is None:
+            self.highest_price_since_entry = self.entry_price
+        if self.lowest_price_since_entry is None:
+            self.lowest_price_since_entry = self.entry_price
+        if self.original_quantity == 0:
+            self.original_quantity = self.quantity
+        if self.remaining_quantity == 0:
+            self.remaining_quantity = self.quantity
+        if self.highest_momentum_price is None:
+            self.highest_momentum_price = self.entry_price
+        if self.lowest_momentum_price is None:
+            self.lowest_momentum_price = self.entry_price
+
+    @property
+    def blended_exit_price(self) -> Optional[int]:
+        """Calculate blended exit price across all partial exits and final exit.
+
+        Returns:
+            Blended exit price in paisa, or None if no exits.
+        """
+        total_qty = 0
+        total_value = 0
+
+        for partial in self.partial_exits:
+            total_qty += partial.quantity
+            total_value += partial.exit_price * partial.quantity
+
+        if self.exit_price and self.is_closed:
+            final_qty = self.remaining_quantity
+            total_qty += final_qty
+            total_value += self.exit_price * final_qty
+
+        if total_qty == 0:
+            return None
+
+        return int(total_value / total_qty)
+
+    @property
+    def total_realized_pnl(self) -> int:
+        """Get total realized P&L including partial exits.
+
+        Returns:
+            Total realized P&L in paisa.
+        """
+        pnl = self.realized_pnl
+        for partial in self.partial_exits:
+            pnl += partial.realized_pnl
+        return pnl
+
+    def get_current_rr_ratio(self, current_price: int) -> float:
+        """Calculate current risk-reward ratio.
+
+        Args:
+            current_price: Current market price in paisa.
+
+        Returns:
+            Current R:R ratio (e.g., 1.5 = 1.5:1).
+        """
+        if self.stop_loss_price is None:
+            return 0.0
+
+        risk = abs(self.entry_price - self.stop_loss_price)
+        if risk == 0:
+            return 0.0
+
+        if self.side == OrderSide.BUY:
+            reward = current_price - self.entry_price
+        else:
+            reward = self.entry_price - current_price
+
+        return reward / risk
+
+    def get_unrealized_pnl_for_quantity(self, price: int, qty: int) -> int:
+        """Calculate unrealized P&L for a specific quantity.
+
+        Args:
+            price: Current price in paisa.
+            qty: Quantity to calculate P&L for.
+
+        Returns:
+            Unrealized P&L in paisa.
+        """
+        if self.side == OrderSide.BUY:
+            return (price - self.entry_price) * qty
+        else:
+            return (self.entry_price - price) * qty
+
+
+class PositionManager:
+    """Manages open positions, P&L tracking, and exit conditions.
+
+    The PositionManager tracks all open positions, updates unrealized P&L
+    on each price tick, checks stop-loss/target/trailing SL conditions,
+    and handles time-based exits including the mandatory intraday square-off.
+
+    Smart Exit Features:
+    - Partial profit booking at 1:1 R:R
+    - ATR-based adaptive stop loss
+    - Volatility-based target adjustment
+    - Options time-decay exits
+    - Blended P&L tracking for partial exits
+
+    Attributes:
+        broker: The broker for executing exit orders
+        risk_manager: Optional risk manager for P&L and position sync
+        config: Position management configuration
+        positions: Dictionary of managed positions by position_id
+        on_position_close: Optional callback when position closes
+    """
+
+    def __init__(
+        self,
+        broker: BaseBroker,
+        risk_manager: Optional["RiskManager"] = None,
+        config: Optional[PositionConfig] = None,
+        on_position_close: Optional[Callable[[ManagedPosition], None]] = None,
+    ):
+        """Initialize the PositionManager.
+
+        Args:
+            broker: Broker for executing exit orders
+            risk_manager: Optional risk manager for P&L and position tracking sync
+            config: Position management configuration
+            on_position_close: Optional callback when position closes
+        """
+        self._broker = broker
+        self._risk_manager = risk_manager
+        self._config = config or PositionConfig()
+        self._on_position_close = on_position_close
+        self._lock = threading.Lock()
+        self._positions: dict[str, ManagedPosition] = {}
+        self._instrument_to_position: dict[str, str] = {}  # instrument_key -> position_id
+
+        # ATR history for volatility regime detection
+        self._atr_history: dict[str, list[int]] = {}  # instrument_key -> list of ATR values
+        self._atr_history_max_size = 20  # Keep last 20 ATR values
+
+        logger.info("PositionManager initialized with smart exit logic")
+
+    def add_position(
+        self,
+        instrument_key: str,
+        strategy_id: str,
+        side: OrderSide,
+        quantity: int,
+        entry_price: int,
+        product_type: ProductType = ProductType.MIS,
+        stop_loss_pct: Optional[float] = None,
+        target_pct: Optional[float] = None,
+        stop_loss_price: Optional[int] = None,
+        target_price: Optional[int] = None,
+        entry_atr: Optional[int] = None,
+        volatility_regime: str = "normal",
+        is_option: bool = False,
+        option_dte: Optional[int] = None,
+        option_theta: Optional[float] = None,
+        option_premium_at_entry: Optional[int] = None,
+    ) -> ManagedPosition:
+        """Add a new position to track.
+
+        Args:
+            instrument_key: The instrument identifier
+            strategy_id: Strategy that opened this position
+            side: BUY for long, SELL for short
+            quantity: Position size
+            entry_price: Entry price in paisa
+            product_type: MIS, CNC, NRML, etc.
+            stop_loss_pct: Override default SL percentage (used if stop_loss_price not provided)
+            target_pct: Override default target percentage (used if target_price not provided)
+            stop_loss_price: Absolute stop loss price in paisa (takes precedence over pct)
+            target_price: Absolute target price in paisa (takes precedence over pct)
+            entry_atr: ATR(14) value at entry time (for ATR-based SL)
+            volatility_regime: "low", "normal", or "high" volatility
+            is_option: Whether this is an options position
+            option_dte: Days to expiry for options
+            option_theta: Daily theta decay for options
+            option_premium_at_entry: Premium at entry for options (paisa)
+
+        Returns:
+            The created ManagedPosition
+        """
+        with self._lock:
+            # Check if position already exists
+            if instrument_key in self._instrument_to_position:
+                existing_id = self._instrument_to_position[instrument_key]
+                logger.warning(f"Position already exists for {instrument_key}: {existing_id}")
+                return self._positions[existing_id]
+
+            # Determine ATR multiplier based on volatility regime
+            atr_multiplier = self._get_atr_multiplier(volatility_regime)
+
+            # Calculate stop-loss using ATR if enabled and ATR provided
+            if stop_loss_price is None and self._config.use_atr_based_sl and entry_atr is not None:
+                if side == OrderSide.BUY:
+                    stop_loss_price = int(entry_price - (entry_atr * atr_multiplier))
+                else:  # SELL (short)
+                    stop_loss_price = int(entry_price + (entry_atr * atr_multiplier))
+                logger.info(
+                    f"ATR-based SL calculated for {instrument_key}: "
+                    f"Entry={entry_price}, ATR={entry_atr}, Multiplier={atr_multiplier}, "
+                    f"SL={stop_loss_price}"
+                )
+            elif stop_loss_price is None:
+                # Use percentage-based SL
+                sl_pct = stop_loss_pct if stop_loss_pct is not None else self._config.stop_loss_pct
+                if side == OrderSide.BUY:
+                    stop_loss_price = int(entry_price * (1 - sl_pct))
+                else:  # SELL (short)
+                    stop_loss_price = int(entry_price * (1 + sl_pct))
+
+            # Calculate target with volatility adjustment
+            if target_price is None:
+                tgt_pct = target_pct if target_pct is not None else self._config.target_pct
+
+                # Adjust target based on volatility regime
+                if self._config.enable_volatility_target_adjustment:
+                    if volatility_regime == "high":
+                        tgt_pct *= (1 - self._config.high_volatility_target_reduction)
+                        logger.info(f"High volatility: Target reduced by {self._config.high_volatility_target_reduction*100}%")
+                    elif volatility_regime == "low":
+                        tgt_pct *= (1 + self._config.low_volatility_target_extension)
+                        logger.info(f"Low volatility: Target extended by {self._config.low_volatility_target_extension*100}%")
+
+                if side == OrderSide.BUY:
+                    target_price = int(entry_price * (1 + tgt_pct))
+                else:  # SELL (short)
+                    target_price = int(entry_price * (1 - tgt_pct))
+
+            position = ManagedPosition(
+                instrument_key=instrument_key,
+                strategy_id=strategy_id,
+                side=side,
+                quantity=quantity,
+                entry_price=entry_price,
+                entry_time=datetime.now(IST),
+                product_type=product_type,
+                stop_loss_price=stop_loss_price,
+                target_price=target_price,
+                current_price=entry_price,
+                entry_atr=entry_atr,
+                volatility_regime=volatility_regime,
+                atr_multiplier_used=atr_multiplier,
+                is_option=is_option,
+                option_dte=option_dte,
+                option_theta=option_theta,
+                option_premium_at_entry=option_premium_at_entry,
+                original_quantity=quantity,
+                remaining_quantity=quantity,
+            )
+
+            self._positions[position.position_id] = position
+            self._instrument_to_position[instrument_key] = position.position_id
+
+            logger.info(
+                f"Position added: {position.position_id} | {strategy_id} | "
+                f"{side.value} {quantity} {instrument_key} @ {entry_price/100:.2f} | "
+                f"SL: {stop_loss_price/100:.2f} | Target: {target_price/100:.2f} | "
+                f"ATR: {entry_atr} | VolRegime: {volatility_regime}"
+            )
+
+        # Sync with risk manager after releasing lock
+        self._sync_risk_manager()
+
+        return position
+
+    def _get_atr_multiplier(self, volatility_regime: str) -> float:
+        """Get ATR multiplier based on volatility regime.
+
+        Args:
+            volatility_regime: "low", "normal", or "high".
+
+        Returns:
+            ATR multiplier for stop loss calculation.
+        """
+        if volatility_regime == "low":
+            return self._config.atr_multiplier_low_volatility
+        elif volatility_regime == "high":
+            return self._config.atr_multiplier_high_volatility
+        else:
+            return self._config.atr_multiplier_normal_volatility
+
+    def update_atr_history(self, instrument_key: str, atr_value: int) -> None:
+        """Update ATR history for volatility regime detection.
+
+        Args:
+            instrument_key: The instrument identifier.
+            atr_value: Current ATR(14) value in paisa.
+        """
+        if instrument_key not in self._atr_history:
+            self._atr_history[instrument_key] = []
+
+        self._atr_history[instrument_key].append(atr_value)
+
+        # Keep only recent history
+        if len(self._atr_history[instrument_key]) > self._atr_history_max_size:
+            self._atr_history[instrument_key].pop(0)
+
+    def get_volatility_regime(self, instrument_key: str, current_atr: int) -> str:
+        """Determine volatility regime based on ATR history.
+
+        Args:
+            instrument_key: The instrument identifier.
+            current_atr: Current ATR(14) value in paisa.
+
+        Returns:
+            "low", "normal", or "high" volatility regime.
+        """
+        history = self._atr_history.get(instrument_key, [])
+        if len(history) < 10:
+            return "normal"  # Not enough data
+
+        avg_atr = sum(history) / len(history)
+        if avg_atr == 0:
+            return "normal"
+
+        ratio = current_atr / avg_atr
+
+        if ratio > self._config.high_volatility_atr_threshold:
+            return "high"
+        elif ratio < self._config.low_volatility_atr_threshold:
+            return "low"
+        else:
+            return "normal"
+
+    def on_tick(self, instrument_key: str, price: int) -> list[ManagedPosition]:
+        """Process a price tick and check exit conditions.
+
+        Args:
+            instrument_key: The instrument that ticked
+            price: Current price in paisa
+
+        Returns:
+            List of positions that were closed
+        """
+        closed_positions = []
+
+        with self._lock:
+            if instrument_key not in self._instrument_to_position:
+                return closed_positions
+
+            position_id = self._instrument_to_position[instrument_key]
+            position = self._positions[position_id]
+
+            if position.is_closed:
+                return closed_positions
+
+            # Update current price
+            position.current_price = price
+
+            # Calculate unrealized P&L for remaining quantity
+            position.unrealized_pnl = position.get_unrealized_pnl_for_quantity(
+                price, position.remaining_quantity
+            )
+
+            # Update trailing SL tracking
+            self._update_trailing_sl(position, price)
+
+            # Check for partial profit booking
+            if self._should_book_partial_profit(position, price):
+                # Release lock before executing partial exit
+                position_to_partial = position
+                current_price = price
+            else:
+                position_to_partial = None
+                current_price = None
+
+        # Execute partial exit outside of lock
+        if position_to_partial is not None:
+            self._execute_partial_exit(position_to_partial, current_price, "PARTIAL_PROFIT_1R")
+
+        # Re-acquire lock to check other exit conditions
+        with self._lock:
+            if instrument_key not in self._instrument_to_position:
+                return closed_positions
+
+            position_id = self._instrument_to_position[instrument_key]
+            position = self._positions[position_id]
+
+            if position.is_closed:
+                return closed_positions
+
+            # Check exit conditions
+            exit_reason = self._check_exit_conditions(position, price)
+
+            if exit_reason:
+                # Release lock before calling close to avoid deadlock
+                position_to_close = position
+                reason = exit_reason
+            else:
+                return closed_positions
+
+        # Close position outside of lock
+        if self._close_position(position_to_close, price, reason):
+            closed_positions.append(position_to_close)
+
+        return closed_positions
+
+    def _should_book_partial_profit(self, position: ManagedPosition, price: int) -> bool:
+        """Check if partial profit should be booked.
+
+        Args:
+            position: The position to check.
+            price: Current price.
+
+        Returns:
+            True if partial profit should be booked.
+        """
+        if not self._config.enable_partial_profit_booking:
+            return False
+
+        if position.partial_booking_done:
+            return False
+
+        if position.remaining_quantity <= 1:
+            return False  # Can't split further
+
+        # Check if 1:1 R:R reached
+        current_rr = position.get_current_rr_ratio(price)
+        return current_rr >= self._config.partial_booking_rr_ratio
+
+    def _execute_partial_exit(
+        self, position: ManagedPosition, price: int, reason: str
+    ) -> bool:
+        """Execute a partial exit (profit booking).
+
+        Args:
+            position: The position to partially exit.
+            price: Current price.
+            reason: Exit reason.
+
+        Returns:
+            True if partial exit was successful.
+        """
+        try:
+            # Calculate quantity to exit
+            exit_qty = int(position.remaining_quantity * self._config.partial_booking_ratio)
+            if exit_qty < 1:
+                exit_qty = 1
+
+            # Ensure we don't exit more than remaining
+            if exit_qty >= position.remaining_quantity:
+                exit_qty = position.remaining_quantity - 1
+                if exit_qty < 1:
+                    return False
+
+            # Determine exit side
+            exit_side = OrderSide.SELL if position.side == OrderSide.BUY else OrderSide.BUY
+
+            # Place exit order
+            exit_order = Order(
+                instrument_key=position.instrument_key,
+                side=exit_side,
+                order_type=OrderType.MARKET,
+                product_type=position.product_type,
+                quantity=exit_qty,
+                strategy_id=position.strategy_id,
+                tag=f"EXIT_{reason}",
+            )
+
+            response = self._broker.place_order(exit_order)
+
+            if response.status.value in ("COMPLETE", "OPEN", "PARTIAL_FILL"):
+                # Calculate realized P&L for this partial exit
+                realized_pnl = position.get_unrealized_pnl_for_quantity(price, exit_qty)
+
+                # Record partial exit
+                partial_record = PartialExitRecord(
+                    exit_price=price,
+                    quantity=exit_qty,
+                    exit_time=datetime.now(IST),
+                    exit_reason=reason,
+                    realized_pnl=realized_pnl,
+                )
+
+                with self._lock:
+                    position.partial_exits.append(partial_record)
+                    position.remaining_quantity -= exit_qty
+                    position.partial_booking_done = True
+
+                    # Widen stop-loss for remaining position
+                    self._widen_stop_loss_after_partial(position)
+
+                logger.info(
+                    f"Partial exit executed: {position.position_id} | "
+                    f"Qty: {exit_qty} @ {price/100:.2f} | P&L: {realized_pnl/100:.2f} | "
+                    f"Remaining: {position.remaining_quantity}"
+                )
+
+                # Sync with risk manager
+                self._sync_risk_manager()
+
+                return True
+            else:
+                logger.error(f"Failed to execute partial exit for {position.position_id}: {response.message}")
+                return False
+
+        except Exception as e:
+            logger.exception(f"Error executing partial exit for {position.position_id}: {e}")
+            return False
+
+    def _widen_stop_loss_after_partial(self, position: ManagedPosition) -> None:
+        """Widen stop-loss after partial profit booking.
+
+        Args:
+            position: The position to adjust.
+        """
+        if position.stop_loss_price is None:
+            return
+
+        # Calculate original SL distance
+        if position.side == OrderSide.BUY:
+            original_sl_distance = position.entry_price - position.stop_loss_price
+            new_sl_distance = int(original_sl_distance * self._config.trailing_sl_after_partial_multiplier)
+            new_sl_price = position.entry_price - new_sl_distance
+
+            # Don't tighten SL, only widen or keep same
+            if new_sl_price > position.stop_loss_price:
+                logger.info(
+                    f"Widening SL for {position.position_id} after partial: "
+                    f"{position.stop_loss_price/100:.2f} -> {new_sl_price/100:.2f}"
+                )
+                position.stop_loss_price = new_sl_price
+        else:
+            original_sl_distance = position.stop_loss_price - position.entry_price
+            new_sl_distance = int(original_sl_distance * self._config.trailing_sl_after_partial_multiplier)
+            new_sl_price = position.entry_price + new_sl_distance
+
+            # Don't tighten SL, only widen or keep same
+            if new_sl_price < position.stop_loss_price:
+                logger.info(
+                    f"Widening SL for {position.position_id} after partial: "
+                    f"{position.stop_loss_price/100:.2f} -> {new_sl_price/100:.2f}"
+                )
+                position.stop_loss_price = new_sl_price
+
+    def _update_trailing_sl(self, position: ManagedPosition, price: int) -> None:
+        """Update trailing stop-loss tracking.
+
+        Args:
+            position: The position to update
+            price: Current price
+        """
+        if not self._config.enable_trailing_sl:
+            return
+
+        entry_value = position.entry_price * position.remaining_quantity
+        current_value = price * position.remaining_quantity
+
+        if position.side == OrderSide.BUY:
+            # Update highest price
+            if price > position.highest_price_since_entry:
+                position.highest_price_since_entry = price
+
+            # Calculate profit percentage
+            profit_pct = (current_value - entry_value) / entry_value if entry_value > 0 else 0
+
+            # Activate trailing SL if profit threshold reached
+            if profit_pct >= self._config.trailing_sl_activation_pct:
+                if not position.trailing_sl_activated:
+                    position.trailing_sl_activated = True
+                    logger.info(f"Trailing SL activated for {position.position_id}")
+
+                # Update trailing SL price
+                new_trailing_sl = int(position.highest_price_since_entry * (1 - self._config.trailing_sl_pct))
+                if position.trailing_sl_price is None or new_trailing_sl > position.trailing_sl_price:
+                    position.trailing_sl_price = new_trailing_sl
+                    logger.debug(f"Trailing SL updated for {position.position_id}: {new_trailing_sl/100:.2f}")
+
+        else:  # SELL (short)
+            # Update lowest price
+            if price < position.lowest_price_since_entry:
+                position.lowest_price_since_entry = price
+
+            # Calculate profit percentage
+            profit_pct = (entry_value - current_value) / entry_value if entry_value > 0 else 0
+
+            # Activate trailing SL if profit threshold reached
+            if profit_pct >= self._config.trailing_sl_activation_pct:
+                if not position.trailing_sl_activated:
+                    position.trailing_sl_activated = True
+                    logger.info(f"Trailing SL activated for {position.position_id}")
+
+                # Update trailing SL price (for short, SL is above entry)
+                new_trailing_sl = int(position.lowest_price_since_entry * (1 + self._config.trailing_sl_pct))
+                if position.trailing_sl_price is None or new_trailing_sl < position.trailing_sl_price:
+                    position.trailing_sl_price = new_trailing_sl
+                    logger.debug(f"Trailing SL updated for {position.position_id}: {new_trailing_sl/100:.2f}")
+
+    def _check_exit_conditions(self, position: ManagedPosition, price: int) -> Optional[str]:
+        """Check if any exit condition is triggered.
+
+        Args:
+            position: The position to check
+            price: Current price
+
+        Returns:
+            Exit reason if triggered, None otherwise
+        """
+        # Check options time-decay exit
+        if position.is_option and self._config.enable_options_time_decay_exit:
+            time_decay_reason = self._check_options_time_decay_exit(position)
+            if time_decay_reason:
+                return time_decay_reason
+
+        # Check stop-loss
+        if position.side == OrderSide.BUY:
+            if price <= position.stop_loss_price:
+                return "STOP_LOSS"
+        else:  # SELL (short)
+            if price >= position.stop_loss_price:
+                return "STOP_LOSS"
+
+        # Check target
+        if position.side == OrderSide.BUY:
+            if price >= position.target_price:
+                return "TARGET"
+        else:  # SELL (short)
+            if price <= position.target_price:
+                return "TARGET"
+
+        # Check trailing SL
+        if position.trailing_sl_activated and position.trailing_sl_price:
+            if position.side == OrderSide.BUY:
+                if price <= position.trailing_sl_price:
+                    return "TRAILING_SL"
+            else:  # SELL (short)
+                if price >= position.trailing_sl_price:
+                    return "TRAILING_SL"
+
+        # Check time-based exit
+        if self._config.time_based_exit_time:
+            current_time = datetime.now(IST).time()
+            if current_time >= self._config.time_based_exit_time:
+                return "TIME_EXIT"
+
+        # Check intraday square-off time for MIS positions
+        if position.product_type == ProductType.MIS:
+            current_time = datetime.now(IST).time()
+            if current_time >= INTRADAY_SQUARE_OFF_TIME:
+                return "INTRADAY_SQUARE_OFF"
+
+        return None
+
+    def _check_options_time_decay_exit(self, position: ManagedPosition) -> Optional[str]:
+        """Check options-specific time decay exit conditions.
+
+        Args:
+            position: The options position to check.
+
+        Returns:
+            Exit reason if triggered, None otherwise.
+        """
+        if not position.is_option:
+            return None
+
+        # Check DTE (Days to Expiry) exit
+        if position.option_dte is not None and position.option_dte < self._config.options_dte_exit_threshold:
+            # Check if position is profitable
+            if position.unrealized_pnl <= 0:
+                logger.info(
+                    f"Options time decay exit: {position.position_id} | "
+                    f"DTE={position.option_dte} < {self._config.options_dte_exit_threshold}, "
+                    f"Not profitable (PnL={position.unrealized_pnl/100:.2f})"
+                )
+                return "OPTIONS_DTE_EXIT"
+
+        # Check theta threshold exit
+        if (position.option_theta is not None and
+            position.option_premium_at_entry is not None and
+            position.option_premium_at_entry > 0):
+
+            theta_pct = abs(position.option_theta) / (position.option_premium_at_entry / 100)
+            if theta_pct > self._config.options_theta_threshold_pct:
+                # Tighten stop-loss instead of immediate exit
+                self._tighten_stop_loss_for_high_theta(position, theta_pct)
+
+        return None
+
+    def _tighten_stop_loss_for_high_theta(self, position: ManagedPosition, theta_pct: float) -> None:
+        """Tighten stop-loss when theta decay is high.
+
+        Args:
+            position: The options position.
+            theta_pct: Theta as percentage of premium.
+        """
+        if position.stop_loss_price is None:
+            return
+
+        # Calculate new tighter SL (move SL closer to entry)
+        if position.side == OrderSide.BUY:
+            # For long options, tighten SL by moving it up
+            sl_distance = position.entry_price - position.stop_loss_price
+            new_sl_distance = int(sl_distance * 0.5)  # Reduce SL distance by 50%
+            new_sl = position.entry_price - new_sl_distance
+
+            if new_sl > position.stop_loss_price:
+                logger.info(
+                    f"Tightening SL for {position.position_id} due to high theta ({theta_pct*100:.1f}%): "
+                    f"{position.stop_loss_price/100:.2f} -> {new_sl/100:.2f}"
+                )
+                position.stop_loss_price = new_sl
+        else:
+            # For short options, tighten SL by moving it down
+            sl_distance = position.stop_loss_price - position.entry_price
+            new_sl_distance = int(sl_distance * 0.5)
+            new_sl = position.entry_price + new_sl_distance
+
+            if new_sl < position.stop_loss_price:
+                logger.info(
+                    f"Tightening SL for {position.position_id} due to high theta ({theta_pct*100:.1f}%): "
+                    f"{position.stop_loss_price/100:.2f} -> {new_sl/100:.2f}"
+                )
+                position.stop_loss_price = new_sl
+
+    def _close_position(self, position: ManagedPosition, exit_price: int, reason: str) -> bool:
+        """Close a position by placing exit order.
+
+        Args:
+            position: The position to close
+            exit_price: Exit price
+            reason: Reason for closing
+
+        Returns:
+            True if close was successful
+        """
+        try:
+            # Determine exit side
+            exit_side = OrderSide.SELL if position.side == OrderSide.BUY else OrderSide.BUY
+
+            # Place exit order for remaining quantity
+            exit_order = Order(
+                instrument_key=position.instrument_key,
+                side=exit_side,
+                order_type=OrderType.MARKET,
+                product_type=position.product_type,
+                quantity=position.remaining_quantity,
+                strategy_id=position.strategy_id,
+                tag=f"EXIT_{reason}",
+            )
+
+            response = self._broker.place_order(exit_order)
+
+            if response.status.value in ("COMPLETE", "OPEN", "PARTIAL_FILL"):
+                # Calculate realized P&L for remaining quantity
+                remaining_pnl = position.get_unrealized_pnl_for_quantity(
+                    exit_price, position.remaining_quantity
+                )
+
+                # Update position
+                with self._lock:
+                    position.is_closed = True
+                    position.exit_time = datetime.now(IST)
+                    position.exit_price = exit_price
+                    position.exit_reason = reason
+                    position.realized_pnl = remaining_pnl
+
+                    # Clean up tracking
+                    if position.instrument_key in self._instrument_to_position:
+                        del self._instrument_to_position[position.instrument_key]
+
+                # Calculate blended exit price if partial exits exist
+                blended_price = position.blended_exit_price
+
+                # Calculate total realized P&L including partials
+                total_pnl = position.total_realized_pnl
+
+                logger.info(
+                    f"Position closed: {position.position_id} | Reason: {reason} | "
+                    f"Exit: {exit_price/100:.2f} | Blended: {blended_price/100:.2f if blended_price else 'N/A'} | "
+                    f"Final P&L: {remaining_pnl/100:.2f} | Total P&L: {total_pnl/100:.2f} | "
+                    f"Partial exits: {len(position.partial_exits)}"
+                )
+
+                # Sync with risk manager after position close
+                self._sync_risk_manager()
+
+                # Call callback if set
+                if self._on_position_close:
+                    try:
+                        self._on_position_close(position)
+                    except Exception as e:
+                        logger.error(f"Error in position close callback: {e}")
+
+                return True
+            else:
+                logger.error(f"Failed to close position {position.position_id}: {response.message}")
+                return False
+
+        except Exception as e:
+            logger.exception(f"Error closing position {position.position_id}: {e}")
+            return False
+
+    def close_position_manual(self, position_id: str, reason: str = "MANUAL") -> bool:
+        """Manually close a position.
+
+        Args:
+            position_id: The position ID to close
+            reason: Reason for closing
+
+        Returns:
+            True if close was successful
+        """
+        with self._lock:
+            if position_id not in self._positions:
+                logger.error(f"Position not found: {position_id}")
+                return False
+
+            position = self._positions[position_id]
+            if position.is_closed:
+                logger.warning(f"Position already closed: {position_id}")
+                return False
+
+            current_price = position.current_price or position.entry_price
+
+        return self._close_position(position, current_price, reason)
+
+    def close_all_positions(self, reason: str = "MANUAL") -> list[ManagedPosition]:
+        """Close all open positions.
+
+        Args:
+            reason: Reason for closing
+
+        Returns:
+            List of closed positions
+        """
+        closed_positions = []
+
+        with self._lock:
+            open_positions = [
+                pos for pos in self._positions.values()
+                if not pos.is_closed
+            ]
+
+        for position in open_positions:
+            current_price = position.current_price or position.entry_price
+            if self._close_position(position, current_price, reason):
+                closed_positions.append(position)
+
+        return closed_positions
+
+    def get_position(self, position_id: str) -> Optional[ManagedPosition]:
+        """Get a position by ID.
+
+        Args:
+            position_id: The position ID
+
+        Returns:
+            ManagedPosition if found, None otherwise
+        """
+        with self._lock:
+            return self._positions.get(position_id)
+
+    def get_position_by_instrument(self, instrument_key: str) -> Optional[ManagedPosition]:
+        """Get position by instrument key.
+
+        Args:
+            instrument_key: The instrument key
+
+        Returns:
+            ManagedPosition if found, None otherwise
+        """
+        with self._lock:
+            position_id = self._instrument_to_position.get(instrument_key)
+            if position_id:
+                return self._positions.get(position_id)
+            return None
+
+    def get_open_positions(self) -> list[ManagedPosition]:
+        """Get all open positions.
+
+        Returns:
+            List of open positions
+        """
+        with self._lock:
+            return [pos for pos in self._positions.values() if not pos.is_closed]
+
+    def get_positions_by_strategy(self, strategy_id: str) -> list[ManagedPosition]:
+        """Get all positions for a strategy.
+
+        Args:
+            strategy_id: The strategy ID
+
+        Returns:
+            List of positions
+        """
+        with self._lock:
+            return [
+                pos for pos in self._positions.values()
+                if pos.strategy_id == strategy_id and not pos.is_closed
+            ]
+
+    def get_total_unrealized_pnl(self) -> int:
+        """Get total unrealized P&L across all positions.
+
+        Returns:
+            Total unrealized P&L in paisa
+        """
+        with self._lock:
+            return sum(pos.unrealized_pnl for pos in self._positions.values() if not pos.is_closed)
+
+    def get_total_realized_pnl(self) -> int:
+        """Get total realized P&L from closed positions.
+
+        Returns:
+            Total realized P&L in paisa
+        """
+        with self._lock:
+            return sum(pos.total_realized_pnl for pos in self._positions.values() if pos.is_closed)
+
+    def check_intraday_square_off(self) -> list[ManagedPosition]:
+        """Check and execute intraday square-off for MIS positions.
+
+        Returns:
+            List of positions that were squared off
+        """
+        current_time = datetime.now(IST).time()
+
+        if current_time < INTRADAY_SQUARE_OFF_TIME:
+            return []
+
+        closed_positions = []
+
+        with self._lock:
+            mis_positions = [
+                pos for pos in self._positions.values()
+                if pos.product_type == ProductType.MIS and not pos.is_closed
+            ]
+
+        for position in mis_positions:
+            current_price = position.current_price or position.entry_price
+            if self._close_position(position, current_price, "INTRADAY_SQUARE_OFF"):
+                closed_positions.append(position)
+
+        if closed_positions:
+            logger.info(f"Squared off {len(closed_positions)} MIS positions for intraday")
+
+        return closed_positions
+
+    def _sync_risk_manager(self) -> None:
+        """Sync P&L and position counts with RiskManager.
+
+        This method updates the risk manager with current realized P&L,
+        unrealized P&L, open position count, and deployed capital.
+        """
+        if self._risk_manager is None:
+            return
+
+        try:
+            realized_pnl = self.get_total_realized_pnl()
+            unrealized_pnl = self.get_total_unrealized_pnl()
+            open_positions = self.get_open_positions()
+
+            position_count = len(open_positions)
+            deployed_capital = sum(
+                pos.entry_price * pos.remaining_quantity for pos in open_positions
+            )
+
+            self._risk_manager.update_pnl(realized=realized_pnl, unrealized=unrealized_pnl)
+            self._risk_manager.update_positions(count=position_count, deployed=deployed_capital)
+
+            logger.debug(
+                f"RiskManager synced | realized={realized_pnl} paisa | "
+                f"unrealized={unrealized_pnl} paisa | positions={position_count} | "
+                f"deployed={deployed_capital} paisa"
+            )
+        except Exception as e:
+            logger.error(f"Failed to sync with RiskManager: {e}")
+
+    def sync_pnl_with_risk_manager(self) -> None:
+        """Public method to force P&L sync with RiskManager.
+
+        Can be called periodically to ensure risk manager has latest data.
+        """
+        self._sync_risk_manager()
+
+    def update_position_sl_target(
+        self,
+        position_id: str,
+        new_sl: Optional[int] = None,
+        new_target: Optional[int] = None,
+    ) -> bool:
+        """Update stop-loss and/or target for a position.
+
+        Args:
+            position_id: The position ID to update.
+            new_sl: New stop-loss price in paisa (None to keep current).
+            new_target: New target price in paisa (None to keep current).
+
+        Returns:
+            True if update was successful.
+        """
+        with self._lock:
+            if position_id not in self._positions:
+                logger.error(f"Position not found: {position_id}")
+                return False
+
+            position = self._positions[position_id]
+            if position.is_closed:
+                logger.warning(f"Cannot update closed position: {position_id}")
+                return False
+
+            if new_sl is not None:
+                old_sl = position.stop_loss_price
+                position.stop_loss_price = new_sl
+                logger.info(f"Updated SL for {position_id}: {old_sl/100:.2f} -> {new_sl/100:.2f}")
+
+            if new_target is not None:
+                old_target = position.target_price
+                position.target_price = new_target
+                logger.info(f"Updated target for {position_id}: {old_target/100:.2f} -> {new_target/100:.2f}")
+
+            return True
+
+    def get_position_summary(self, position_id: str) -> Optional[dict]:
+        """Get a summary of position status including partial exit details.
+
+        Args:
+            position_id: The position ID.
+
+        Returns:
+            Dictionary with position summary, or None if not found.
+        """
+        with self._lock:
+            position = self._positions.get(position_id)
+            if not position:
+                return None
+
+            return {
+                "position_id": position.position_id,
+                "instrument_key": position.instrument_key,
+                "strategy_id": position.strategy_id,
+                "side": position.side.value,
+                "original_quantity": position.original_quantity,
+                "remaining_quantity": position.remaining_quantity,
+                "entry_price": position.entry_price,
+                "current_price": position.current_price,
+                "stop_loss_price": position.stop_loss_price,
+                "target_price": position.target_price,
+                "unrealized_pnl": position.unrealized_pnl,
+                "realized_pnl": position.realized_pnl,
+                "total_realized_pnl": position.total_realized_pnl,
+                "partial_exits": [
+                    {
+                        "exit_price": p.exit_price,
+                        "quantity": p.quantity,
+                        "exit_time": p.exit_time.isoformat(),
+                        "exit_reason": p.exit_reason,
+                        "realized_pnl": p.realized_pnl,
+                    }
+                    for p in position.partial_exits
+                ],
+                "partial_booking_done": position.partial_booking_done,
+                "trailing_sl_activated": position.trailing_sl_activated,
+                "trailing_sl_price": position.trailing_sl_price,
+                "is_closed": position.is_closed,
+                "exit_reason": position.exit_reason,
+                "exit_price": position.exit_price,
+                "blended_exit_price": position.blended_exit_price,
+                "entry_atr": position.entry_atr,
+                "volatility_regime": position.volatility_regime,
+                "is_option": position.is_option,
+                "option_dte": position.option_dte,
+            }

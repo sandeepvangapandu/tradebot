@@ -1,0 +1,149 @@
+{
+  "name": "RSI_Divergence_MTF_BankNifty",
+  "description": "RSI divergence with multi-timeframe confirmation for reversals",
+  "enabled": false,
+  "underlying": {
+    "instrument_key": "NSE_INDEX|Nifty Bank",
+    "symbol": "BANKNIFTY",
+    "segment": "NSE_FO"
+  },
+  "trading_hours": {
+    "start_time": "09:30:00",
+    "end_time": "15:00:00",
+    "timezone": "Asia/Kolkata",
+    "days": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ]
+  },
+  "instrument_selection": {
+    "type": "options",
+    "expiry_type": "weekly_current",
+    "strike_selection": "atm",
+    "option_types": [
+      "CE",
+      "PE"
+    ]
+  },
+  "timeframes": {
+    "primary": "5min",
+    "higher": "15min",
+    "lower": "3min"
+  },
+  "entry_sets": [
+    {
+      "name": "Bullish_Divergence",
+      "signal": "CE",
+      "conditions": [
+        {
+          "indicator": "RSI_Divergence",
+          "comparison": "==",
+          "value": "bullish",
+          "timeframe": "5min",
+          "parameters": {
+            "lookback": 10,
+            "rsi_length": 14
+          }
+        },
+        {
+          "indicator": "RSI",
+          "comparison": "<",
+          "value": 40,
+          "timeframe": "5min",
+          "parameters": {
+            "length": 14
+          }
+        },
+        {
+          "indicator": "Price",
+          "comparison": ">",
+          "against": "EMA_20",
+          "timeframe": "15min"
+        },
+        {
+          "indicator": "Support_Proximity",
+          "comparison": "<",
+          "value": 0.3,
+          "timeframe": "5min",
+          "parameters": {
+            "proximity_pct": 0.3
+          }
+        }
+      ]
+    },
+    {
+      "name": "Bearish_Divergence",
+      "signal": "PE",
+      "conditions": [
+        {
+          "indicator": "RSI_Divergence",
+          "comparison": "==",
+          "value": "bearish",
+          "timeframe": "5min",
+          "parameters": {
+            "lookback": 10,
+            "rsi_length": 14
+          }
+        },
+        {
+          "indicator": "RSI",
+          "comparison": ">",
+          "value": 60,
+          "timeframe": "5min",
+          "parameters": {
+            "length": 14
+          }
+        },
+        {
+          "indicator": "Price",
+          "comparison": "<",
+          "against": "EMA_20",
+          "timeframe": "15min"
+        },
+        {
+          "indicator": "Resistance_Proximity",
+          "comparison": "<",
+          "value": 0.3,
+          "timeframe": "5min",
+          "parameters": {
+            "proximity_pct": 0.3
+          }
+        }
+      ]
+    }
+  ],
+  "exit_rules": {
+    "stop_loss_pct": 25,
+    "target_pct": 50,
+    "trailing_stop_loss": {
+      "enabled": false,
+      "activation_pct": 25,
+      "trail_pct": 10
+    },
+    "time_based_exit": "15:00:00",
+    "max_holding_minutes": 330
+  },
+  "position_sizing": {
+    "method": "fixed_quantity",
+    "quantity": 2
+  },
+  "risk_management": {
+    "max_open_positions": 3,
+    "max_trades_per_day": 5,
+    "avoid_overnight": true,
+    "square_off_before_close": true,
+    "require_htf_alignment": true
+  },
+  "params": {
+    "divergence_lookback": 10,
+    "min_swing_points": 2,
+    "htf_trend_alignment": true,
+    "rsi_oversold": 40,
+    "rsi_overbought": 60,
+    "support_resistance_lookback": 20,
+    "proximity_threshold_pct": 0.3
+  }
+}

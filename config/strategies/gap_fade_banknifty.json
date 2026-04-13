@@ -1,0 +1,124 @@
+{
+  "name": "Gap_Fade_BankNifty",
+  "description": "Fade small gaps (<0.5%) expecting mean reversion to previous close",
+  "enabled": false,
+  "underlying": {
+    "instrument_key": "NSE_INDEX|Nifty Bank",
+    "symbol": "BANKNIFTY",
+    "segment": "NSE_FO"
+  },
+  "trading_hours": {
+    "start_time": "09:20:00",
+    "end_time": "10:30:00",
+    "timezone": "Asia/Kolkata",
+    "days": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ]
+  },
+  "instrument_selection": {
+    "type": "options",
+    "expiry_type": "weekly_current",
+    "strike_selection": "atm",
+    "option_types": [
+      "CE",
+      "PE"
+    ]
+  },
+  "timeframes": {
+    "primary": "1min",
+    "daily": "1d"
+  },
+  "entry_sets": [
+    {
+      "name": "Gap_Up_Fade",
+      "signal": "PE",
+      "conditions": [
+        {
+          "indicator": "Gap_Pct",
+          "comparison": ">",
+          "value": 0.2,
+          "timeframe": "1d"
+        },
+        {
+          "indicator": "Gap_Pct",
+          "comparison": "<",
+          "value": 0.5,
+          "timeframe": "1d"
+        },
+        {
+          "indicator": "First_5min_Close",
+          "comparison": "<",
+          "against": "Open",
+          "timeframe": "1min"
+        },
+        {
+          "indicator": "RSI",
+          "comparison": ">",
+          "value": 60,
+          "timeframe": "1min",
+          "parameters": {
+            "length": 14
+          }
+        }
+      ]
+    },
+    {
+      "name": "Gap_Down_Fade",
+      "signal": "CE",
+      "conditions": [
+        {
+          "indicator": "Gap_Pct",
+          "comparison": "<",
+          "value": -0.2,
+          "timeframe": "1d"
+        },
+        {
+          "indicator": "Gap_Pct",
+          "comparison": ">",
+          "value": -0.5,
+          "timeframe": "1d"
+        },
+        {
+          "indicator": "First_5min_Close",
+          "comparison": ">",
+          "against": "Open",
+          "timeframe": "1min"
+        },
+        {
+          "indicator": "RSI",
+          "comparison": "<",
+          "value": 40,
+          "timeframe": "1min",
+          "parameters": {
+            "length": 14
+          }
+        }
+      ]
+    }
+  ],
+  "exit_rules": {
+    "stop_loss_pct": 20,
+    "target_pct": 24,
+    "time_based_exit": "10:30:00",
+    "max_holding_minutes": 70
+  },
+  "position_sizing": {
+    "method": "fixed_quantity",
+    "quantity": 2
+  },
+  "risk_management": {
+    "max_open_positions": 3,
+    "max_trades_per_day": 5
+  },
+  "params": {
+    "min_gap_pct": 0.2,
+    "max_gap_pct": 0.5,
+    "entry_window_minutes": 15,
+    "first_candle_minutes": 5,
+    "gap_fill_target_pct": 80
+  }
+}

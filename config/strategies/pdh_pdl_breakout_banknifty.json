@@ -1,0 +1,86 @@
+{
+  "name": "PDH_PDL_Breakout_BankNifty",
+  "version": "2.0.0",
+  "description": "Previous Day High/Low breakout with ADX trending confirmation — INDEX-level",
+  "enabled": false,
+  "underlying": {
+    "instrument_key": "NSE_INDEX|Nifty Bank",
+    "symbol": "BANKNIFTY",
+    "segment": "NSE_FO"
+  },
+  "trading_hours": {
+    "start_time": "09:30:00",
+    "end_time": "14:00:00",
+    "timezone": "Asia/Kolkata"
+  },
+  "timeframes": {
+    "primary": "5min"
+  },
+  "entry_sets": [
+    {
+      "name": "PDH_Breakout_Long",
+      "signal": "BUY",
+      "priority": 2,
+      "conditions": [
+        {
+          "indicator": "Spot_Price",
+          "comparison": "crosses_above",
+          "against": "PDH",
+          "parameters": {}
+        },
+        {
+          "indicator": "ADX",
+          "comparison": ">",
+          "value": 22,
+          "parameters": { "period": 14 }
+        },
+        {
+          "indicator": "RSI",
+          "comparison": ">",
+          "value": 50,
+          "parameters": { "period": 14 }
+        }
+      ]
+    },
+    {
+      "name": "PDL_Breakdown_Short",
+      "signal": "SELL",
+      "priority": 2,
+      "conditions": [
+        {
+          "indicator": "Spot_Price",
+          "comparison": "crosses_below",
+          "against": "PDL",
+          "parameters": {}
+        },
+        {
+          "indicator": "ADX",
+          "comparison": ">",
+          "value": 22,
+          "parameters": { "period": 14 }
+        },
+        {
+          "indicator": "RSI",
+          "comparison": "<",
+          "value": 50,
+          "parameters": { "period": 14 }
+        }
+      ]
+    }
+  ],
+  "exit_rules": {
+    "stop_loss_pct": 0.5,
+    "target_pct": 1.0,
+    "trailing_stop_loss": { "enabled": false },
+    "time_based_exit": "14:00:00",
+    "max_holding_minutes": 150
+  },
+  "position_sizing": {
+    "method": "fixed_quantity",
+    "quantity": 1
+  },
+  "risk_management": {
+    "max_open_positions": 2,
+    "max_trades_per_day": 2
+  }
+}

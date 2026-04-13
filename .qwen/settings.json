@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(github.com)",
+      "WebFetch(www.reddit.com)",
+      "WebFetch(www.youtube.com)",
+      "WebFetch(www.icicidirect.com)"
+    ]
+  },
+  "$version": 3
+}

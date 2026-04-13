@@ -1,0 +1,131 @@
+"""Token caching and lifecycle management for Upstox access tokens."""
+
+import json
+from datetime import datetime, time, timedelta
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+from loguru import logger
+
+from src.auth.auto_login import auto_login
+
+IST = ZoneInfo("Asia/Kolkata")
+TOKEN_EXPIRY_TIME = time(3, 30)  # 3:30 AM IST
+
+
+class TokenManager:
+    """Manages Upstox access token caching, validation, and refresh.
+
+    Tokens are cached to disk as JSON and reused until they expire.
+    Upstox tokens expire at 3:30 AM IST the following day (or same day
+    if obtained before 3:30 AM).
+
+    Args:
+        cache_path: Path to the JSON file used for token caching.
+    """
+
+    def __init__(self, cache_path: str = "data/token_cache.json") -> None:
+        self._cache_path = Path(cache_path)
+
+    def _load_cache(self) -> dict | None:
+        """Load the cached token data from disk.
+
+        Returns:
+            Parsed JSON dict with token info, or None if unavailable.
+        """
+        try:
+            data = json.loads(self._cache_path.read_text())
+            logger.debug("Loaded token cache from {}", self._cache_path)
+            return data
+        except (FileNotFoundError, json.JSONDecodeError) as exc:
+            logger.debug("No valid token cache found: {}", exc)
+            return None
+
+    def _save_cache(self, token: str) -> None:
+        """Save a token and its metadata to the cache file.
+
+        Args:
+            token: The access token string to cache.
+        """
+        now = datetime.now(tz=IST)
+        expiry = self._calculate_expiry()
+        data = {
+            "access_token": token,
+            "obtained_at": now.isoformat(),
+            "expires_at": expiry.isoformat(),
+        }
+        self._cache_path.parent.mkdir(parents=True, exist_ok=True)
+        self._cache_path.write_text(json.dumps(data, indent=2))
+        logger.info("Token cached, expires at {}", expiry.isoformat())
+
+    def is_token_valid(self) -> bool:
+        """Check whether a cached token exists and has not expired.
+
+        Returns:
+            True if a valid, non-expired token is cached.
+        """
+        cache = self._load_cache()
+        if not cache or "access_token" not in cache or "expires_at" not in cache:
+            return False
+
+        try:
+            expires_at = datetime.fromisoformat(cache["expires_at"])
+            now = datetime.now(tz=IST)
+            return now < expires_at
+        except (ValueError, TypeError):
+            return False
+
+    def get_valid_token(self) -> str:
+        """Return a valid access token, using cache or re-authenticating.
+
+        Returns:
+            A valid Upstox access token.
+
+        Raises:
+            AuthenticationError: If auto-login fails.
+        """
+        cache = self._load_cache()
+        if cache and self.is_token_valid():
+            logger.info("Using cached token (expires {})", cache["expires_at"])
+            return cache["access_token"]
+
+        logger.info("No valid cached token, performing auto-login")
+        return self.refresh_token()
+
+    def refresh_token(self) -> str:
+        """Force a fresh authentication regardless of cache state.
+
+        Returns:
+            A newly obtained Upstox access token.
+
+        Raises:
+            AuthenticationError: If auto-login fails.
+        """
+        logger.info("Refreshing token via auto-login")
+        token = auto_login()
+        self._save_cache(token)
+        return token
+
+    def _calculate_expiry(self) -> datetime:
+        """Calculate the token expiry timestamp.
+
+        Upstox tokens expire at 3:30 AM IST. If the current time is
+        before 3:30 AM, expiry is today at 3:30 AM. Otherwise, expiry
+        is tomorrow at 3:30 AM.
+
+        Returns:
+            Expiry datetime in IST.
+        """
+        now = datetime.now(tz=IST)
+        expiry_today = now.replace(
+            hour=TOKEN_EXPIRY_TIME.hour,
+            minute=TOKEN_EXPIRY_TIME.minute,
+            second=0,
+            microsecond=0,
+        )
+
+        if now < expiry_today:
+            return expiry_today
+
+        # Next day 3:30 AM
+        return expiry_today + timedelta(days=1)

@@ -1,0 +1,71 @@
+{
+  "name": "Expiry_Straddle_Sell_BankNifty",
+  "description": "Sell ATM straddle daily for theta decay - aggressive 10L capital deployment",
+  "enabled": true,
+  "underlying": {
+    "instrument_key": "NSE_INDEX|Nifty Bank",
+    "symbol": "BANKNIFTY",
+    "segment": "NSE_FO"
+  },
+  "trading_hours": {
+    "start_time": "09:30:00",
+    "end_time": "14:00:00",
+    "timezone": "Asia/Kolkata",
+    "days": [0, 1, 2, 3, 4]
+  },
+  "instrument_selection": {
+    "type": "options",
+    "expiry_type": "weekly_current",
+    "strike_selection": "atm",
+    "option_types": ["CE", "PE"]
+  },
+  "timeframes": {
+    "primary": "5min",
+    "volatility": "15min"
+  },
+  "entry_sets": [
+    {
+      "name": "Straddle_Sell_Morning",
+      "signal": "STRADDLE",
+      "conditions": [
+        {
+          "indicator": "ATM_IV",
+          "comparison": ">",
+          "value": 10,
+          "timeframe": "5min"
+        }
+      ]
+    }
+  ],
+  "exit_rules": {
+    "stop_loss_pct": 60.0,
+    "target_pct": 60.0,
+    "time_based_exit": "14:00:00",
+    "max_holding_minutes": 270,
+    "trailing_stop_loss": {
+      "enabled": true,
+      "activation_pct": 30.0,
+      "trail_pct": 15.0
+    }
+  },
+  "position_sizing": {
+    "method": "fixed_quantity",
+    "quantity": 30
+  },
+  "risk_management": {
+    "max_open_positions": 1,
+    "max_trades_per_day": 3,
+    "hedge_required": false,
+    "avoid_overnight": true,
+    "square_off_before_close": true
+  },
+  "params": {
+    "min_iv": 10,
+    "max_iv": 60,
+    "max_adx": 50,
+    "entry_window_start": "09:30:00",
+    "entry_window_end": "11:30:00",
+    "emergency_exit_move_pct": 2.0,
+    "require_confluence": false
+  }
+}

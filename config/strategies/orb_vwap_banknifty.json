@@ -1,0 +1,113 @@
+{
+  "name": "ORB_VWAP_BankNifty",
+  "description": "Opening Range Breakout with VWAP confluence for Bank Nifty options",
+  "enabled": false,
+  "underlying": {
+    "instrument_key": "NSE_INDEX|Nifty Bank",
+    "symbol": "BANKNIFTY",
+    "segment": "NSE_FO"
+  },
+  "trading_hours": {
+    "start_time": "09:30:00",
+    "end_time": "11:30:00",
+    "timezone": "Asia/Kolkata",
+    "days": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ]
+  },
+  "instrument_selection": {
+    "type": "options",
+    "expiry_type": "weekly_current",
+    "strike_selection": "atm",
+    "option_types": [
+      "CE",
+      "PE"
+    ]
+  },
+  "timeframes": {
+    "primary": "5min",
+    "orb": "15min"
+  },
+  "entry_sets": [
+    {
+      "name": "ORB_Long",
+      "signal": "CE",
+      "conditions": [
+        {
+          "indicator": "ORB_BREAKOUT",
+          "comparison": "crosses_above",
+          "against": "ORB_HIGH",
+          "timeframe": "15min",
+          "lookback": 0
+        },
+        {
+          "indicator": "Spot_Price",
+          "comparison": ">",
+          "against": "VWAP",
+          "timeframe": "5min"
+        },
+        {
+          "indicator": "Volume",
+          "comparison": ">",
+          "value": 1.2,
+          "timeframe": "5min",
+          "parameters": {
+            "relative_to": "avg_20"
+          }
+        }
+      ]
+    },
+    {
+      "name": "ORB_Short",
+      "signal": "PE",
+      "conditions": [
+        {
+          "indicator": "ORB_BREAKDOWN",
+          "comparison": "crosses_below",
+          "against": "ORB_LOW",
+          "timeframe": "15min",
+          "lookback": 0
+        },
+        {
+          "indicator": "Spot_Price",
+          "comparison": "<",
+          "against": "VWAP",
+          "timeframe": "5min"
+        },
+        {
+          "indicator": "Volume",
+          "comparison": ">",
+          "value": 1.2,
+          "timeframe": "5min",
+          "parameters": {
+            "relative_to": "avg_20"
+          }
+        }
+      ]
+    }
+  ],
+  "exit_rules": {
+    "stop_loss_pct": 25,
+    "target_pct": 75,
+    "time_based_exit": "15:00:00",
+    "max_holding_minutes": 150
+  },
+  "position_sizing": {
+    "method": "fixed_quantity",
+    "quantity": 2
+  },
+  "risk_management": {
+    "max_open_positions": 3,
+    "max_trades_per_day": 5
+  },
+  "params": {
+    "orb_minutes": 15,
+    "require_vwap_confluence": true,
+    "require_volume_confirmation": true,
+    "avoid_expiry_day": true
+  }
+}

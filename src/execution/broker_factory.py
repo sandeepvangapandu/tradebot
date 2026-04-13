@@ -1,0 +1,108 @@
+"""Broker factory for creating paper or live broker instances."""
+
+from __future__ import annotations
+
+import os
+from typing import Any
+
+from loguru import logger
+
+from src.execution.base_broker import BaseBroker
+from src.execution.paper_broker import PaperBroker
+# Note: PaperBroker manages its own state
+
+
+def create_broker(
+    mode: str | None = None,
+    config: dict[str, Any] | None = None,
+    require_confirmation: bool = True,
+) -> BaseBroker:
+    """Factory function to create appropriate broker instance.
+
+    Args:
+        mode: 'paper' or 'live'. If None, reads from TRADING_MODE env var.
+        config: Optional configuration dictionary.
+        require_confirmation: If True, requires explicit confirmation for live mode.
+
+    Returns:
+        BaseBroker instance (PaperBroker or UpstoxLiveBroker).
+
+    Raises:
+        ValueError: If invalid mode specified.
+        RuntimeError: If live mode confirmation not provided.
+    """
+    if mode is None:
+        mode = os.getenv("TRADING_MODE", "paper").lower()
+
+    config = config or {}
+
+    if mode == "paper":
+        logger.info("Creating PaperBroker for paper trading")
+        return _create_paper_broker(config)
+
+    elif mode == "live":
+        return _create_live_broker(config, require_confirmation)
+
+    else:
+        raise ValueError(f"Invalid trading mode: {mode}. Use 'paper' or 'live'.")
+
+
+def _create_paper_broker(config: dict[str, Any]) -> PaperBroker:
+    """Create a paper trading broker instance."""
+    # PaperBroker does not use db_session
+
+    initial_capital = config.get("initial_capital", 1_000_000_00)  # 10L paisa
+
+    return PaperBroker(
+        initial_capital=initial_capital,
+    )
+
+
+def _create_live_broker(
+    config: dict[str, Any],
+    require_confirmation: bool,
+) -> BaseBroker:
+    """Create a live trading broker instance."""
+    # Safety check for live trading - MUST be first!
+    if require_confirmation:
+        live_confirmed = os.getenv("LIVE_TRADING_CONFIRMED", "false").lower()
+        if live_confirmed != "true":
+            raise RuntimeError(
+                "LIVE TRADING SAFETY CHECK FAILED!\n\n"
+                "To enable live trading, you must:\n"
+                "1. Set TRADING_MODE=live in your environment\n"
+                "2. Set LIVE_TRADING_CONFIRMED=true\n"
+                "3. Verify your API credentials are correct\n\n"
+                "Paper trading is strongly recommended for testing."
+            )
+
+    logger.warning("🚨 CREATING LIVE BROKER - REAL ORDERS WILL BE PLACED!")
+
+    from src.execution.upstox_live import UpstoxLiveBroker
+    from src.auth.token_manager import TokenManager
+
+    token_manager = config.get("token_manager") or TokenManager()
+
+    return UpstoxLiveBroker(token_manager=token_manager)
+
+
+class BrokerFactory:
+    """Factory class for creating broker instances."""
+
+    @staticmethod
+    def create(
+        mode: str | None = None,
+        config: dict[str, Any] | None = None,
+    ) -> BaseBroker:
+        """Create broker instance (alias for create_broker)."""
+        return create_broker(mode, config)
+
+    @staticmethod
+    def create_paper(config: dict[str, Any] | None = None) -> PaperBroker:
+        """Create paper broker."""
+        return create_broker("paper", config, require_confirmation=False)
+
+    @staticmethod
+    def create_live(config: dict[str, Any] | None = None) -> BaseBroker:
+        """Create live broker with confirmation."""
+        return create_broker("live", config, require_confirmation=True)

@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "streamlit-dashboard",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["/Users/sandeepvangapandu/Downloads/Trading/run_dashboard.sh"],
+      "port": 8501,
+      "autoPort": false
+    }
+  ]
+}

@@ -141,6 +141,7 @@
   "params": {
     "cpr_narrow_threshold": 0.4,
     "vwap_lookback": "day",
-    "atr_threshold": 1500
+    "atr_threshold": 1500,
+    "strategy_type": "mean_reversion"
   }
 }

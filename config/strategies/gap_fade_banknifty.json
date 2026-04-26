@@ -119,6 +119,7 @@
     "max_gap_pct": 0.5,
     "entry_window_minutes": 15,
     "first_candle_minutes": 5,
-    "gap_fill_target_pct": 80
+    "gap_fill_target_pct": 80,
+    "strategy_type": "mean_reversion"
   }
 }

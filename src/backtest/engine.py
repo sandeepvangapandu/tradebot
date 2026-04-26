@@ -23,6 +23,7 @@ from loguru import logger
 from config.constants import FEES, MARKET_OPEN, MARKET_CLOSE
 from src.strategy.builder import StrategyBuilder, StrategyConfig
 from src.strategy.conditions import ConditionEvaluator
+from src.research.options_pricing import bsm_price_paisa, time_to_expiry
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -422,6 +423,12 @@ class BacktestEngine:
         options_mode: bool = False,
         option_premium_pct: float = 0.5,
         option_delta: float = 0.5,
+        # BSM (Black-Scholes-Merton) option pricing integration
+        use_bsm: bool = False,
+        iv_source: Any = None,  # pd.Series indexed by datetime with annual vol (decimal)
+        default_iv: float = 0.25,
+        risk_free_rate: float = 0.05,
+        strike_interval: int = 5000,  # in paisa (50 points)
     ) -> None:
         self.initial_capital = capital
         self.current_capital = capital
@@ -442,6 +449,12 @@ class BacktestEngine:
         self.options_mode = options_mode
         self.option_premium_pct = option_premium_pct
         self.option_delta = option_delta
+        # BSM integration
+        self.use_bsm = use_bsm
+        self.iv_source = iv_source
+        self.default_iv = default_iv
+        self.risk_free_rate = risk_free_rate
+        self.strike_interval = strike_interval
 
         self.strategies: list[dict] = []
         self.positions: dict[str, dict] = {}  # key -> position info
@@ -687,6 +700,22 @@ class BacktestEngine:
                         else:
                             continue
 
+                    # BSM option pricing pre-computation (if enabled)
+                    option_type = None
+                    strike = None
+                    expiry_ts = None
+                    entry_premium = None
+                    if self.options_mode and self.use_bsm:
+                        option_type = entry_set.signal  # "CE" or "PE"
+                        strike = int(round(inst_price / self.strike_interval)) * self.strike_interval
+                        expiry_ts = self._compute_expiry(bar_time, instrument)
+                        iv_entry = self._get_iv_at(bar_time)
+                        T_entry = time_to_expiry(bar_time.timestamp(), expiry_ts.timestamp())
+                        kind = "call" if option_type == "CE" else "put"
+                        entry_premium = bsm_price_paisa(
+                            inst_price, strike, T_entry, iv_entry, self.risk_free_rate, kind
+                        )
+
                     self.positions[pos_key] = {
                         "instrument": instrument,
                         "side": side,
@@ -695,6 +724,11 @@ class BacktestEngine:
                         "quantity": qty,
                         "strategy": strategy,
                         "strategy_name": strategy.name,
+                        # BSM metadata (None for proxy mode)
+                        "option_type": option_type,
+                        "option_strike": strike,
+                        "option_expiry": expiry_ts,
+                        "option_entry_premium": entry_premium,
                     }
                     # Mark this direction as used this bar
                     directions_entered_this_bar.add(direction_key)
@@ -833,6 +867,79 @@ class BacktestEngine:
 
         return None
 
+    def _get_iv_at(self, ts: pd.Timestamp) -> float:
+        """Get implied volatility value at a given timestamp.
+
+        Uses the configured iv_source (a pandas Series indexed by datetime).
+        If source is unavailable or lookup fails, falls back to default_iv.
+
+        Args:
+            ts: Timestamp to query.
+
+        Returns:
+            Annualized volatility as decimal (e.g., 0.25).
+        """
+        if self.iv_source is None:
+            return self.default_iv
+        try:
+            # Ensure timezone compatibility
+            if isinstance(self.iv_source, pd.Series):
+                # Use asof for nearest past value
+                iv_val = self.iv_source.asof(ts)
+                if pd.isna(iv_val):
+                    return self.default_iv
+                return float(iv_val)
+        except Exception as e:
+            logger.debug(f"IV lookup failed for {ts}: {e}, using default")
+        return self.default_iv
+
+    def _get_slippage_factor(self, ts: pd.Timestamp) -> float:
+        """Get slippage multiplier based on current volatility (VIX).
+
+        Higher VIX widens spreads → higher slippage factor.
+        Args:
+            ts: Timestamp of trade.
+
+        Returns:
+            Multiplier (1.0 = base slippage, 1.5 = 50% wider).
+        """
+        vix = self._get_iv_at(ts)
+        if vix > 0.20:
+            return 1.5
+        elif vix < 0.12:
+            return 1.0
+        else:
+            # Linear interpolation between 1.0 and 1.5 for 12%-20% VIX
+            return 1.0 + 1.5 * (vix - 0.12) / (0.20 - 0.12)
+
+    def _compute_expiry(self, ts: pd.Timestamp, instrument: str) -> pd.Timestamp:
+        """Compute next options expiry timestamp (15:30 IST).
+
+        For BankNifty: weekly expiry on Wednesday.
+        For Nifty: weekly expiry on Thursday.
+
+        Args:
+            ts: Current timestamp (entry time).
+            instrument: Instrument key or symbol (e.g., "NSE_INDEX|Nifty Bank").
+
+        Returns:
+            Expiry datetime (timezone-aware IST).
+        """
+        expiry_time = dt_time(15, 30)
+        inst_upper = instrument.upper()
+        if "BANKNIFTY" in inst_upper:
+            expiry_weekday = 2  # Wednesday
+        else:
+            expiry_weekday = 3  # Thursday (NIFTY and others)
+        current_weekday = ts.weekday()
+        days_ahead = (expiry_weekday - current_weekday) % 7
+        candidate_date = (ts + timedelta(days=days_ahead)).date()
+        # If today is expiry day but after market close, move to next week
+        if candidate_date == ts.date() and ts.time() >= expiry_time:
+            candidate_date += timedelta(days=7)
+        expiry_dt = datetime.combine(candidate_date, expiry_time, tzinfo=IST)
+        return pd.Timestamp(expiry_dt)
+
     def _close_position(
         self, position: dict, exit_price: int, exit_time: pd.Timestamp, reason: str
     ) -> Trade:
@@ -842,45 +949,74 @@ class BacktestEngine:
         strategy_name = position.get("strategy_name", "")
 
         if self.options_mode:
-            # Options proxy: compute P&L as if trading option premium
-            # Option premium ≈ option_premium_pct% × index_price
-            option_entry_premium = int(entry * self.option_premium_pct / 100)
-
-            # In options mode, slippage is on the PREMIUM, not the index.
-            # Real BankNifty ATM option bid-ask spread ≈ Rs 2-5 (0.5-2% of premium).
-            # Apply slippage on BOTH entry and exit as % of option premium.
-            premium_slippage_per_side = int(option_entry_premium * self.slippage_pct / 100)
-            total_premium_slippage = premium_slippage_per_side * 2  # entry + exit
-
-            # Premium change = delta × index change (NO index-level slippage)
-            index_change = exit_price - entry if side == "BUY" else entry - exit_price
-            premium_change = int(index_change * self.option_delta)
-
-            # Apply premium-level slippage to P&L (adverse on both sides)
-            premium_change -= total_premium_slippage  # round-trip slippage
-
-            raw_pnl = premium_change * qty
-            # Use option premiums for fee calculation
-            option_exit_premium = option_entry_premium + (
-                premium_change if side == "BUY" else -premium_change
-            )
-            option_exit_premium = max(option_exit_premium, 100)  # min 1 rupee premium
-            if self.use_realistic_fees:
-                fees = calculate_trade_fees(
-                    option_entry_premium,
-                    option_exit_premium,
-                    qty,
-                    side,
-                    "NSE_FO",
-                    self.product,
-                )
+            # Determine if using Black-Scholes or delta proxy
+            if getattr(self, 'use_bsm', False):
+                option_type = position.get("option_type")
+                strike = position.get("option_strike")
+                expiry = position.get("option_expiry")
+                entry_premium_stored = position.get("option_entry_premium")
+                if option_type is None or strike is None or expiry is None or entry_premium_stored is None:
+                    logger.error(f"[{strategy_name}] Missing BSM metadata; falling back to proxy")
+                    use_proxy = True
+                else:
+                    use_proxy = False
             else:
-                fees = self.commission_per_order * 2
-            # Store option premium as entry/exit price for display
-            fill_display = option_entry_premium + (
-                premium_change if side == "BUY" else -premium_change
-            )
-            entry_display = option_entry_premium
+                use_proxy = True
+
+            if use_proxy:
+                # Original delta-based proxy approximation
+                option_entry_premium = int(entry * self.option_premium_pct / 100)
+                premium_slippage_per_side = int(option_entry_premium * self.slippage_pct / 100)
+                total_premium_slippage = premium_slippage_per_side * 2
+                index_change = exit_price - entry if side == "BUY" else entry - exit_price
+                premium_change = int(index_change * self.option_delta)
+                premium_change -= total_premium_slippage
+                raw_pnl = premium_change * qty
+                option_exit_premium = option_entry_premium + (
+                    premium_change if side == "BUY" else -premium_change
+                )
+                option_exit_premium = max(option_exit_premium, 100)
+                entry_display = option_entry_premium
+                fill_display = option_exit_premium
+                if self.use_realistic_fees:
+                    fees = calculate_trade_fees(
+                        option_entry_premium,
+                        option_exit_premium,
+                        qty,
+                        side,
+                        "NSE_FO",
+                        self.product,
+                    )
+                else:
+                    fees = self.commission_per_order * 2
+            else:
+                # BSM exit pricing
+                sigma = self._get_iv_at(exit_time)
+                T_exit = time_to_expiry(exit_time.timestamp(), expiry.timestamp())
+                kind = "call" if option_type == "CE" else "put"
+                exit_premium = bsm_price_paisa(exit_price, strike, T_exit, sigma, self.risk_free_rate, kind)
+                entry_premium_val = entry_premium_stored
+                # Slippage as round-trip cost on entry premium
+                premium_slippage_per_side = int(entry_premium_val * self.slippage_pct / 100)
+                total_premium_slippage = premium_slippage_per_side * 2
+                if side == "BUY":
+                    raw_pnl = (exit_premium - entry_premium_val) * qty
+                else:
+                    raw_pnl = (entry_premium_val - exit_premium) * qty
+                raw_pnl -= total_premium_slippage * qty
+                entry_display = entry_premium_val
+                fill_display = exit_premium
+                if self.use_realistic_fees:
+                    fees = calculate_trade_fees(
+                        entry_premium_val,
+                        exit_premium,
+                        qty,
+                        side,
+                        "NSE_FO",
+                        self.product,
+                    )
+                else:
+                    fees = self.commission_per_order * 2
         else:
             # Standard: P&L on the actual instrument with adverse exit slippage
             slippage = int(exit_price * self.slippage_pct / 100)

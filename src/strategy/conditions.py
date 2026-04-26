@@ -489,6 +489,17 @@ class ConditionEvaluator:
         self._indicator_engines[symbol] = engine
         logger.debug(f"Registered indicator engine for {symbol}")
 
+    def get_engine(self, symbol: str) -> IndicatorEngine | None:
+        """Get the cached IndicatorEngine for a symbol.
+
+        Args:
+            symbol: Trading symbol.
+
+        Returns:
+            Cached IndicatorEngine or None if not registered.
+        """
+        return self._indicator_engines.get(symbol)
+
     def evaluate(
         self,
         condition: Condition,
@@ -1063,10 +1074,16 @@ class ConditionEvaluator:
             if len(today_data) == 0:
                 return None
             orb_minutes = parameters.get("orb_minutes", 15)
-            orb_bars = parameters.get("orb_bars", max(1, orb_minutes // 5))
-            orb_slice = today_data.iloc[:orb_bars]
+            # Use time-based opening range window: market opens at 09:15 IST
+            market_open = pd.Timestamp(today, tz=IST).replace(hour=9, minute=15, second=0, microsecond=0)
+            orb_end = market_open + pd.Timedelta(minutes=orb_minutes)
+            orb_slice = today_data[(today_data.index >= market_open) & (today_data.index < orb_end)]
             if len(orb_slice) == 0:
-                return None
+                # Fallback: use first N bars if time filtering fails (e.g., missing times)
+                orb_bars = parameters.get("orb_bars", max(1, orb_minutes // 5))
+                orb_slice = today_data.iloc[:orb_bars]
+                if len(orb_slice) == 0:
+                    return None
             orb_high_val = float(orb_slice["high"].max())
             orb_low_val = float(orb_slice["low"].min())
 
@@ -1123,19 +1140,7 @@ class ConditionEvaluator:
                 logger.error(f"Days_To_Expiry calculation failed: {e}")
                 return None
 
-        # Synthetic ATM IV (Virtual Indicator for Backtesting)
-        if name_lower == "atm_iv":
-            # Since backtest options proxy lacks real IV, synthesize it based on ATR
-            df = engine.get_data()
-            try:
-                atr = engine.atr(14)
-                atr_ma = atr.rolling(50).mean()
-                # If ATR is higher than its MA, IV > 20. Else < 20. Default IV = 20
-                synth_iv = 20 * (atr / atr_ma.replace(0, float("nan")))
-                return synth_iv.fillna(20.0)
-            except Exception as e:
-                logger.error(f"ATM_IV calculation failed: {e}")
-                return None
+
 
         logger.warning(f"Unknown indicator to compute: {name}")
         return None

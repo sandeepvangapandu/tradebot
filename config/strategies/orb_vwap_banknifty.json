@@ -108,6 +108,7 @@
     "orb_minutes": 15,
     "require_vwap_confluence": true,
     "require_volume_confirmation": true,
-    "avoid_expiry_day": true
+    "avoid_expiry_day": true,
+    "strategy_type": "breakout"
   }
 }

@@ -164,6 +164,7 @@ class BacktestHarness:
         straddle_proxy: bool = False,
         option_premium_pct: float = 0.5,
         option_delta: float = 0.5,
+        strategy_only: Optional[str] = None,
     ) -> None:
         self._settings = get_settings()
         self._capital = capital or self._settings.capital
@@ -175,6 +176,7 @@ class BacktestHarness:
         self._straddle_proxy = straddle_proxy
         self._option_premium_pct = option_premium_pct
         self._option_delta = option_delta
+        self._strategy_only = strategy_only
 
         # Load historical data
         loader = BacktestDataLoader()
@@ -517,6 +519,19 @@ class BacktestHarness:
         )
         n = self._strategy_engine.load_strategies()
         logger.info(f"Loaded {n} strategies for backtest")
+
+        # Apply strategy-only filter if requested
+        if self._strategy_only:
+            # Disable all strategies except the named one
+            filtered = 0
+            for name, config in self._strategy_engine._strategies.items():
+                if name != self._strategy_only:
+                    config.active = False
+                    filtered += 1
+            if self._strategy_only not in self._strategy_engine._strategies:
+                logger.warning(f"Strategy '{self._strategy_only}' not found in loaded strategies")
+            else:
+                logger.info(f"Strategy-only mode: disabled {filtered} strategies, kept '{self._strategy_only}'")
 
     # ------------------------------------------------------------------
     # Main loop

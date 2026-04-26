@@ -390,13 +390,22 @@ class RiskManager:
             self._daily_trades[symbol] = todays_trades
             return todays_trades
 
-    def get_daily_trade_count(self, symbol: str) -> int:
+    def get_daily_trade_count(self, symbol: str, as_of: Optional[datetime] = None) -> int:
         """Get number of trades taken today for symbol.
 
         Args:
             symbol: The instrument symbol.
+            as_of: Reference timestamp (defaults to now in IST). Use for backtests
+                so the count matches the date of the last recorded trade.
 
         Returns:
-            Number of trades taken today.
+            Number of trades taken on as_of's date.
         """
-        return len(self._get_todays_trades(symbol, datetime.now(IST)))
+        if as_of is None:
+            with self._lock:
+                trades = self._daily_trades.get(symbol, [])
+                if trades:
+                    as_of = max(trades)
+                else:
+                    as_of = datetime.now(IST)
+        return len(self._get_todays_trades(symbol, as_of))

@@ -7,14 +7,13 @@ LLM is unavailable.
 
 from __future__ import annotations
 
-import json
 import time
 from typing import Any
 
 import feedparser
 from loguru import logger
 
-from src.agents.base_agent import BaseAgent
+from src.agents.base_agent import BaseAgent, extract_json
 from src.agents.llm_client import LLMClient
 from src.agents.models import NewsItem
 
@@ -22,7 +21,8 @@ SYSTEM_PROMPT = """You are a financial news sentiment analyst for the Indian sto
 
 Given a batch of recent headlines, score the overall market sentiment.
 
-Respond ONLY with valid JSON:
+IMPORTANT: Output ONLY the raw JSON object below. No reasoning, no explanation, no markdown fences, no text before or after the JSON.
+
 {"sentiment_score": <-1.0 to 1.0>, "confidence": <0.0-1.0>, "reasoning": "<one sentence>"}
 
 Scoring guide:
@@ -121,14 +121,7 @@ class NewsAgent(BaseAgent):
         return prompt
 
     def _parse_response(self, raw: str) -> dict[str, Any]:
-        cleaned = raw.strip()
-        if cleaned.startswith("```"):
-            cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
-        if cleaned.endswith("```"):
-            cleaned = cleaned.rsplit("```", 1)[0]
-        cleaned = cleaned.strip()
-
-        data = json.loads(cleaned)
+        data = extract_json(raw)
         score = float(data.get("sentiment_score", 0.0))
         score = max(-1.0, min(1.0, score))
 

@@ -441,6 +441,60 @@ class BacktestHarness:
             except Exception as exc:
                 logger.warning(f"TradeAnalyzer unavailable: {exc}")
 
+        # AI Agent Pipeline (optional — requires API key for chosen provider)
+        agent_pipeline = None
+        llm_provider = getattr(settings, "llm_provider", "groq")
+        if llm_provider == "openrouter":
+            _api_key = getattr(settings, "openrouter_api_key", "")
+            _model = getattr(settings, "openrouter_model", "nvidia/nemotron-3-super-120b-a12b:free")
+            _fallback = getattr(settings, "openrouter_fallback_model", "google/gemma-4-31b-it:free")
+            _rpm = getattr(settings, "openrouter_rate_limit_rpm", 20)
+        else:
+            _api_key = settings.groq_api_key
+            _model = settings.groq_model
+            _fallback = settings.groq_fallback_model
+            _rpm = settings.groq_rate_limit_rpm
+
+        if settings.agent_pipeline_enabled and _api_key:
+            try:
+                from src.agents.llm_client import LLMClient
+                from src.agents.pipeline import AgentPipeline
+                from src.memory.memory_db import MemoryDB
+
+                if llm_provider == "openrouter":
+                    _temperature = getattr(settings, "openrouter_temperature", 0.1)
+                    _max_tokens = getattr(settings, "openrouter_max_tokens", 1024)
+                else:
+                    _temperature = settings.groq_temperature
+                    _max_tokens = settings.groq_max_tokens
+
+                llm_client = LLMClient(
+                    api_key=_api_key,
+                    model=_model,
+                    fallback_model=_fallback,
+                    temperature=_temperature,
+                    max_tokens=_max_tokens,
+                    rate_limit_rpm=_rpm,
+                    provider=llm_provider,
+                )
+                memory_db = MemoryDB(
+                    decay_rate=settings.memory_decay_rate,
+                    decay_start_days=settings.memory_decay_start_days,
+                )
+                agent_pipeline = AgentPipeline(
+                    llm_client=llm_client,
+                    memory_db=memory_db,
+                    regime_confidence_threshold=settings.regime_confidence_threshold,
+                )
+                logger.info(
+                    "AgentPipeline active in backtest | provider={} model={}",
+                    llm_provider, _model,
+                )
+            except Exception as exc:
+                logger.warning(f"AgentPipeline unavailable in backtest: {exc}")
+        else:
+            logger.info("AgentPipeline disabled (no API key or agent_pipeline_enabled=False)")
+
         self._order_manager = OrderManager(
             signal_queue=queue.Queue(),  # unused — we call process_signal() directly
             broker=self._paper_broker,
@@ -452,6 +506,7 @@ class BacktestHarness:
             position_sizer=position_sizer,
             strategy_quarantine=self._strategy_quarantine,
             research_enabled=(trade_analyzer is not None),
+            agent_pipeline=agent_pipeline,
         )
 
     def _setup_strategy_engine(self) -> None:

@@ -675,6 +675,10 @@ class TradeAnalyzer:
         }
 
         try:
+            # Skip option data when instrument manager is unavailable (e.g. backtest)
+            if self._instrument_manager is None:
+                return option_data
+
             # Try to get option chain from instrument manager
             if signal.underlying:
                 # Find nearest expiry

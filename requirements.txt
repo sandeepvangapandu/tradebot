@@ -152,5 +152,8 @@ langgraph>=0.2.0
 # Groq SDK for free Llama-3.3-70b inference
 groq>=0.11.0
 
+# OpenAI SDK — also used as OpenRouter client (OpenAI-compatible API)
+openai>=1.0.0
+
 # RSS feed parsing for news sentiment agent
 feedparser>=6.0.0

@@ -128,7 +128,19 @@ class PatternRecognizer:
             - description: str
         """
         if isinstance(pattern_name, str):
-            pattern_name = PatternName(pattern_name.lower())
+            try:
+                pattern_name = PatternName(pattern_name.lower())
+            except ValueError:
+                # Unknown string — return the documented "Unknown pattern"
+                # dict instead of crashing the caller. Strategies sometimes
+                # pass dynamic pattern names that don't map to the enum.
+                return {
+                    "detected": False,
+                    "strength": 0.0,
+                    "type": None,
+                    "score": 0,
+                    "description": f"Unknown pattern: {pattern_name}",
+                }
 
         if pattern_name not in self._pattern_methods:
             return {
@@ -318,8 +330,12 @@ class PatternRecognizer:
         # Hammer criteria
         has_small_body = curr["body_ratio"] < 0.3
         has_long_lower = curr["lower_ratio"] > 0.6
-        has_small_upper = curr["upper_ratio"] < 0.1
-        is_downtrend = prev["close"] > curr["close"]  # Price declining
+        has_small_upper = curr["upper_ratio"] <= 0.1
+        # Downtrend: declining over the lookback window (allows flat reversal close)
+        lookback_close = self._get_candle_metrics(df, -min(3, len(df)))
+        is_downtrend = (lookback_close and lookback_close["close"] > curr["close"]) or (
+            prev["close"] > curr["close"]
+        )
 
         detected = has_small_body and has_long_lower and has_small_upper and is_downtrend
 
@@ -359,8 +375,11 @@ class PatternRecognizer:
         # Inverted hammer criteria
         has_small_body = curr["body_ratio"] < 0.3
         has_long_upper = curr["upper_ratio"] > 0.6
-        has_small_lower = curr["lower_ratio"] < 0.1
-        is_downtrend = prev["close"] > curr["close"]
+        has_small_lower = curr["lower_ratio"] <= 0.1
+        lookback_close = self._get_candle_metrics(df, -min(3, len(df)))
+        is_downtrend = (lookback_close and lookback_close["close"] > curr["close"]) or (
+            prev["close"] > curr["close"]
+        )
 
         detected = has_small_body and has_long_upper and has_small_lower and is_downtrend
 

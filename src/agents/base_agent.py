@@ -9,6 +9,8 @@ Every agent follows the same pattern:
 
 from __future__ import annotations
 
+import json
+import re
 import time
 from abc import ABC, abstractmethod
 from typing import Any
@@ -17,6 +19,79 @@ from loguru import logger
 
 from src.agents.llm_client import LLMClient
 from src.agents.models import AgentDecision
+
+
+def extract_json(raw: str) -> dict[str, Any]:
+    """Extract a JSON object from LLM output that may contain reasoning traces.
+
+    Handles these formats:
+    - Pure JSON: ``{"key": "value"}``
+    - Markdown-fenced: ````` ```json\\n{...}\\n``` `````
+    - Reasoning prefix: ``<think>...\\n</think>\\n{"key": "value"}``
+    - Mixed text: ``Some reasoning...\\n{"key": "value"}\\nMore text``
+
+    Args:
+        raw: Raw string content from LLM response.
+
+    Returns:
+        Parsed dict from the first valid JSON object found.
+
+    Raises:
+        ValueError: If no valid JSON object can be extracted.
+    """
+    text = raw.strip()
+
+    # 1. Strip <think>...</think> blocks (Nemotron, DeepSeek, etc.)
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+
+    # 2. Strip markdown code fences
+    fence_match = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
+    if fence_match:
+        text = fence_match.group(1).strip()
+
+    # 3. Try direct parse first (covers clean JSON responses)
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # 4. Find the first complete JSON object using brace matching
+    start = text.find("{")
+    if start == -1:
+        raise ValueError(f"No JSON object found in LLM response: {text[:200]}")
+
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(text)):
+        c = text[i]
+        if escape:
+            escape = False
+            continue
+        if c == "\\":
+            escape = True
+            continue
+        if c == '"' and not escape:
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                candidate = text[start : i + 1]
+                try:
+                    return json.loads(candidate)
+                except (json.JSONDecodeError, ValueError):
+                    # Malformed object, keep scanning
+                    start = text.find("{", i + 1)
+                    if start == -1:
+                        break
+                    depth = 0
+
+    raise ValueError(f"No valid JSON object found in LLM response: {text[:200]}")
 
 
 class BaseAgent(ABC):

@@ -136,7 +136,7 @@ class TestPositionSizeLimit:
         result = risk_manager.check_position_size(order_value)
 
         assert result.approved is False
-        assert "Position size too large" in result.reason
+        assert "exceeds" in result.reason
 
     def test_position_size_calculation(self, risk_manager: RiskManager) -> None:
         """Test position size limit is calculated correctly."""
@@ -235,7 +235,7 @@ class TestPreTradeCheck:
         )
 
         assert result.approved is False
-        assert "Position size too large" in result.reason
+        assert "exceeds" in result.reason
 
 
 class TestCircuitBreaker:

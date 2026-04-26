@@ -1,7 +1,10 @@
 """LLM client with circuit breaker, rate limiting, and fallback.
 
-Wraps Groq API calls with resilience patterns so the trading bot
-never depends on LLM availability for continued operation.
+Supports two providers:
+- **Groq**: Fast inference via Groq SDK (groq package).
+- **OpenRouter**: OpenAI-compatible API gateway with many free models.
+
+The trading bot never depends on LLM availability for continued operation.
 """
 
 from __future__ import annotations
@@ -9,6 +12,7 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass, field
+from typing import Any
 
 from loguru import logger
 
@@ -101,32 +105,35 @@ class LLMCircuitBreaker:
 class LLMClient:
     """Resilient LLM client for agent pipeline.
 
-    Wraps Groq API with circuit breaker, rate limiting, and
-    automatic fallback to a smaller model on failure.
+    Supports Groq and OpenRouter providers with circuit breaker,
+    rate limiting, and automatic fallback to a smaller model on failure.
 
     Args:
-        api_key: Groq API key. Empty string disables the client.
+        api_key: API key for the selected provider.
         model: Primary model identifier.
         fallback_model: Model to use when the primary model fails.
         temperature: Sampling temperature (lower = more deterministic).
         max_tokens: Maximum tokens in the completion.
-        rate_limit_rpm: Requests per minute budget (Groq free tier = 30).
+        rate_limit_rpm: Requests per minute budget.
+        provider: LLM provider — "groq" or "openrouter".
     """
 
     def __init__(
         self,
         api_key: str,
-        model: str = "llama-3.3-70b-versatile",
-        fallback_model: str = "llama-3.1-8b-instant",
+        model: str = "nvidia/nemotron-3-super-120b-a12b:free",
+        fallback_model: str = "google/gemma-4-31b-it:free",
         temperature: float = 0.1,
         max_tokens: int = 1024,
         rate_limit_rpm: int = 30,
+        provider: str = "openrouter",
     ) -> None:
         self._api_key = api_key
         self._model = model
         self._fallback_model = fallback_model
         self._temperature = temperature
         self._max_tokens = max_tokens
+        self._provider = provider.lower()
 
         self._circuit_breaker = LLMCircuitBreaker(
             failure_threshold=3, recovery_timeout_s=30.0
@@ -136,19 +143,55 @@ class LLMClient:
             capacity=min(rate_limit_rpm / 60.0 * 5, 10.0),
         )
 
-        self._groq_client = None
+        self._client: Any = None
         if api_key:
+            self._client = self._init_client()
+
+    def _init_client(self) -> Any:
+        """Initialize the appropriate SDK client based on provider."""
+        if self._provider == "groq":
             try:
                 from groq import Groq
 
-                self._groq_client = Groq(api_key=api_key)
+                client = Groq(api_key=self._api_key)
+                logger.info("LLM client initialized: provider=groq, model={}", self._model)
+                return client
             except ImportError:
                 logger.warning("groq package not installed, LLM client disabled")
+                return None
+
+        elif self._provider == "openrouter":
+            try:
+                from openai import OpenAI
+
+                client = OpenAI(
+                    base_url="https://openrouter.ai/api/v1",
+                    api_key=self._api_key,
+                )
+                logger.info(
+                    "LLM client initialized: provider=openrouter, model={}",
+                    self._model,
+                )
+                return client
+            except ImportError:
+                logger.warning(
+                    "openai package not installed. Install with: pip install openai"
+                )
+                return None
+
+        else:
+            logger.error("Unknown LLM provider: {}", self._provider)
+            return None
 
     @property
     def is_configured(self) -> bool:
-        """True when an API key is set and the Groq client was initialised."""
-        return bool(self._api_key) and self._groq_client is not None
+        """True when an API key is set and the client was initialised."""
+        return bool(self._api_key) and self._client is not None
+
+    @property
+    def provider(self) -> str:
+        """Active LLM provider name."""
+        return self._provider
 
     def invoke(
         self,
@@ -193,11 +236,20 @@ class LLMClient:
                 messages.append({"role": "system", "content": system_prompt})
             messages.append({"role": "user", "content": prompt})
 
-            response = self._groq_client.chat.completions.create(
+            # Both Groq SDK and OpenAI SDK share the same chat.completions.create API
+            extra_kwargs: dict[str, Any] = {}
+            if self._provider == "openrouter":
+                extra_kwargs["extra_headers"] = {
+                    "HTTP-Referer": "https://github.com/trading-bot",
+                    "X-Title": "Trading Agent Pipeline",
+                }
+
+            response = self._client.chat.completions.create(
                 model=model,
                 messages=messages,
                 temperature=self._temperature,
                 max_tokens=self._max_tokens,
+                **extra_kwargs,
             )
 
             content = response.choices[0].message.content or ""
@@ -214,7 +266,12 @@ class LLMClient:
         except Exception as e:
             latency_ms = int((time.monotonic() - start) * 1000)
             self._circuit_breaker.record_failure()
-            logger.warning("LLM call failed | model={} | error={}", model, e)
+            logger.warning(
+                "LLM call failed | provider={} | model={} | error={}",
+                self._provider,
+                model,
+                e,
+            )
 
             # Retry once with the smaller fallback model (avoids infinite recursion)
             if not use_fallback_model and model != self._fallback_model:

@@ -41,7 +41,11 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",
     )
+
+    # Broker selection ("upstox" or "dhan")
+    active_broker: str = "dhan"
 
     # Upstox credentials
     upstox_username: str = ""
@@ -51,6 +55,16 @@ class Settings(BaseSettings):
     upstox_client_id: str = ""
     upstox_client_secret: str = ""
     upstox_redirect_uri: str = "https://127.0.0.1/callback"
+
+    # Dhan live credentials (for market data WebSocket — no static IP needed)
+    # Get from: dhanhq.co → Developer Portal → My Apps → Self token
+    dhan_client_id: str = ""
+    dhan_access_token: str = ""
+
+    # Dhan sandbox credentials (for order simulation testing only)
+    # Get from: dhanhq.co → Developer Portal → Sandbox Token section
+    dhan_sandbox_client_id: str = ""
+    dhan_sandbox_token: str = ""
 
     # Trading
     trading_mode: Literal["paper", "live"] = "paper"
@@ -119,12 +133,25 @@ class Settings(BaseSettings):
     learning_export_lessons_path: str = "data/lessons.json"
 
     # AI Agent Pipeline Configuration
+    # Provider: "groq" or "openrouter"
+    llm_provider: str = "openrouter"
     groq_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"
     groq_fallback_model: str = "llama-3.1-8b-instant"
     groq_temperature: float = 0.1
     groq_max_tokens: int = 1024
     groq_rate_limit_rpm: int = 30  # Free tier: 30 requests/min
+
+    # OpenRouter Configuration (free tier)
+    openrouter_api_key: str = ""
+    openrouter_model: str = "nvidia/nemotron-3-super-120b-a12b:free"
+    # NOTE: previously google/gemma-4-31b-it:free, but Google AI Studio provider
+    # was returning persistent 429s on free tier (2026-04-26). Swapped to
+    # openai/gpt-oss-20b:free which is currently serving and returns clean JSON.
+    openrouter_fallback_model: str = "openai/gpt-oss-20b:free"
+    openrouter_rate_limit_rpm: int = 20  # Conservative for free tier
+    openrouter_temperature: float = 0.1
+    openrouter_max_tokens: int = 1024
 
     # Agent pipeline settings
     agent_pipeline_enabled: bool = True

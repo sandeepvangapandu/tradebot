@@ -587,12 +587,14 @@ class TechnicalAnalyzer:
         supports = [s for s in [sr_data.s1, sr_data.s2, sr_data.pdl, sr_data.vwap_lower_1std] if s]
         resistances = [r for r in [sr_data.r1, sr_data.r2, sr_data.pdh, sr_data.vwap_upper_1std] if r]
 
-        if supports:
-            nearest_support = max(s for s in supports if s < current_price) if any(s < current_price for s in supports) else min(supports)
+        if supports and current_price > 0:
+            below = [s for s in supports if s < current_price]
+            nearest_support = max(below) if below else min(supports)
             sr_data.nearest_support_distance_pct = ((current_price - nearest_support) / current_price) * 100
 
-        if resistances:
-            nearest_resistance = min(r for r in resistances if r > current_price) if any(r > current_price for r in resistances) else max(resistances)
+        if resistances and current_price > 0:
+            above = [r for r in resistances if r > current_price]
+            nearest_resistance = min(above) if above else max(resistances)
             sr_data.nearest_resistance_distance_pct = ((nearest_resistance - current_price) / current_price) * 100
 
         # Calculate score

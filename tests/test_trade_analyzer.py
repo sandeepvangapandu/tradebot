@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pandas as pd
 import pytest
-import pytz
+from zoneinfo import ZoneInfo
 
 from src.research.models import (
     MarketRegime,
@@ -29,7 +29,7 @@ from src.research.trade_analyzer import (
 )
 from src.research.market_regime import SignalDirection, StrategyType
 
-IST = pytz.timezone("Asia/Kolkata")
+IST = ZoneInfo("Asia/Kolkata")
 
 
 @pytest.fixture

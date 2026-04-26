@@ -7,12 +7,11 @@ risk-reward, and historical lessons.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from loguru import logger
 
-from src.agents.base_agent import BaseAgent
+from src.agents.base_agent import BaseAgent, extract_json
 from src.agents.llm_client import LLMClient
 from src.agents.models import SignalDecision
 
@@ -27,15 +26,9 @@ For each signal, decide:
 - "reject": Signal is bad, do not execute
 - "modify": Signal has merit but needs adjustment (SL, target, or size)
 
-Respond ONLY with valid JSON:
-{
-    "action": "approve|reject|modify",
-    "adjusted_stop_loss": <paisa or null>,
-    "adjusted_target": <paisa or null>,
-    "adjusted_quantity_pct": <0.25 to 1.5, default 1.0>,
-    "confidence": <0.0-1.0>,
-    "reasoning": "<one sentence>"
-}
+IMPORTANT: Output ONLY the raw JSON object below. No reasoning, no explanation, no markdown fences, no text before or after the JSON.
+
+{"action": "approve|reject|modify", "adjusted_stop_loss": <paisa or null>, "adjusted_target": <paisa or null>, "adjusted_quantity_pct": <0.25 to 1.5, default 1.0>, "confidence": <0.0-1.0>, "reasoning": "<one sentence>"}
 
 Rules:
 - REJECT signals that go against the current market regime
@@ -103,7 +96,10 @@ class SignalValidatorAgent(BaseAgent):
         return prompt
 
     def _parse_response(self, raw: str) -> dict[str, Any]:
-        """Parse and validate raw LLM JSON response.
+        """Parse and validate raw LLM response.
+
+        Uses extract_json to handle responses with reasoning traces,
+        markdown fences, or other wrapper text.
 
         Args:
             raw: Raw text response from the LLM.
@@ -112,17 +108,9 @@ class SignalValidatorAgent(BaseAgent):
             Structured result dict with action, adjustments, confidence, reasoning.
 
         Raises:
-            json.JSONDecodeError: If the response cannot be parsed as JSON.
-            ValueError: If required fields are missing or invalid.
+            ValueError: If no valid JSON can be extracted.
         """
-        cleaned = raw.strip()
-        if cleaned.startswith("```"):
-            cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
-        if cleaned.endswith("```"):
-            cleaned = cleaned.rsplit("```", 1)[0]
-        cleaned = cleaned.strip()
-
-        data = json.loads(cleaned)
+        data = extract_json(raw)
         action = data.get("action", "reject")
         if action not in VALID_ACTIONS:
             action = "reject"

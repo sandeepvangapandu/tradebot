@@ -171,6 +171,12 @@ class ManagedPosition:
     product_type: ProductType
     position_id: str = field(default_factory=lambda: f"POS_{datetime.now(IST).strftime('%Y%m%d%H%M%S')}_{id(object())}")
 
+    # Same-bar exit guard — the bar timestamp at which this position was opened.
+    # PositionManager will skip SL/target/trailing checks for this position
+    # while the current bar time equals entry_bar_time, preventing lookahead
+    # where a position is stopped out by a price that printed before entry.
+    entry_bar_time: Optional[datetime] = None
+
     # Exit configuration
     stop_loss_price: Optional[int] = None  # in paisa
     target_price: Optional[int] = None  # in paisa
@@ -349,6 +355,17 @@ class MomentumTrailingStop:
         """
         self._config = config
         self._tick_size = 5  # NSE tick size in paisa (0.05 INR)
+        self._backtest_time: Optional[datetime] = None
+
+    def set_backtest_time(self, t: datetime) -> None:
+        """Set simulated time for backtest mode (overrides datetime.now)."""
+        self._backtest_time = t
+
+    def _now(self) -> datetime:
+        """Return current time — backtest bar time if set, else real time."""
+        if self._backtest_time is not None:
+            return self._backtest_time
+        return datetime.now(IST)
 
     def calculate_momentum(self, data: pd.DataFrame) -> float:
         """Calculate price momentum from recent price action.
@@ -811,6 +828,7 @@ class PositionManager:
                 quantity=quantity,
                 entry_price=entry_price,
                 entry_time=self._now(),
+                entry_bar_time=self._backtest_time,  # set in backtest; None in live
                 product_type=product_type,
                 stop_loss_price=stop_loss_price,
                 target_price=target_price,

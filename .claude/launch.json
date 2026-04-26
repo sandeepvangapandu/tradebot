@@ -3,8 +3,9 @@
   "configurations": [
     {
       "name": "streamlit-dashboard",
-      "runtimeExecutable": "bash",
-      "runtimeArgs": ["/Users/sandeepvangapandu/Downloads/Trading/run_dashboard.sh"],
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "streamlit", "run", "src/dashboard/dashboard.py", "--server.headless", "true", "--server.port", "8501"],
+      "cwd": "/Users/sandeepvangapandu/Downloads/Trading",
       "port": 8501,
       "autoPort": false
     }

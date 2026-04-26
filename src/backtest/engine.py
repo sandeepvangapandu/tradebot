@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 from loguru import logger
 
-from config.constants import FEES, INTRADAY_SQUARE_OFF, MARKET_OPEN, MARKET_CLOSE
+from config.constants import FEES, MARKET_OPEN, MARKET_CLOSE
 from src.strategy.builder import StrategyBuilder, StrategyConfig
 from src.strategy.conditions import ConditionEvaluator
 
@@ -243,7 +243,10 @@ class BacktestResults:
                 "equity_curve": self.equity_curve,
             }
 
-        pnls = [t.net_pnl for t in self.trades]
+        pnls = [
+            t.net_pnl if hasattr(t, "net_pnl") else t.get("net_pnl", t.get("pnl", 0))
+            for t in self.trades
+        ]
         winners = [p for p in pnls if p > 0]
         losers = [p for p in pnls if p <= 0]
 
@@ -879,7 +882,9 @@ class BacktestEngine:
             )
             entry_display = option_entry_premium
         else:
-            # Standard: P&L on the actual instrument
+            # Standard: P&L on the actual instrument with adverse exit slippage
+            slippage = int(exit_price * self.slippage_pct / 100)
+            fill = exit_price - slippage if side == "BUY" else exit_price + slippage
             if side == "BUY":
                 raw_pnl = (fill - entry) * qty
             else:

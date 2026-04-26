@@ -98,7 +98,7 @@ class FeeCalculator:
         turnover_crores = turnover / 1_00_00_000  # Convert to crores for SEBI calc
 
         # Brokerage (flat Rs 20 per order for F&O)
-        brokerage = int(FEES["brokerage_fo"])
+        brokerage = int(FEES["brokerage_fno"])
 
         # STT (only on sell side for options)
         stt = 0
@@ -107,9 +107,9 @@ class FeeCalculator:
 
         # Exchange charges
         if is_fno:
-            exchange_charges = int(turnover * FEES["exchange_charges_options_pct"] / 100)
+            exchange_charges = int(turnover * FEES["exchange_charge_nse_fo_pct"] / 100)
         else:
-            exchange_charges = int(turnover * FEES["exchange_charges_futures_pct"] / 100)
+            exchange_charges = int(turnover * FEES["exchange_charge_nse_fo_pct"] / 100)
 
         # SEBI charges
         sebi_charges = int(turnover_crores * FEES["sebi_charges_per_crore"])
@@ -117,7 +117,7 @@ class FeeCalculator:
         # Stamp duty (only on buy side)
         stamp_duty = 0
         if transaction_type == TransactionType.BUY:
-            stamp_duty = int(turnover * FEES["stamp_duty_buy_pct"] / 100)
+            stamp_duty = int(turnover * FEES["stamp_duty_fno_pct"] / 100)
 
         # GST on brokerage + exchange charges
         gst_base = brokerage + exchange_charges
@@ -501,7 +501,7 @@ class TestFeeCalculation:
 
         # Buy fees should include stamp duty component
         turnover = 15 * 50000
-        expected_stamp_duty = int(turnover * FEES["stamp_duty_buy_pct"] / 100)
+        expected_stamp_duty = int(turnover * FEES["stamp_duty_fno_pct"] / 100)
         assert expected_stamp_duty > 0
 
     def test_gst_calculation(self) -> None:
@@ -510,8 +510,8 @@ class TestFeeCalculation:
         fill_price = 50000
         turnover = quantity * fill_price
 
-        brokerage = FEES["brokerage_fo"]
-        exchange_charges = int(turnover * FEES["exchange_charges_options_pct"] / 100)
+        brokerage = FEES["brokerage_fno"]
+        exchange_charges = int(turnover * FEES["exchange_charge_nse_fo_pct"] / 100)
         expected_gst_base = brokerage + exchange_charges
         expected_gst = int(expected_gst_base * FEES["gst_pct"] / 100)
 

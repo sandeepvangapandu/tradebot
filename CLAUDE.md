@@ -253,3 +253,24 @@ trading-bot/
 - Upstox Python SDK: https://github.com/upstox/upstox-python
 - NSE Holidays: https://www.nseindia.com/resources/exchange-communication-holidays
 - pandas-ta: https://github.com/twopirllc/pandas-ta
+
+---
+
+## graphify
+
+This project has a knowledge graph at `graphify-out/graph.json`. Use it.
+
+### Before answering codebase questions
+1. Check if `graphify-out/graph.json` exists.
+2. If it does, run `/graphify query "<question>"` to find relevant nodes and connections before reading files directly. The graph often surfaces cross-module relationships faster than grep.
+3. Use graph results as a starting point — verify against actual code before giving definitive answers.
+
+### After making code changes
+1. If you modified or created **code files only** (.py, .ts, etc.), run `/graphify --update` to incrementally rebuild the graph. This uses AST extraction only (no LLM cost).
+2. If you modified or created **docs, configs, or non-code files**, mention that `/graphify --update` should be run to keep the graph current (semantic re-extraction required).
+3. Do NOT run a full `/graphify` rebuild unless the user explicitly asks — `--update` is incremental and much faster.
+
+### Graph outputs
+- `graphify-out/graph.json` — raw graph data (nodes, edges, communities)
+- `graphify-out/graph.html` — interactive visualization (open in browser)
+- `graphify-out/GRAPH_REPORT.md` — audit report with god nodes, surprising connections, suggested questions

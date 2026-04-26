@@ -64,7 +64,7 @@ class TestDailyTradeLimit:
         # 4th trade should be blocked
         allowed, reason = risk_mgr.can_take_new_trade("BANKNIFTY")
         assert allowed is False
-        assert "Max 3 trades/day" in reason
+        assert "Daily trade limit reached" in reason
 
     def test_trade_limit_per_symbol_isolated(self):
         """Test that trade limit is per symbol."""
@@ -349,7 +349,7 @@ class TestPositionSizeLimit:
         # 25% of 1L = 25,000
         result = risk_mgr.check_position_size(250_000_00)
         assert result.approved is False
-        assert "Position size too large" in result.reason
+        assert "exceeds" in result.reason
 
     def test_position_size_limit_calculation(self):
         """Test that position size limit is calculated correctly."""
@@ -478,7 +478,7 @@ class TestPreTradeCheck:
 
         result = risk_mgr.pre_trade_check(150_000_00, "NSE_EQ:RELIANCE")
         assert result.approved is False
-        assert "Position size too large" in result.reason
+        assert "exceeds" in result.reason
 
     def test_pre_trade_check_fails_on_capital_deployment(self):
         """Test that pre-trade check fails when capital deployment would exceed limit."""

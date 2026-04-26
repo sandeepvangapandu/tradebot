@@ -309,16 +309,27 @@ class KellyPositionSizer:
         self,
         capital: int,
         current_price: int,
-        max_risk_per_trade_pct: float = 0.01,
+        max_risk_per_trade_pct: Optional[float] = None,
         trade_history: Optional[list[TradeResult]] = None,
     ) -> int:
         """Calculate position size using Kelly Criterion with safety constraints.
 
+        The position fraction is determined by Kelly, already capped by
+        ``self.max_kelly_pct`` inside :py:meth:`get_safe_kelly`.  An
+        *additional* cap can be applied via ``max_risk_per_trade_pct`` —
+        but only when the caller explicitly passes a value tighter than
+        Kelly.  The previous default of 0.01 silently truncated every
+        Kelly-sized position to 1 % of capital regardless of edge, which
+        defeated the purpose of using Kelly in the first place.
+
         Args:
             capital: Available capital in paisa.
             current_price: Current market price in paisa.
-            max_risk_per_trade_pct: Maximum risk per trade as decimal (default 1%).
-            trade_history: Optional external trade history. If None, uses internal.
+            max_risk_per_trade_pct: Optional hard cap on position size as a
+                fraction of capital. If ``None`` (default), Kelly's own
+                ``max_kelly_pct`` cap is the only ceiling.
+            trade_history: Optional external trade history. If None, uses
+                internal history.
 
         Returns:
             Quantity to trade (in units, rounded down).
@@ -344,18 +355,19 @@ class KellyPositionSizer:
                 safe_kelly,
             )
 
-        # Calculate position value based on Kelly
+        # Calculate position value based on Kelly (already capped at max_kelly_pct)
         position_value = int(capital * safe_kelly)
 
-        # Apply max risk per trade constraint
-        max_risk_value = int(capital * max_risk_per_trade_pct)
-        if position_value > max_risk_value:
-            logger.debug(
-                "Position capped by risk limit: {} -> {} paisa",
-                position_value,
-                max_risk_value,
-            )
-            position_value = max_risk_value
+        # Optional caller-supplied cap. None = trust Kelly's own ceiling.
+        if max_risk_per_trade_pct is not None:
+            max_risk_value = int(capital * max_risk_per_trade_pct)
+            if position_value > max_risk_value:
+                logger.debug(
+                    "Position capped by caller-supplied risk limit: {} -> {} paisa",
+                    position_value,
+                    max_risk_value,
+                )
+                position_value = max_risk_value
 
         # Convert to quantity
         quantity = position_value // current_price

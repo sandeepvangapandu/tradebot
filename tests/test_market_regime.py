@@ -12,7 +12,7 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 import pytest
-import pytz
+from zoneinfo import ZoneInfo
 
 from src.research.market_regime import (
     MarketRegimeDetector,
@@ -27,7 +27,7 @@ from src.research.models import (
     VolatilityRegime,
 )
 
-IST = pytz.timezone("Asia/Kolkata")
+IST = ZoneInfo("Asia/Kolkata")
 
 
 @pytest.fixture

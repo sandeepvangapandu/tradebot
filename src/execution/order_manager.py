@@ -54,6 +54,12 @@ try:
 except ImportError:
     StrategyQuarantine = None  # type: ignore[misc,assignment]
 
+# Optional AI agent pipeline
+try:
+    from src.agents.pipeline import AgentPipeline
+except ImportError:
+    AgentPipeline = None  # type: ignore[misc,assignment]
+
 # Indian timezone
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -136,6 +142,7 @@ class OrderManager:
         position_sizer: Optional["KellyPositionSizer"] = None,
         strategy_quarantine: Optional["StrategyQuarantine"] = None,
         market_feed: Optional[Any] = None,
+        agent_pipeline: Optional[Any] = None,
     ):
         """Initialize the OrderManager.
 
@@ -153,6 +160,7 @@ class OrderManager:
             position_sizer: Optional Kelly position sizer for dynamic position sizing
             strategy_quarantine: Optional strategy quarantine for disabling underperforming strategies
             market_feed: Optional market feed for orderbook data
+            agent_pipeline: Optional AI agent pipeline for LLM-based signal validation
         """
         self._signal_queue = signal_queue
         self._broker = broker
@@ -166,6 +174,7 @@ class OrderManager:
         self._position_sizer = position_sizer
         self._strategy_quarantine = strategy_quarantine
         self._market_feed = market_feed
+        self._agent_pipeline = agent_pipeline
         self._lock = threading.Lock()
         self._pending_instruments: set[str] = set()  # Instruments currently being processed
         self._is_running = False
@@ -490,8 +499,11 @@ class OrderManager:
                     )
                     return signal
 
-            # Get max risk per trade from risk manager or use default
-            max_risk_pct = 0.01  # Default 1%
+            # Optional max-risk-per-trade cap from risk manager. If the
+            # risk manager doesn't expose one, pass None so the position
+            # sizer relies on its own max_kelly_pct ceiling rather than
+            # silently truncating every position to 1 %.
+            max_risk_pct: Optional[float] = None
             if self._risk_manager and hasattr(self._risk_manager, "max_risk_per_trade"):
                 max_risk_pct = self._risk_manager.max_risk_per_trade
 
@@ -674,6 +686,98 @@ class OrderManager:
                             f"RISK_BLOCK | {signal.signal_id} | {risk_result.reason}"
                         )
                         return None
+
+                # Step 4.5: AI Agent Pipeline (LLM-based regime + signal validation)
+                if self._agent_pipeline is not None:
+                    try:
+                        # Build indicator context from signal metadata
+                        indicator_ctx = signal.metadata.get("indicator_context", {})
+                        if not indicator_ctx:
+                            # Minimal fallback context so the regime agent can work
+                            indicator_ctx = {
+                                "price": signal.price or 0,
+                                "stop_loss": signal.stop_loss or 0,
+                                "target": signal.target or 0,
+                            }
+
+                        signal_dict = signal.to_dict() if hasattr(signal, "to_dict") else {
+                            "strategy_name": signal.strategy_name,
+                            "instrument_key": signal.instrument_key,
+                            "signal_type": str(signal.signal_type),
+                            "quantity": signal.quantity,
+                            "price": signal.price,
+                            "stop_loss": signal.stop_loss,
+                            "target": signal.target,
+                        }
+
+                        pipeline_state = self._agent_pipeline.run(
+                            instrument_key=signal.instrument_key,
+                            signals=[signal_dict],
+                            indicator_context=indicator_ctx,
+                        )
+
+                        # Log agent decisions for observability
+                        for decision in pipeline_state.agent_decisions:
+                            self._order_logger.info(
+                                f"AGENT_DECISION | {decision.agent_name} | "
+                                f"confidence={decision.confidence:.2f} | "
+                                f"fallback={decision.used_fallback} | "
+                                f"latency={decision.latency_ms}ms | "
+                                f"{decision.output_summary[:120]}"
+                            )
+
+                        # If pipeline short-circuited (low regime confidence), skip trade
+                        if pipeline_state.short_circuited:
+                            self._order_logger.info(
+                                f"AGENT_PIPELINE_SKIP | {signal.signal_id} | "
+                                f"{pipeline_state.short_circuit_reason}"
+                            )
+                            return None
+
+                        # If no validated signals, agent rejected the trade
+                        if not pipeline_state.validated_signals:
+                            self._order_logger.info(
+                                f"AGENT_REJECTED | {signal.signal_id} | "
+                                f"Regime: {pipeline_state.regime.regime if pipeline_state.regime else 'unknown'} | "
+                                f"No signals approved by validation agent"
+                            )
+                            return None
+
+                        # Apply agent adjustments to signal (SL, target, quantity)
+                        validated = pipeline_state.validated_signals[0]
+                        if "stop_loss" in validated and validated["stop_loss"]:
+                            old_sl = signal.stop_loss
+                            signal.stop_loss = validated["stop_loss"]
+                            if old_sl != signal.stop_loss:
+                                self._order_logger.info(
+                                    f"AGENT_ADJUST_SL | {signal.signal_id} | "
+                                    f"{old_sl} → {signal.stop_loss}"
+                                )
+                        if "target" in validated and validated["target"]:
+                            old_tgt = signal.target
+                            signal.target = validated["target"]
+                            if old_tgt != signal.target:
+                                self._order_logger.info(
+                                    f"AGENT_ADJUST_TARGET | {signal.signal_id} | "
+                                    f"{old_tgt} → {signal.target}"
+                                )
+                        if "quantity" in validated and validated["quantity"]:
+                            old_qty = signal.quantity
+                            # Never allow agent to INCREASE position size — that would
+                            # bypass the risk check at Step 4. Agent can only reduce qty.
+                            new_qty = min(int(validated["quantity"]), old_qty)
+                            signal.quantity = new_qty
+                            if old_qty != signal.quantity:
+                                self._order_logger.info(
+                                    f"AGENT_ADJUST_QTY | {signal.signal_id} | "
+                                    f"{old_qty} → {signal.quantity}"
+                                )
+
+                    except Exception as e:
+                        # Agent pipeline is non-critical — log and continue without it
+                        logger.warning(
+                            f"Agent pipeline error for {signal.signal_id}, proceeding without: {e}"
+                        )
 
                 # Step 5: Resolve instrument if needed
                 instrument_key = self._resolve_instrument(signal.instrument_key)

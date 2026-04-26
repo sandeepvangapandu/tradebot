@@ -35,6 +35,24 @@ class TestRegimeAgent:
         assert result["regime"] == "trending_up"
         assert result["confidence"] == 0.85
 
+    def test_llm_response_with_reasoning_trace(self):
+        """Verify parsing works when LLM prefixes JSON with chain-of-thought."""
+        client = MagicMock(spec=LLMClient)
+        client.is_configured = True
+        client.invoke.return_value = LLMResponse(
+            content=(
+                "<think>\nOkay, let me analyze the indicators.\n"
+                "ADX is 35 which suggests strong trend.\n</think>\n"
+                '{"regime": "trending_up", "confidence": 0.85, '
+                '"reasoning": "Strong ADX with bullish EMAs"}'
+            ),
+            success=True, latency_ms=500,
+        )
+        agent = RegimeAgent(llm_client=client)
+        result = agent.run(context=self._make_context(), instrument_key="NSE_EQ:RELIANCE")
+        assert result["regime"] == "trending_up"
+        assert result["confidence"] == 0.85
+
     def test_fallback_trending_up(self):
         client = MagicMock(spec=LLMClient)
         client.is_configured = False

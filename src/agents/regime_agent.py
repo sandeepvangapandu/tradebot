@@ -8,12 +8,11 @@ rules when LLM is unavailable.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from loguru import logger
 
-from src.agents.base_agent import BaseAgent
+from src.agents.base_agent import BaseAgent, extract_json
 from src.agents.llm_client import LLMClient
 from src.agents.models import RegimeClassification
 
@@ -27,7 +26,8 @@ Given technical indicator data, classify the market into one of:
 - ranging: Sideways, ADX < 20, no clear direction
 - volatile: Extreme ATR, erratic moves, high uncertainty
 
-Respond ONLY with valid JSON:
+IMPORTANT: Output ONLY the raw JSON object below. No reasoning, no explanation, no markdown fences, no text before or after the JSON.
+
 {"regime": "<regime>", "confidence": <0.0-1.0>, "reasoning": "<one sentence>"}
 
 Rules:
@@ -98,9 +98,10 @@ class RegimeAgent(BaseAgent):
         return prompt
 
     def _parse_response(self, raw: str) -> dict[str, Any]:
-        """Parse raw LLM JSON response into a structured result dict.
+        """Parse raw LLM response into a structured result dict.
 
-        Strips markdown code fences if present. Validates regime value
+        Uses extract_json to handle responses with reasoning traces,
+        markdown fences, or other wrapper text. Validates regime value
         and clamps confidence to [0.0, 1.0].
 
         Args:
@@ -110,17 +111,9 @@ class RegimeAgent(BaseAgent):
             Dict with keys: regime, confidence, reasoning.
 
         Raises:
-            json.JSONDecodeError: If the response is not valid JSON.
-            ValueError: If response structure is completely malformed.
+            ValueError: If no valid JSON can be extracted.
         """
-        cleaned = raw.strip()
-        if cleaned.startswith("```"):
-            cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
-        if cleaned.endswith("```"):
-            cleaned = cleaned.rsplit("```", 1)[0]
-        cleaned = cleaned.strip()
-
-        data = json.loads(cleaned)
+        data = extract_json(raw)
         regime = data.get("regime", "ranging")
         if regime not in VALID_REGIMES:
             logger.warning(

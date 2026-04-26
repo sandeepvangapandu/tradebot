@@ -78,19 +78,45 @@ class TokenManager:
     def get_valid_token(self) -> str:
         """Return a valid access token, using cache or re-authenticating.
 
+        Resolution order:
+        1. Use cached token if still valid.
+        2. Use UPSTOX_ACCESS_TOKEN env var if set (manual paste mode).
+        3. Try TOTP auto-login (requires password).
+        4. Fail with a helpful message pointing to manual_login.py.
+
         Returns:
             A valid Upstox access token.
 
         Raises:
-            AuthenticationError: If auto-login fails.
+            AuthenticationError: If no usable token can be obtained.
         """
+        import os
+        from src.utils.exceptions import AuthenticationError
+
+        # 1. Cached token
         cache = self._load_cache()
         if cache and self.is_token_valid():
             logger.info("Using cached token (expires {})", cache["expires_at"])
             return cache["access_token"]
 
-        logger.info("No valid cached token, performing auto-login")
-        return self.refresh_token()
+        # 2. Env var token (set by manual_login.py or pasted by user)
+        env_token = os.getenv("UPSTOX_ACCESS_TOKEN", "").strip()
+        if env_token:
+            logger.info("Using UPSTOX_ACCESS_TOKEN from environment")
+            self._save_cache(env_token)
+            return env_token
+
+        # 3. TOTP auto-login (only if password-based credentials present)
+        if os.getenv("UPSTOX_PASSWORD") and os.getenv("UPSTOX_TOTP_SECRET"):
+            logger.info("No cached/env token, attempting TOTP auto-login")
+            return self.refresh_token()
+
+        # 4. Helpful failure message
+        raise AuthenticationError(
+            "No valid Upstox token available.\n"
+            "OTP-based accounts: run `python3 -m src.auth.manual_login` to log in.\n"
+            "Password-based accounts: set UPSTOX_PASSWORD + UPSTOX_TOTP_SECRET in .env."
+        )
 
     def refresh_token(self) -> str:
         """Force a fresh authentication regardless of cache state.

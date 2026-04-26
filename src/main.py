@@ -37,7 +37,32 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from loguru import logger
+
+from config.settings import Settings, get_settings
+from src.auth.token_manager import TokenManager
+from src.data.bar_builder import BarBuilder
+from src.data.instruments import InstrumentManager
+from src.data.portfolio_feed import PortfolioFeed
+from src.data.websocket_feed import MarketDataFeed
+from src.execution.order_manager import OrderManager
+from src.execution.order_tracker import OrderTracker
+from src.execution.paper_broker import PaperBroker
+from src.execution.partial_profit import PartialProfitManager
+from src.execution.position_manager import PositionManager
+from src.persistence.database import get_session, init_db
+from src.persistence.trade_log import TradeLogger as TradeLog
+from src.risk.circuit_breaker import CircuitBreaker
+from src.risk.risk_manager import RiskManager
+from src.risk.strategy_quarantine import StrategyQuarantine
+from src.strategy.engine import StrategyEngine
+from src.utils.exceptions import TradingBotError
+from src.utils.health_monitor import HealthMonitor
 from src.utils.holidays import is_trading_day
+from src.utils.logger import setup_logger
+from src.utils.scheduler import get_scheduler
 
 from src.agents.llm_client import LLMClient
 from src.agents.pipeline import AgentPipeline
@@ -107,14 +132,22 @@ class TradingBot:
 
         # 3. Check if today is a trading day
         today = datetime.now(IST).date()
+        ignore_holidays = "--ignore-holidays" in sys.argv
         if not is_trading_day(today):
-            logger.error("Today is not a trading day (holiday or weekend). Bot shutting down.")
-            raise TradingBotError(f"Today {today} is not a trading day")
+            if ignore_holidays:
+                logger.warning(
+                    "Today {} is not a trading day, but --ignore-holidays is set. "
+                    "Continuing for a dry run; no live ticks will flow.",
+                    today,
+                )
+            else:
+                logger.error("Today is not a trading day (holiday or weekend). Bot shutting down.")
+                raise TradingBotError(f"Today {today} is not a trading day")
 
         # 3. Initialize database
         logger.info("Initializing database...")
-        init_db()
-        self.trade_log = TradeLog()
+        init_db(self.settings.database_url)
+        self.trade_log = TradeLog(session_factory=get_session)
         logger.info("Database initialized")
 
         # 4. Download/load instruments
@@ -133,7 +166,7 @@ class TradingBot:
             max_capital_deployment_pct=self.settings.max_capital_deployment_pct,
         )
         self.circuit_breaker = CircuitBreaker(
-            consecutive_loss_limit=self.settings.consecutive_loss_pause,
+            max_consecutive_losses=self.settings.consecutive_loss_pause,
             pause_minutes=self.settings.pause_minutes,
         )
         self.strategy_quarantine = StrategyQuarantine()
@@ -149,22 +182,22 @@ class TradingBot:
             initial_capital=self.settings.capital,
             slippage_pct=self.settings.slippage_pct,
         )
-        self.partial_profit_manager = PartialProfitManager(config=FOUR_TIER_CONFIG)
+        self.partial_profit_manager = PartialProfitManager()
         self.position_manager = PositionManager(
             broker=self.paper_broker,
             risk_manager=self.risk_manager,
             partial_profit_manager=self.partial_profit_manager,
         )
         self.order_tracker = OrderTracker(
-            trade_log=self.trade_log,
+            broker=self.paper_broker,
         )
         self.order_manager = OrderManager(
+            signal_queue=self.signal_queue,
             broker=self.paper_broker,
+            trading_mode=self.settings.trading_mode,
             instrument_manager=self.instrument_manager,
             risk_manager=self.risk_manager,
             position_manager=self.position_manager,
-            signal_queue=self.signal_queue,
-            trade_log=self.trade_log,
             strategy_quarantine=self.strategy_quarantine,
         )
         logger.info("Order and position managers initialized")
@@ -195,13 +228,20 @@ class TradingBot:
         # 9. Load strategies
         strategy_dir = Path("config/strategies")
         if strategy_dir.exists():
+            def _bars_provider() -> dict[str, Any]:
+                """Return latest 1-min bars for every instrument the bar builder is tracking."""
+                if not self.bar_builder:
+                    return {}
+                out: dict[str, Any] = {}
+                for ik in self.bar_builder.get_all_instrument_keys():
+                    df = self.bar_builder.get_bars(ik, timeframe=1)
+                    if df is not None and not df.empty:
+                        out[ik] = df
+                return out
+
             self.strategy_engine = StrategyEngine(
-                strategy_directory=str(strategy_dir),
-                signal_queue=self.signal_queue,
-                bar_close_event=self.bar_close_event,
-                instrument_manager=self.instrument_manager,
-                bar_builder=self.bar_builder,
-                circuit_breaker=self.circuit_breaker,
+                strategies_dir=strategy_dir,
+                bars_provider=_bars_provider,
             )
             self.strategy_engine.load_strategies()
             self.strategy_engine.start()
@@ -231,13 +271,33 @@ class TradingBot:
 
         # 14. Initialize AI agent pipeline
         if self.settings.agent_pipeline_enabled:
+            llm_provider = self.settings.llm_provider
+            if llm_provider == "openrouter":
+                _api_key = self.settings.openrouter_api_key
+                _model = self.settings.openrouter_model
+                _fallback = self.settings.openrouter_fallback_model
+                _rpm = self.settings.openrouter_rate_limit_rpm
+            else:
+                _api_key = self.settings.groq_api_key
+                _model = self.settings.groq_model
+                _fallback = self.settings.groq_fallback_model
+                _rpm = self.settings.groq_rate_limit_rpm
+
+            if llm_provider == "openrouter":
+                _temperature = self.settings.openrouter_temperature
+                _max_tokens = self.settings.openrouter_max_tokens
+            else:
+                _temperature = self.settings.groq_temperature
+                _max_tokens = self.settings.groq_max_tokens
+
             self.llm_client = LLMClient(
-                api_key=self.settings.groq_api_key,
-                model=self.settings.groq_model,
-                fallback_model=self.settings.groq_fallback_model,
-                temperature=self.settings.groq_temperature,
-                max_tokens=self.settings.groq_max_tokens,
-                rate_limit_rpm=self.settings.groq_rate_limit_rpm,
+                api_key=_api_key,
+                model=_model,
+                fallback_model=_fallback,
+                temperature=_temperature,
+                max_tokens=_max_tokens,
+                rate_limit_rpm=_rpm,
+                provider=llm_provider,
             )
             self.memory_db = MemoryDB(
                 decay_rate=self.settings.memory_decay_rate,
@@ -250,8 +310,12 @@ class TradingBot:
             )
             self.outcome_analyzer = OutcomeAnalyzer()
             self.mistake_classifier = MistakeClassifier()
+
+            # Wire pipeline into OrderManager for live signal validation
+            self.order_manager._agent_pipeline = self.agent_pipeline
+
             logger.info(
-                "AI Agent Pipeline initialized | LLM configured={}",
+                "AI Agent Pipeline initialized & wired into OrderManager | LLM configured={}",
                 self.llm_client.is_configured,
             )
 
@@ -266,47 +330,58 @@ class TradingBot:
             return
 
         # Daily token refresh at 08:45 IST
-        self.scheduler.add_job(
+        self.scheduler.add_daily_job(
             func=self._scheduled_token_refresh,
-            trigger=CronTrigger(hour=8, minute=45, timezone=IST),
-            id="token_refresh",
-            replace_existing=True,
+            hour=8,
+            minute=45,
+            job_id="token_refresh",
         )
-
         # Daily instrument download at 06:15 IST
-        self.scheduler.add_job(
+        self.scheduler.add_daily_job(
             func=self._scheduled_instrument_download,
-            trigger=CronTrigger(hour=6, minute=15, timezone=IST),
-            id="instrument_download",
-            replace_existing=True,
+            hour=6,
+            minute=15,
+            job_id="instrument_download",
         )
-
         # Intraday square-off at 15:15 IST
-        self.scheduler.add_job(
+        self.scheduler.add_daily_job(
             func=self._scheduled_square_off,
-            trigger=CronTrigger(hour=15, minute=15, timezone=IST),
-            id="square_off",
-            replace_existing=True,
+            hour=15,
+            minute=15,
+            job_id="square_off",
         )
-
         # Daily P&L summary at 15:30 IST
-        self.scheduler.add_job(
+        self.scheduler.add_daily_job(
             func=self._scheduled_daily_summary,
-            trigger=CronTrigger(hour=15, minute=30, timezone=IST),
-            id="daily_summary",
-            replace_existing=True,
+            hour=15,
+            minute=30,
+            job_id="daily_summary",
         )
 
         self.scheduler.start()
 
     def _scheduled_token_refresh(self) -> None:
-        """Scheduled job: refresh access token."""
+        """Scheduled job: refresh access token.
+
+        Token refresh fires before market open (08:45 IST). If it fails,
+        the bot would continue with a stale token and silently reject every
+        live order. Halt the order pipeline so the user is forced to act.
+        """
         logger.info("[SCHEDULER] Refreshing access token")
-        if self.token_manager:
-            try:
-                self.token_manager.refresh_token()
-            except Exception as exc:
-                logger.error("Scheduled token refresh failed: {}", exc)
+        if not self.token_manager:
+            return
+        try:
+            self.token_manager.refresh_token()
+            if not self.token_manager.is_token_valid():
+                raise RuntimeError("token invalid immediately after refresh")
+        except Exception as exc:
+            logger.critical(
+                "Scheduled token refresh FAILED: {}. Halting order manager. "
+                "Run `python3 -m src.auth.manual_login` and restart the bot.",
+                exc,
+            )
+            if self.order_manager:
+                self.order_manager.stop()
 
     def _scheduled_instrument_download(self) -> None:
         """Scheduled job: download instrument files."""
@@ -327,7 +402,7 @@ class TradingBot:
                 if not is_trading_day(datetime.now(IST).date()):
                     logger.info("Today is not a trading day, skipping square-off")
                     return
-                self.position_manager.square_off_all("Intraday square-off at 15:15")
+                self.position_manager.close_all_positions(reason="Intraday square-off at 15:15")
             except Exception as exc:
                 logger.error("Scheduled square-off failed: {}", exc)
 
@@ -342,19 +417,48 @@ class TradingBot:
                     return
                 positions = self.paper_broker.get_positions()
                 realized_pnl = sum(p.realized_pnl for p in positions)
+                unrealized_pnl = sum(p.unrealized_pnl for p in positions)
+                wins = sum(1 for p in positions if p.realized_pnl > 0)
                 self.trade_log.log_daily_summary(
                     date=datetime.now(IST).date(),
-                    realized_pnl=realized_pnl,
-                    trade_count=len(positions),
+                    realized=int(realized_pnl),
+                    unrealized=int(unrealized_pnl),
+                    trades=len(positions),
+                    wins=wins,
                 )
             except Exception as exc:
                 logger.error("Scheduled daily summary failed: {}", exc)
 
-    def _on_market_tick(self, tick: dict[str, Any]) -> None:
-        """Callback for market tick updates."""
-        # Position manager monitors for SL/target
-        if self.position_manager:
-            self.position_manager.on_tick(tick)
+    def _on_market_tick(self, tick: Any) -> None:
+        """Callback for market tick updates.
+
+        Upstox V3 protobuf ticks are decoded into a dict-like structure with
+        `feeds[instrument_key]`. Extract instrument_key and last_price (in
+        paisa) and forward to PositionManager.on_tick(instrument_key, price).
+        """
+        if not self.position_manager:
+            return
+        try:
+            feeds = tick.get("feeds") if isinstance(tick, dict) else None
+            if not feeds:
+                return
+            for instrument_key, payload in feeds.items():
+                # Try common shapes: {"ltpc": {"ltp": 123.4}} or {"fullFeed": {...}}
+                ltp = None
+                if isinstance(payload, dict):
+                    ltpc = payload.get("ltpc") or {}
+                    ltp = ltpc.get("ltp")
+                    if ltp is None:
+                        full = payload.get("fullFeed", {}).get("indexFF") or payload.get("fullFeed", {}).get("marketFF") or {}
+                        ltpc = (full or {}).get("ltpc") or {}
+                        ltp = ltpc.get("ltp")
+                if ltp is None:
+                    continue
+                # Convert rupees → paisa (PositionManager expects paisa int)
+                price_paisa = int(round(float(ltp) * 100))
+                self.position_manager.on_tick(instrument_key, price_paisa)
+        except Exception as exc:
+            logger.debug("Tick dispatch error: {}", exc)
 
     def _on_order_update(self, update: dict[str, Any]) -> None:
         """Callback for order updates from portfolio feed."""
@@ -392,7 +496,7 @@ class TradingBot:
         # 3. Exit open positions (if configured)
         if self.position_manager and self.settings.trading_mode == "paper":
             logger.info("Exiting open positions...")
-            self.position_manager.square_off_all("Bot shutdown")
+            self.position_manager.close_all_positions(reason="Bot shutdown")
 
         # 4. Stop WebSocket feeds
         if self.market_feed:
@@ -416,18 +520,25 @@ class TradingBot:
         # 7. Stop scheduler
         if self.scheduler:
             logger.info("Stopping scheduler...")
-            self.scheduler.shutdown(wait=False)
+            self.scheduler.stop()
 
         # 8. Log final summary
         if self.trade_log and self.paper_broker:
             logger.info("Logging final P&L summary...")
-            positions = self.paper_broker.get_positions()
-            realized_pnl = sum(p.realized_pnl for p in positions)
-            self.trade_log.log_daily_summary(
-                date=datetime.now(IST).date(),
-                realized_pnl=realized_pnl,
-                trade_count=len(positions),
-            )
+            try:
+                positions = self.paper_broker.get_positions()
+                realized_pnl = sum(p.realized_pnl for p in positions)
+                unrealized_pnl = sum(p.unrealized_pnl for p in positions)
+                wins = sum(1 for p in positions if p.realized_pnl > 0)
+                self.trade_log.log_daily_summary(
+                    date=datetime.now(IST).date(),
+                    realized=int(realized_pnl),
+                    unrealized=int(unrealized_pnl),
+                    trades=len(positions),
+                    wins=wins,
+                )
+            except Exception as exc:
+                logger.warning("Final summary logging failed: {}", exc)
 
         # Save circuit breaker state
         if self.circuit_breaker:

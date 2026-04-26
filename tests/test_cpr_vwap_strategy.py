@@ -21,7 +21,7 @@ class TestCPRIndicator:
     """Test Central Pivot Range calculations."""
 
     @pytest.fixture
-def sample_daily_data(self) -> pd.DataFrame:
+    def sample_daily_data(self) -> pd.DataFrame:
         """Create sample daily OHLC data for CPR calculation."""
         # BankNifty-like prices in PAISA (45000 = 45000.00 INR)
         data = {
@@ -227,7 +227,7 @@ class TestCPRConditionEvaluation:
     """Test CPR condition evaluation in the strategy engine."""
 
     @pytest.fixture
-def intraday_bars(self) -> dict[str, pd.DataFrame]:
+    def intraday_bars(self) -> dict[str, pd.DataFrame]:
         """Create sample intraday 5-min bars for testing."""
         # Create 5-min bars for a trading day
         times = pd.date_range("2024-01-05 09:15", "2024-01-05 15:30", freq="5min")
@@ -248,7 +248,7 @@ def intraday_bars(self) -> dict[str, pd.DataFrame]:
         return {"BANKNIFTY": df}
 
     @pytest.fixture
-def cpr_data(self) -> dict[str, float]:
+    def cpr_data(self) -> dict[str, float]:
         """Sample CPR data for testing."""
         return {
             "pivot": 4550000,

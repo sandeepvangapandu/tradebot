@@ -46,12 +46,15 @@ Welcome to the **Trading Bot Dashboard**. Use the sidebar to navigate:
 
 | Page | Description |
 |------|-------------|
+| **📡 Live Feed** | Real-time Upstox quotes for the watchlist (default view) |
 | **Overview** | Live P&L, open positions, today's trades |
 | **Trade History** | Historical trades with filters and CSV export |
 | **Strategy Perf** | Strategy comparison — P&L, win rate, profit factor |
 | **Equity Curve** | Equity over time, drawdown, daily P&L bars |
 | **Risk Monitor** | Risk usage, capital deployment, daily loss tracking |
 | **Backtester** | Run strategies against uploaded CSV data |
+
+> 👉 Open **Live Feed** from the sidebar to watch live Upstox prices.
 """
 )
 

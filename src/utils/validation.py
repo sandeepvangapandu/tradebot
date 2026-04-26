@@ -15,7 +15,7 @@ import functools
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Any, Callable, TypeVar
 
 from pydantic import BaseModel, Field, validator

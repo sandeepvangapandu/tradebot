@@ -47,10 +47,28 @@ class IndicatorEngine:
         self._df = df.copy() if df is not None else None
         self._cache: dict[str, pd.DataFrame] = {}
         self._last_computed_index: int = 0
+        # Memoization for indicator results. Keyed on
+        # (method_name, params_tuple). Invalidated by self._data_version
+        # which bumps whenever the underlying df changes.
+        self._result_cache: dict[tuple, tuple[int, object]] = {}
+        self._data_version: int = 0
 
         if self._df is not None:
             self._validate_dataframe(self._df)
             self._ensure_datetime_index()
+            self._data_version = 1
+
+    def _cached(self, key: tuple, compute):
+        """Return cached result for `key` or compute and store.
+
+        Cache invalidates when self._data_version changes (i.e. df updated).
+        """
+        hit = self._result_cache.get(key)
+        if hit is not None and hit[0] == self._data_version:
+            return hit[1]
+        value = compute()
+        self._result_cache[key] = (self._data_version, value)
+        return value
 
     def _validate_dataframe(self, df: pd.DataFrame) -> None:
         """Validate that DataFrame has required columns."""
@@ -74,6 +92,10 @@ class IndicatorEngine:
     def update(self, df: pd.DataFrame) -> "IndicatorEngine":
         """Update the engine with new data.
 
+        Fast path: if `df` has the same length and last-index timestamp as
+        the cached frame, treat it as identical and skip the concat/sort
+        (the caller in conditions.py routinely passes the same window).
+
         Args:
             df: New OHLCV DataFrame to replace or append.
 
@@ -84,13 +106,48 @@ class IndicatorEngine:
 
         if self._df is None:
             self._df = df.copy()
-        else:
-            # Append new rows, avoiding duplicates
-            self._df = pd.concat([self._df, df]).drop_duplicates()
-            self._df = self._df.sort_index()
+            self._ensure_datetime_index()
+            self._last_computed_index = len(self._df)
+            self._data_version += 1
+            return self
+
+        # Fast path: same window — no-op, keep cache hot.
+        if (
+            len(df) == len(self._df)
+            and len(df) > 0
+            and df.index[-1] == self._df.index[-1]
+        ):
+            return self
+
+        # Incremental append: if `df` extends our existing frame (same last
+        # bar present at same position, more rows after), append only the
+        # tail. Avoids the O(N) concat+sort+drop_duplicates cost on every
+        # bar in the backtest hot path.
+        if (
+            len(df) > len(self._df)
+            and len(self._df) > 0
+            and len(df) > 0
+        ):
+            anchor = self._df.index[-1]
+            if anchor in df.index:
+                pos = df.index.get_loc(anchor)
+                # Confirm the prefix matches before fast-appending.
+                if isinstance(pos, int) and pos == len(self._df) - 1:
+                    tail = df.iloc[len(self._df):]
+                    if len(tail) > 0:
+                        self._df = pd.concat([self._df, tail])
+                    self._ensure_datetime_index()
+                    self._last_computed_index = len(self._df)
+                    self._data_version += 1
+                    return self
+
+        # Fallback: full concat (handles re-bases / out-of-order updates).
+        self._df = pd.concat([self._df, df]).drop_duplicates()
+        self._df = self._df.sort_index()
 
         self._ensure_datetime_index()
         self._last_computed_index = len(self._df)
+        self._data_version += 1
         return self
 
     def get_data(self) -> pd.DataFrame:
@@ -114,9 +171,10 @@ class IndicatorEngine:
         """
         if self._df is None:
             raise ValueError("No data loaded")
-
-        result = ta.ema(self._df["close"], length=period)
-        return result
+        return self._cached(
+            ("ema", period),
+            lambda: ta.ema(self._df["close"], length=period),
+        )
 
     def sma(self, period: int = 20) -> pd.Series:
         """Calculate Simple Moving Average.
@@ -129,9 +187,10 @@ class IndicatorEngine:
         """
         if self._df is None:
             raise ValueError("No data loaded")
-
-        result = ta.sma(self._df["close"], length=period)
-        return result
+        return self._cached(
+            ("sma", period),
+            lambda: ta.sma(self._df["close"], length=period),
+        )
 
     def rsi(self, period: int = 14) -> pd.Series:
         """Calculate Relative Strength Index.
@@ -144,9 +203,10 @@ class IndicatorEngine:
         """
         if self._df is None:
             raise ValueError("No data loaded")
-
-        result = ta.rsi(self._df["close"], length=period)
-        return result
+        return self._cached(
+            ("rsi", period),
+            lambda: ta.rsi(self._df["close"], length=period),
+        )
 
     def macd(
         self, fast: int = 12, slow: int = 26, signal: int = 9
@@ -165,23 +225,22 @@ class IndicatorEngine:
         if self._df is None:
             raise ValueError("No data loaded")
 
-        macd_result = ta.macd(
-            self._df["close"], fast=fast, slow=slow, signal=signal
-        )
+        def _compute():
+            macd_result = ta.macd(
+                self._df["close"], fast=fast, slow=slow, signal=signal
+            )
+            if macd_result is None:
+                raise ValueError("MACD calculation failed")
+            macd_col = f"MACD_{fast}_{slow}_{signal}"
+            signal_col = f"MACDs_{fast}_{slow}_{signal}"
+            hist_col = f"MACDh_{fast}_{slow}_{signal}"
+            return {
+                "macd": macd_result[macd_col],
+                "signal": macd_result[signal_col],
+                "histogram": macd_result[hist_col],
+            }
 
-        if macd_result is None:
-            raise ValueError("MACD calculation failed")
-
-        # pandas-ta returns DataFrame with columns like MACD_12_26_9, etc.
-        macd_col = f"MACD_{fast}_{slow}_{signal}"
-        signal_col = f"MACDs_{fast}_{slow}_{signal}"
-        hist_col = f"MACDh_{fast}_{slow}_{signal}"
-
-        return {
-            "macd": macd_result[macd_col],
-            "signal": macd_result[signal_col],
-            "histogram": macd_result[hist_col],
-        }
+        return self._cached(("macd", fast, slow, signal), _compute)
 
     def bbands(
         self, period: int = 20, std: float = 2.0
@@ -199,22 +258,21 @@ class IndicatorEngine:
         if self._df is None:
             raise ValueError("No data loaded")
 
-        bbands_result = ta.bbands(self._df["close"], length=period, std=std)
+        def _compute():
+            bbands_result = ta.bbands(self._df["close"], length=period, std=std)
+            if bbands_result is None:
+                raise ValueError("Bollinger Bands calculation failed")
+            std_str = str(std).replace(".", "_")
+            lower_col = f"BBL_{period}_{std_str}"
+            middle_col = f"BBM_{period}_{std_str}"
+            upper_col = f"BBU_{period}_{std_str}"
+            return {
+                "lower": bbands_result[lower_col],
+                "middle": bbands_result[middle_col],
+                "upper": bbands_result[upper_col],
+            }
 
-        if bbands_result is None:
-            raise ValueError("Bollinger Bands calculation failed")
-
-        # pandas-ta returns columns like BBL_20_2.0, BBM_20_2.0, BBU_20_2.0
-        std_str = str(std).replace(".", "_")
-        lower_col = f"BBL_{period}_{std_str}"
-        middle_col = f"BBM_{period}_{std_str}"
-        upper_col = f"BBU_{period}_{std_str}"
-
-        return {
-            "lower": bbands_result[lower_col],
-            "middle": bbands_result[middle_col],
-            "upper": bbands_result[upper_col],
-        }
+        return self._cached(("bbands", period, std), _compute)
 
     def atr(self, period: int = 14) -> pd.Series:
         """Calculate Average True Range.
@@ -227,14 +285,15 @@ class IndicatorEngine:
         """
         if self._df is None:
             raise ValueError("No data loaded")
-
-        result = ta.atr(
-            self._df["high"],
-            self._df["low"],
-            self._df["close"],
-            length=period,
+        return self._cached(
+            ("atr", period),
+            lambda: ta.atr(
+                self._df["high"],
+                self._df["low"],
+                self._df["close"],
+                length=period,
+            ),
         )
-        return result
 
     def supertrend(
         self, period: int = 7, multiplier: float = 3.0
@@ -255,31 +314,29 @@ class IndicatorEngine:
         if self._df is None:
             raise ValueError("No data loaded")
 
-        st_result = ta.supertrend(
-            self._df["high"],
-            self._df["low"],
-            self._df["close"],
-            length=period,
-            multiplier=multiplier,
-        )
+        def _compute():
+            st_result = ta.supertrend(
+                self._df["high"],
+                self._df["low"],
+                self._df["close"],
+                length=period,
+                multiplier=multiplier,
+            )
+            if st_result is None:
+                raise ValueError("SuperTrend calculation failed")
+            mult_str = str(multiplier)
+            supert_col = f"SUPERT_{period}_{mult_str}"
+            direction_col = f"SUPERTd_{period}_{mult_str}"
+            long_col = f"SUPERTl_{period}_{mult_str}"
+            short_col = f"SUPERTs_{period}_{mult_str}"
+            return {
+                "supertrend": st_result[supert_col],
+                "direction": st_result[direction_col],
+                "long": st_result[long_col],
+                "short": st_result[short_col],
+            }
 
-        if st_result is None:
-            raise ValueError("SuperTrend calculation failed")
-
-        # pandas-ta returns columns like SUPERT_7_3.0, SUPERTd_7_3.0, etc.
-        # Note: pandas-ta uses the original float format (3.0) not underscore format
-        mult_str = str(multiplier)
-        supert_col = f"SUPERT_{period}_{mult_str}"
-        direction_col = f"SUPERTd_{period}_{mult_str}"
-        long_col = f"SUPERTl_{period}_{mult_str}"
-        short_col = f"SUPERTs_{period}_{mult_str}"
-
-        return {
-            "supertrend": st_result[supert_col],
-            "direction": st_result[direction_col],
-            "long": st_result[long_col],
-            "short": st_result[short_col],
-        }
+        return self._cached(("supertrend", period, multiplier), _compute)
 
     def vwap(self) -> pd.Series:
         """Calculate Volume Weighted Average Price (intraday).
@@ -293,17 +350,18 @@ class IndicatorEngine:
         if self._df is None:
             raise ValueError("No data loaded")
 
-        # Group by date and calculate VWAP for each day
-        result = pd.Series(index=self._df.index, dtype=float)
+        def _compute():
+            # Vectorized intraday VWAP. Groupby with cumsum is O(N), no
+            # Python loop over days.
+            df = self._df
+            typical_price = (df["high"] + df["low"] + df["close"]) / 3
+            tpv = typical_price * df["volume"]
+            day_key = df.index.date
+            cum_tpv = tpv.groupby(day_key).cumsum()
+            cum_vol = df["volume"].groupby(day_key).cumsum()
+            return cum_tpv / cum_vol.replace(0, float("nan"))
 
-        for date, group in self._df.groupby(self._df.index.date):
-            typical_price = (group["high"] + group["low"] + group["close"]) / 3
-            vwap_values = (typical_price * group["volume"]).cumsum() / group[
-                "volume"
-            ].cumsum()
-            result.loc[group.index] = vwap_values
-
-        return result
+        return self._cached(("vwap",), _compute)
 
     def compute_all(
         self,

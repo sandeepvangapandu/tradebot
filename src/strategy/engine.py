@@ -1179,6 +1179,10 @@ class StrategyEngine:
 
         self._builder = StrategyBuilder()
         self._evaluator = ConditionEvaluator()  # shared evaluator for sync path
+        # Per-strategy evaluators reused across bars in evaluate_bar_sync.
+        # Each strategy has a fixed timeframe, so its IndicatorEngine cache
+        # stays consistent — avoids the O(N) per-bar rebuild.
+        self._sync_evaluators: dict[str, ConditionEvaluator] = {}
         self._last_bar_times: dict[str, datetime] = {}
 
         # Backtest signal cooldown: strategy_name -> last signal bar_time
@@ -1346,8 +1350,13 @@ class StrategyEngine:
             if len(window[instrument_key]) < 2:
                 continue
 
-            # Fresh evaluator per bar avoids stale IndicatorEngine cache state
-            evaluator = ConditionEvaluator()
+            # Reuse a per-strategy evaluator so its IndicatorEngine cache
+            # persists across bars. Safe because each strategy has a fixed
+            # timeframe (the resampled `window` shape is stable per strategy).
+            evaluator = self._sync_evaluators.get(strategy.name)
+            if evaluator is None:
+                evaluator = ConditionEvaluator()
+                self._sync_evaluators[strategy.name] = evaluator
 
             # Evaluate each entry set
             for entry_set in strategy.entry_sets:

@@ -142,8 +142,13 @@ class TradingBot:
                     today,
                 )
             else:
-                logger.error("Today is not a trading day (holiday or weekend). Bot shutting down.")
-                raise TradingBotError(f"Today {today} is not a trading day")
+                logger.warning(
+                    "Today {} is not a trading day (holiday or weekend). "
+                    "Bot will shut down cleanly. Use --ignore-holidays to force a dry run.",
+                    today,
+                )
+                # Clean shutdown — not an error
+                raise SystemExit(0)
 
         # 3. Initialize database
         logger.info("Initializing database...")
@@ -652,6 +657,9 @@ class TradingBot:
             while self._running and not self._shutdown_event.is_set():
                 self._shutdown_event.wait(timeout=1.0)
 
+        except SystemExit:
+            # Clean exit (e.g. non-trading day) — propagate without logging as error
+            raise
         except Exception as exc:
             logger.exception("Fatal error in main loop: {}", exc)
             raise
@@ -665,6 +673,9 @@ def main() -> int:
     try:
         bot.run()
         return 0
+    except SystemExit as exc:
+        # Clean exit (e.g. non-trading day)
+        return int(exc.code) if exc.code is not None else 0
     except KeyboardInterrupt:
         logger.info("Interrupted by user")
         return 0

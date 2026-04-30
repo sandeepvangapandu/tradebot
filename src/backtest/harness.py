@@ -24,6 +24,7 @@ from loguru import logger
 from config.settings import get_settings
 from src.backtest.bar_provider import BacktestBarProvider
 from src.backtest.data_loader import BacktestDataLoader
+from src.backtest.engine import calculate_trade_fees
 from src.execution.order_manager import OrderManager
 from src.execution.paper_broker import PaperBroker
 from src.execution.partial_profit import FOUR_TIER_CONFIG, PartialProfitManager
@@ -115,13 +116,23 @@ class HarnessResults:
             "sharpe_ratio": 0.0,
         }
 
-        # Sharpe from trade returns
-        if len(pnls) > 1:
-            returns = [p / initial_capital for p in pnls]
-            mean_r = sum(returns) / len(returns)
-            var_r = sum((r - mean_r) ** 2 for r in returns) / (len(returns) - 1)
-            std_r = math.sqrt(var_r) if var_r > 0 else 1e-10
-            self.metrics["sharpe_ratio"] = round((mean_r / std_r) * math.sqrt(252), 2)
+        # Sharpe from DAILY aggregated returns (not per-trade)
+        # Aggregate net_pnl by exit date to get daily P&L series
+        if len(self.trades) > 1:
+            daily_pnl: dict[str, int] = {}
+            for t in self.trades:
+                exit_date = (t.get("exit_time") or "")[:10]  # YYYY-MM-DD prefix
+                if not exit_date:
+                    continue
+                daily_pnl[exit_date] = daily_pnl.get(exit_date, 0) + t.get("net_pnl", 0)
+
+            if len(daily_pnl) > 1:
+                daily_returns = [v / initial_capital for v in daily_pnl.values()]
+                mean_r = sum(daily_returns) / len(daily_returns)
+                var_r = sum((r - mean_r) ** 2 for r in daily_returns) / (len(daily_returns) - 1)
+                std_r = math.sqrt(var_r) if var_r > 0 else 1e-10
+                # Annualise with √252 (trading days per year)
+                self.metrics["sharpe_ratio"] = round((mean_r / std_r) * math.sqrt(252), 2)
 
 
 class BacktestHarness:
@@ -593,6 +604,20 @@ class BacktestHarness:
                     self._instrument_key, current_price
                 )
                 for pos in (closed or []):
+                    # Compute realistic round-trip fees for this trade
+                    trade_fees = 0
+                    try:
+                        segment = "NSE_FO" if "NFO" in self._instrument_key or "FO" in self._instrument_key else "NSE_EQ"
+                        trade_fees = calculate_trade_fees(
+                            pos.entry_price,
+                            pos.blended_exit_price or pos.exit_price or pos.entry_price,
+                            abs(pos.quantity),
+                            pos.side.value,
+                            segment,
+                            "MIS",
+                        )
+                    except Exception:
+                        trade_fees = 0
                     results.trades.append({
                         "instrument_key": pos.instrument_key,
                         "strategy_id": pos.strategy_id,
@@ -601,7 +626,7 @@ class BacktestHarness:
                         "exit_price": pos.blended_exit_price or pos.entry_price,
                         "quantity": pos.quantity,
                         "net_pnl": pos.total_realized_pnl,
-                        "fees": 0,  # PaperBroker deducts fees internally
+                        "fees": trade_fees,
                         "entry_time": str(pos.entry_time),
                         "exit_time": str(pos.exit_time) if pos.exit_time else None,
                         "exit_reason": getattr(pos, "exit_reason", "unknown"),
@@ -611,6 +636,8 @@ class BacktestHarness:
 
             # --- Phase 4: Session gate ---
             bar_t = bar_time_ist.time()
+            # Advance circuit breaker time to bar time for accurate backtest pauses
+            self._circuit_breaker.set_backtest_time(bar_time_ist)
             if bar_t >= NO_NEW_ENTRY_AFTER:
                 results.equity_curve.append(self._paper_broker.get_funds())
                 results.bars_processed += 1
@@ -670,6 +697,19 @@ class BacktestHarness:
         try:
             closed = self._position_manager.close_all_positions("Backtest data ended")
             for pos in (closed or []):
+                trade_fees = 0
+                try:
+                    segment = "NSE_FO" if "NFO" in self._instrument_key or "FO" in self._instrument_key else "NSE_EQ"
+                    trade_fees = calculate_trade_fees(
+                        pos.entry_price,
+                        pos.blended_exit_price or pos.exit_price or pos.entry_price,
+                        abs(pos.quantity),
+                        pos.side.value,
+                        segment,
+                        "MIS",
+                    )
+                except Exception:
+                    trade_fees = 0
                 results.trades.append({
                     "instrument_key": pos.instrument_key,
                     "strategy_id": pos.strategy_id,
@@ -678,7 +718,7 @@ class BacktestHarness:
                     "exit_price": pos.blended_exit_price or pos.entry_price,
                     "quantity": pos.quantity,
                     "net_pnl": pos.total_realized_pnl,
-                    "fees": 0,
+                    "fees": trade_fees,
                     "entry_time": str(pos.entry_time),
                     "exit_time": str(pos.exit_time) if pos.exit_time else None,
                     "exit_reason": "backtest_end",

@@ -308,6 +308,8 @@ class RiskManager:
         with self._lock:
             self.realized_pnl = 0
             self.unrealized_pnl = 0
+            self.deployed_capital = 0
+            self.open_position_count = 0
             self._daily_trades.clear()
 
         logger.info("Daily risk counters reset")

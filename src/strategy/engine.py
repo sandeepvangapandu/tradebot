@@ -202,6 +202,9 @@ class SetEvaluator(threading.Thread):
         # Strategy type classification from config (optional override)
         self._strategy_type = strategy_config.params.get("strategy_type", "auto")  # auto|trend|mean_reversion|breakout
 
+        # Cached VIX value from the most recently fetched bars (avoids double provider call)
+        self._cached_vix: Optional[float] = None
+
         # Multi-timeframe bars provider (optional)
         self._bars_by_timeframe_provider: Optional[callable] = None
 
@@ -287,9 +290,10 @@ class SetEvaluator(threading.Thread):
             if self._last_signal_time.date() != now.date():
                 self._signals_generated_today = 0
 
-        # VIX regime filter
+        # VIX regime filter: read from cached value set by the last bars fetch
+        # (_evaluate_for_symbol sets _cached_vix so we avoid a double provider call)
         if self._vix_filter_enabled:
-            if not self._check_vix_regime():
+            if not self._check_vix_regime(None):
                 logger.debug(
                     f"[{self._config.name}] VIX regime blocked: "
                     f"strategy_type={self._strategy_type}, vix_high={self._vix_high_threshold}, "
@@ -397,8 +401,11 @@ class SetEvaluator(threading.Thread):
             return None
         return float(close_val)
 
-    def _check_vix_regime(self) -> bool:
+    def _check_vix_regime(self, bars: dict | None = None) -> bool:
         """Check if current VIX level allows trading for this strategy type.
+
+        Uses pre-fetched `bars` dict when available (avoids calling bars_provider
+        a second time per bar). Falls back to _cached_vix if bars is None.
 
         Applies regime gating rules:
         - VIX > high_threshold (18%): only theta_positive strategies allowed
@@ -409,8 +416,13 @@ class SetEvaluator(threading.Thread):
             True if trading is allowed under current VIX regime.
         """
         try:
-            bars = self._bars_provider()
-            vix = self._get_vix_value(bars)
+            # Prefer freshly-fetched bars; fall back to cached value
+            if bars is not None:
+                vix = self._get_vix_value(bars)
+                self._cached_vix = vix  # update cache
+            else:
+                vix = self._cached_vix
+
             if vix is None:
                 logger.debug(f"[{self._config.name}] VIX data not available, skipping regime filter")
                 return True  # Fail open — don't block if VIX unavailable
@@ -438,7 +450,7 @@ class SetEvaluator(threading.Thread):
                     return False
                 return True
 
-            # Normal regime (12–18%): all strategies allowed
+            # Normal regime (12-18%): all strategies allowed
             return True
 
         except Exception as e:
@@ -621,6 +633,10 @@ class SetEvaluator(threading.Thread):
         """
         if symbol not in bars:
             return False
+
+        # Update VIX cache from current bars (avoids double provider call in _should_evaluate)
+        if self._vix_filter_enabled:
+            self._check_vix_regime(bars)
 
         # Check if we have enough data
         symbol_bars = {symbol: bars[symbol]}

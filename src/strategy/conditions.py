@@ -607,11 +607,17 @@ class ConditionEvaluator:
             ComparisonOperator.CROSSES_BELOW,
         ):
             if right_series is None:
-                logger.warning(
-                    "crosses_above/crosses_below requires 'against' indicator, "
-                    "not a constant value"
-                )
-                return False
+                # Allow crossing a constant level (e.g. RSI crosses_above 30)
+                if condition.value is not None:
+                    right_series = pd.Series(
+                        float(condition.value), index=indicator_series.index
+                    )
+                else:
+                    logger.warning(
+                        "crosses_above/crosses_below requires 'against' indicator "
+                        "or a constant 'value'"
+                    )
+                    return False
             return self._check_cross(
                 condition.comparison, indicator_series, right_series, lookback
             )

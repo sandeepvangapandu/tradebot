@@ -1474,8 +1474,8 @@ class PositionManager:
             new_sl_distance = int(original_sl_distance * self._config.trailing_sl_after_partial_multiplier)
             new_sl_price = position.entry_price - new_sl_distance
 
-            # Don't tighten SL, only widen or keep same
-            if new_sl_price > position.stop_loss_price:
+            # For a LONG: wider SL = lower price (further below entry)
+            if new_sl_price < position.stop_loss_price:
                 logger.info(
                     f"Widening SL for {position.position_id} after partial: "
                     f"{position.stop_loss_price/100:.2f} -> {new_sl_price/100:.2f}"
@@ -1486,8 +1486,8 @@ class PositionManager:
             new_sl_distance = int(original_sl_distance * self._config.trailing_sl_after_partial_multiplier)
             new_sl_price = position.entry_price + new_sl_distance
 
-            # Don't tighten SL, only widen or keep same
-            if new_sl_price < position.stop_loss_price:
+            # For a SHORT: wider SL = higher price (further above entry)
+            if new_sl_price > position.stop_loss_price:
                 logger.info(
                     f"Widening SL for {position.position_id} after partial: "
                     f"{position.stop_loss_price/100:.2f} -> {new_sl_price/100:.2f}"
@@ -1564,20 +1564,22 @@ class PositionManager:
                 return time_decay_reason
 
         # Check stop-loss
-        if position.side == OrderSide.BUY:
-            if price <= position.stop_loss_price:
-                return "STOP_LOSS"
-        else:  # SELL (short)
-            if price >= position.stop_loss_price:
-                return "STOP_LOSS"
+        if position.stop_loss_price is not None:
+            if position.side == OrderSide.BUY:
+                if price <= position.stop_loss_price:
+                    return "STOP_LOSS"
+            else:  # SELL (short)
+                if price >= position.stop_loss_price:
+                    return "STOP_LOSS"
 
         # Check target
-        if position.side == OrderSide.BUY:
-            if price >= position.target_price:
-                return "TARGET"
-        else:  # SELL (short)
-            if price <= position.target_price:
-                return "TARGET"
+        if position.target_price is not None:
+            if position.side == OrderSide.BUY:
+                if price >= position.target_price:
+                    return "TARGET"
+            else:  # SELL (short)
+                if price <= position.target_price:
+                    return "TARGET"
 
         # Check trailing SL
         if position.trailing_sl_activated and position.trailing_sl_price:

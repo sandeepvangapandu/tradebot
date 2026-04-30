@@ -66,6 +66,26 @@ class CircuitBreaker:
             pause_minutes,
         )
 
+        # Backtest mode: inject bar time to replace wall-clock in halt logic
+        self._backtest_time: datetime | None = None
+
+    def set_backtest_time(self, dt: datetime) -> None:
+        """Inject the current backtest bar timestamp.
+
+        Call this before each bar in the backtest loop so the circuit
+        breaker pause/resume checks use bar time rather than wall-clock time.
+
+        Args:
+            dt: Current bar timestamp (should be IST-aware).
+        """
+        self._backtest_time = dt
+
+    def _now(self) -> datetime:
+        """Return current time — backtest bar time if injected, else wall-clock."""
+        if self._backtest_time is not None:
+            return self._backtest_time
+        return datetime.now(tz=IST)
+
     # ------------------------------------------------------------------
     # Trade outcome recording
     # ------------------------------------------------------------------
@@ -106,7 +126,7 @@ class CircuitBreaker:
         Sets :attr:`halted` to ``True`` and schedules an automatic
         resume after :attr:`pause_minutes`.
         """
-        now = datetime.now(tz=IST)
+        now = self._now()
         resume_at = now + timedelta(minutes=self.pause_minutes)
 
         with self._lock:
@@ -137,7 +157,7 @@ class CircuitBreaker:
                 return True
 
             # Time-limited pause — check expiry
-            now = datetime.now(tz=IST)
+            now = self._now()
             if now >= self.halt_until:
                 self.halted = False
                 self.halt_until = None

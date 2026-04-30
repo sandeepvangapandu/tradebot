@@ -415,8 +415,15 @@ class PaperBroker(BaseBroker):
             else:  # Short position
                 pnl = entry_value - exit_value
 
-            position.realized_pnl += pnl - charges["total"]
-            self._realized_pnl += pnl - charges["total"]
+            net_pnl = pnl - charges["total"]
+            position.realized_pnl += net_pnl
+            self._realized_pnl += net_pnl
+
+            # Return freed capital to available cash (entry_value = margin deployed)
+            # Net proceeds = capital deployed for closed qty + any profit/loss
+            freed_margin = entry_value
+            self._available_cash += freed_margin + net_pnl
+            self._used_margin = max(0, self._used_margin - freed_margin)
 
         # Update position quantities
         old_quantity = position.quantity

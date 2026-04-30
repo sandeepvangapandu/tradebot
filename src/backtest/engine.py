@@ -258,11 +258,25 @@ class BacktestResults:
         profit_factor = gross_profit / gross_loss if gross_loss > 0 else float("inf")
 
         if len(pnls) > 1:
-            returns = [p / self.initial_capital for p in pnls]
-            mean_ret = sum(returns) / len(returns)
-            var = sum((r - mean_ret) ** 2 for r in returns) / (len(returns) - 1)
-            std_ret = math.sqrt(var) if var > 0 else 1e-10
-            sharpe = (mean_ret / std_ret) * math.sqrt(252)
+            # Sharpe from DAILY aggregated returns (not per-trade)
+            # Group trade P&L by exit date
+            daily_pnl_map: dict[str, int] = {}
+            for t in self.trades:
+                et = t.exit_time if hasattr(t, "exit_time") else t.get("exit_time")
+                date_key = str(et)[:10] if et else ""
+                if not date_key:
+                    continue
+                net = t.net_pnl if hasattr(t, "net_pnl") else t.get("net_pnl", 0)
+                daily_pnl_map[date_key] = daily_pnl_map.get(date_key, 0) + net
+
+            if len(daily_pnl_map) > 1:
+                daily_returns = [v / self.initial_capital for v in daily_pnl_map.values()]
+                mean_ret = sum(daily_returns) / len(daily_returns)
+                var = sum((r - mean_ret) ** 2 for r in daily_returns) / (len(daily_returns) - 1)
+                std_ret = math.sqrt(var) if var > 0 else 1e-10
+                sharpe = (mean_ret / std_ret) * math.sqrt(252)
+            else:
+                sharpe = 0.0
         else:
             sharpe = 0.0
 
@@ -309,10 +323,13 @@ def calculate_trade_fees(
     side: str,
     segment: str = "NSE_EQ",
     product: str = "MIS",
+    is_options: bool = False,
 ) -> int:
     """Calculate realistic trading fees for a round-trip trade.
 
-    Uses the same fee constants as PaperBroker to ensure backtest–live parity.
+    Uses the same fee constants as PaperBroker to ensure backtest-live parity.
+    Options and futures are handled separately as their STT and exchange charges
+    differ significantly.
 
     Args:
         entry_price: Entry fill price in paisa.
@@ -321,46 +338,60 @@ def calculate_trade_fees(
         side: "BUY" or "SELL" (entry side).
         segment: Market segment — "NSE_EQ", "NSE_FO", etc.
         product: Product type — "MIS" (intraday), "CNC" (delivery), "NRML".
+        is_options: If True, applies options-specific STT (on premium, not contract value).
 
     Returns:
         Total fees in paisa.
     """
-    entry_value = entry_price * quantity  # paisa
-    exit_value = exit_price * quantity  # paisa
-    turnover = entry_value + exit_value  # paisa
+    is_fno = segment in ("NSE_FO", "NFO")
 
-    # Convert turnover to rupees for percentage calculations
-    turnover_rs = turnover / 100
+    # For options, premium turnover = price × qty (not notional contract value)
+    # For futures/equity, turnover = full price × qty
+    entry_value = entry_price * quantity  # paisa
+    exit_value = exit_price * quantity    # paisa
+    turnover = entry_value + exit_value   # round-trip premium turnover (paisa)
+    turnover_rs = turnover / 100          # in rupees
 
     total_fees = 0
 
     # --- Brokerage (flat per leg, 2 legs = entry + exit) ---
     if product == "CNC":
         brokerage = 0
-    elif segment in ("NSE_FO", "NFO"):
+    elif is_fno:
         brokerage = FEES["brokerage_fno"] * 2
     else:
         brokerage = FEES["brokerage_equity_intraday"] * 2
     total_fees += int(brokerage)
 
-    # --- STT ---
-    if product == "MIS":
-        # Intraday: STT on sell side only, 0.025%
-        stt = exit_value / 100 * FEES["stt_equity_intraday_sell_pct"] * 100
-    elif segment in ("NSE_FO", "NFO"):
-        # Futures: 0.02% on sell side
-        stt = exit_value / 100 * FEES["stt_futures_sell_pct"] * 100
+    # --- STT (Securities Transaction Tax) ---
+    if is_options:
+        # Options STT: 0.0125% on sell-side premium only
+        # (Sebi circular: STT on options = 0.125% on premium at exercise;
+        #  for intraday options selling: 0.0125% on premium turnover on sell leg)
+        sell_value = exit_value if side == "BUY" else entry_value
+        stt = sell_value * FEES["stt_options_sell_pct"]
+    elif is_fno:
+        # Futures STT: 0.02% on sell-side notional
+        sell_value = exit_value if side == "BUY" else entry_value
+        stt = sell_value * FEES["stt_futures_sell_pct"]
+    elif product == "MIS":
+        # Equity intraday: 0.025% on sell side
+        sell_value = exit_value if side == "BUY" else entry_value
+        stt = sell_value * FEES["stt_equity_intraday_sell_pct"]
     else:
         # Delivery: 0.1% on sell side
-        stt = exit_value / 100 * FEES["stt_equity_delivery_sell_pct"] * 100
+        sell_value = exit_value if side == "BUY" else entry_value
+        stt = sell_value * FEES["stt_equity_delivery_sell_pct"]
     total_fees += int(round(stt))
 
     # --- Exchange transaction charges ---
-    if segment in ("NSE_FO", "NFO"):
+    # For options: charged on premium turnover; for equity/futures: on full turnover
+    if is_fno:
         exch_rate = FEES["exchange_charge_nse_fo_pct"]
     else:
         exch_rate = FEES["exchange_charge_nse_eq_pct"]
-    exchange_charges = turnover_rs * exch_rate * 100  # convert back to paisa
+    exchange_charges_rs = turnover_rs * exch_rate
+    exchange_charges = exchange_charges_rs * 100  # back to paisa
     total_fees += int(round(exchange_charges))
 
     # --- GST: 18% on (brokerage + exchange charges) ---
@@ -368,18 +399,19 @@ def calculate_trade_fees(
     gst = gst_base * FEES["gst_pct"]
     total_fees += int(round(gst))
 
-    # --- SEBI charges ---
+    # --- SEBI charges (Rs 10 per crore = 0.0000001 of turnover in rupees) ---
     sebi = turnover_rs * FEES["sebi_charge_rate_pct"] * 100  # paisa
     total_fees += max(int(round(sebi)), 0)
 
     # --- Stamp duty (buy side only) ---
-    if product == "MIS":
-        stamp_rate = FEES["stamp_duty_equity_intraday_pct"]
-    elif segment in ("NSE_FO", "NFO"):
+    buy_value = entry_value if side == "BUY" else exit_value
+    if is_fno:
         stamp_rate = FEES["stamp_duty_fno_pct"]
-    else:
+    elif product == "CNC":
         stamp_rate = FEES["stamp_duty_equity_delivery_pct"]
-    stamp = entry_value / 100 * stamp_rate * 100  # paisa
+    else:
+        stamp_rate = FEES["stamp_duty_equity_intraday_pct"]
+    stamp = buy_value * stamp_rate
     total_fees += int(round(stamp))
 
     return total_fees
@@ -533,11 +565,30 @@ class BacktestEngine:
         # But for small daily dataframes (5min = 75 bars), use fewer
         warmup = min(30, max(10, total_bars // 5))
 
+        prev_date = None  # Track date to reset daily counters at start of each new day
+
         for i in range(warmup, total_bars):
             bar = df.iloc[i]
             bar_time = df.index[i]
             current_price = int(bar["close"])
             window = df.iloc[: i + 1]
+
+            # --- New-day reset ---
+            bar_date = bar_time.date() if hasattr(bar_time, "date") else None
+            if bar_date and bar_date != prev_date:
+                if prev_date is not None:
+                    logger.debug(f"[BacktestEngine] New trading day: {bar_date} — resetting daily counters")
+                self.daily_pnl = 0
+                self.daily_trades = 0
+                self._strategy_trade_count = {}
+                self._cooldown_until = {}
+                prev_date = bar_date
+
+            # --- Skip pre-market bars (before 9:15 IST) ---
+            bar_time_t = bar_time.time() if hasattr(bar_time, "time") else None
+            if bar_time_t and bar_time_t < MARKET_OPEN:
+                self.equity_curve.append(self.current_capital)
+                continue
 
             # --- Phase 1: Check exits for all open positions ---
             for pos_key in list(self.positions.keys()):

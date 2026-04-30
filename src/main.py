@@ -44,6 +44,7 @@ from loguru import logger
 from config.settings import Settings, get_settings
 from src.auth.token_manager import TokenManager
 from src.data.bar_builder import BarBuilder
+from src.data.historical import HistoricalDataFetcher
 from src.data.instruments import InstrumentManager
 from src.data.portfolio_feed import PortfolioFeed
 from src.data.websocket_feed import MarketDataFeed
@@ -210,6 +211,61 @@ class TradingBot:
         self.bar_builder.start()
         logger.info("BarBuilder started")
 
+        # 7b. Backfill historical bars so indicators have warmup before
+        # live ticks start. Without this, freshly-started bots cannot
+        # generate signals for ~50+ minutes (RSI/EMA/MACD warmup window).
+        try:
+            underlyings_for_warmup = [
+                "NSE_INDEX|Nifty Bank",
+                "NSE_INDEX|Nifty 50",
+            ]
+            fetcher = HistoricalDataFetcher(access_token)
+            import pandas as _pd
+
+            for ik in underlyings_for_warmup:
+                # Upstox History v3 only supports 1m / 30m / day intervals,
+                # and the historical endpoint excludes the current session.
+                # Fetch 1m for prior 5 days + today's intraday, then resample
+                # to 5m and 15m locally before seeding the bar builder.
+                hist_df = fetcher.fetch_candles(ik, interval="1minute", days=5)
+                today_df = fetcher.fetch_intraday_candles(
+                    ik, interval="1minute"
+                )
+
+                parts = [d for d in (hist_df, today_df) if d is not None and not d.empty]
+                if not parts:
+                    logger.warning("No warmup bars available for {}", ik)
+                    continue
+
+                df_1m = _pd.concat(parts).sort_index()
+                df_1m = df_1m[~df_1m.index.duplicated(keep="last")]
+                today_n = 0 if today_df is None or today_df.empty else len(today_df)
+
+                # Seed 1m
+                n1 = self.bar_builder.seed_bars(ik, 1, df_1m)
+                logger.info(
+                    "Seeded {} 1m bars for {} (warmup, {} from today)",
+                    n1, ik, today_n,
+                )
+
+                # Resample to 5m and 15m
+                agg = {"open": "first", "high": "max", "low": "min",
+                       "close": "last", "volume": "sum"}
+                for tf in (5, 15):
+                    rs = df_1m.resample(f"{tf}min").agg(agg).dropna()
+                    if rs.empty:
+                        continue
+                    n = self.bar_builder.seed_bars(ik, tf, rs)
+                    logger.info(
+                        "Seeded {} {}m bars for {} (resampled from 1m)",
+                        n, tf, ik,
+                    )
+        except Exception as exc:
+            logger.warning(
+                "Historical warmup failed: {} — strategies will warm up "
+                "from live ticks instead.", exc
+            )
+
         # 8. Start WebSocket feeds
         self.market_feed = MarketDataFeed(access_token)
         self.market_feed.tick_queue = self.tick_queue
@@ -262,6 +318,40 @@ class TradingBot:
         self.health_monitor.register_component("database", heartbeat_timeout=120)
         self.health_monitor.register_component("scheduler", heartbeat_timeout=120)
         self.health_monitor.start_monitoring(interval=30)
+
+        # Wire market_feed heartbeat: every tick bumps the watchdog so the
+        # health monitor can detect a truly stalled WebSocket vs. a quiet
+        # market. Without this, market_feed is always reported FAILED.
+        if self.market_feed is not None:
+            _hm = self.health_monitor
+            self.market_feed.register_callback(
+                lambda _msg: _hm.heartbeat("market_feed")
+            )
+
+        # database + scheduler heartbeats: lightweight 30s interval job that
+        # pings DB and bumps both watchdogs. Without this, both components
+        # are perpetually marked FAILED even when healthy.
+        from sqlalchemy import text as _sql_text
+
+        def _heartbeat_pulse() -> None:
+            logger.debug("heartbeat pulse firing")
+            try:
+                with get_session() as session:
+                    session.execute(_sql_text("SELECT 1"))
+                self.health_monitor.heartbeat("database")
+            except Exception as exc:
+                logger.warning("DB heartbeat ping failed: {}", exc)
+            self.health_monitor.heartbeat("scheduler")
+
+        if self.scheduler is not None:
+            try:
+                self.scheduler.add_interval_job(
+                    _heartbeat_pulse, seconds=30, job_id="health_heartbeat"
+                )
+                logger.info("Health heartbeat pulse scheduled (30s interval)")
+            except Exception as exc:
+                logger.error("Failed to schedule heartbeat pulse: {}", exc)
+
         logger.info("Health monitor initialized and started")
 
         # 13. Register signal handlers

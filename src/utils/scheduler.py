@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -37,6 +38,27 @@ class TaskScheduler:
             job_id: Unique identifier for this job.
         """
         trigger = CronTrigger(hour=hour, minute=minute, timezone=IST)
+        self._scheduler.add_job(
+            func,
+            trigger=trigger,
+            id=job_id,
+            replace_existing=True,
+        )
+
+    def add_interval_job(
+        self,
+        func: Callable[..., object],
+        seconds: int,
+        job_id: str,
+    ) -> None:
+        """Schedule a function to run every `seconds` seconds.
+
+        Args:
+            func: Callable to execute.
+            seconds: Interval between runs.
+            job_id: Unique identifier for this job.
+        """
+        trigger = IntervalTrigger(seconds=seconds, timezone=IST)
         self._scheduler.add_job(
             func,
             trigger=trigger,

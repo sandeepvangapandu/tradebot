@@ -1,7 +1,7 @@
 {
   "name": "CPR_VWAP_Bounce_BankNifty",
   "description": "CPR pivot bounce with VWAP confluence for Bank Nifty morning session options trading",
-  "enabled": false,
+  "enabled": true,
   "underlying": {
     "instrument_key": "NSE_INDEX|Nifty Bank",
     "symbol": "BANKNIFTY",

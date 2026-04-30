@@ -476,6 +476,68 @@ class ConditionEvaluator:
         """Initialize the condition evaluator."""
         self._indicator_engines: dict[str, IndicatorEngine] = {}
         self._last_values: dict[str, Any] = {}
+        # CPR cache: {(symbol, date_iso): cpr_dict}. Keyed on the date we
+        # are evaluating; CPR computed from the *prior* trading day's OHLC.
+        self._cpr_cache: dict[tuple[str, str], dict[str, float]] = {}
+
+    def _auto_cpr(
+        self,
+        engine: "IndicatorEngine",
+        symbol: str | None,
+    ) -> dict[str, float]:
+        """Compute CPR levels from prior trading day's OHLC.
+
+        Resamples the engine's bar history to daily, takes the second-to-last
+        completed day (today is in-progress), feeds calculate_cpr.
+
+        Returns:
+            CPR dict (pivot, bc, tc, r1-r3, s1-s3). Empty dict if not enough
+            data (e.g. first day of bars, no prior day available).
+        """
+        try:
+            df = engine.get_data()
+        except Exception:
+            return {}
+        if df is None or df.empty:
+            return {}
+
+        # Cache key: prior-trading-day's date. Pin cache to the latest bar's
+        # date so multiple condition checks within the same session reuse it.
+        latest_date = df.index[-1].date()
+        cache_key = (symbol or "_", latest_date.isoformat())
+        cached = self._cpr_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        # Resample 1-minute bars to daily OHLC
+        try:
+            daily = df.resample("1D").agg(
+                {"open": "first", "high": "max", "low": "min",
+                 "close": "last", "volume": "sum"}
+            ).dropna()
+        except Exception:
+            return {}
+
+        # Need at least one fully-completed prior day
+        if len(daily) < 2:
+            self._cpr_cache[cache_key] = {}
+            return {}
+
+        # Use the last fully-closed day = second-to-last row when today's
+        # session is in progress; or last row when latest_date is not today.
+        prev_day_df = daily.iloc[[-2]]
+        if daily.index[-1].date() != latest_date:
+            # Latest bar is on a different (older) date; treat last as prev.
+            prev_day_df = daily.iloc[[-1]]
+
+        try:
+            cpr = engine.calculate_cpr(prev_day_df)
+        except Exception as exc:
+            logger.debug(f"calculate_cpr failed: {exc}")
+            cpr = {}
+
+        self._cpr_cache[cache_key] = cpr
+        return cpr
 
     def register_instrument(
         self, symbol: str, engine: IndicatorEngine
@@ -826,8 +888,14 @@ class ConditionEvaluator:
             cpr_level = name_lower.replace("cpr_", "")
             cpr_data = parameters.get("cpr_data", {})
 
+            # Auto-compute CPR from prior-day bars when caller didn't supply
+            # cpr_data. Avoids requiring every strategy config to inject
+            # daily OHLC. Cached per (symbol, date) on the evaluator.
             if not cpr_data:
-                logger.warning(f"CPR data not provided for {name}")
+                cpr_data = self._auto_cpr(engine, target_symbol)
+
+            if not cpr_data:
+                logger.debug(f"CPR data unavailable for {name}")
                 return None
 
             # Map CPR level names to keys in cpr_data
@@ -1063,8 +1131,17 @@ class ConditionEvaluator:
             if len(today_data) == 0:
                 return None
             orb_minutes = parameters.get("orb_minutes", 15)
-            orb_bars = parameters.get("orb_bars", max(1, orb_minutes // 5))
-            orb_slice = today_data.iloc[:orb_bars]
+            # Slice by time delta from session open — works for any bar
+            # interval (1m/5m/15m). Falls back to bar-count if explicit
+            # `orb_bars` provided.
+            orb_bars = parameters.get("orb_bars")
+            if orb_bars is not None:
+                orb_slice = today_data.iloc[:orb_bars]
+            else:
+                from datetime import timedelta as _td
+                session_start = today_data.index[0]
+                orb_end = session_start + _td(minutes=orb_minutes)
+                orb_slice = today_data[today_data.index < orb_end]
             if len(orb_slice) == 0:
                 return None
             orb_high_val = float(orb_slice["high"].max())

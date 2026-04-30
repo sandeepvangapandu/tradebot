@@ -1,7 +1,7 @@
 {
   "name": "ORB_VWAP_BankNifty",
   "description": "Opening Range Breakout with VWAP confluence for Bank Nifty options",
-  "enabled": false,
+  "enabled": true,
   "underlying": {
     "instrument_key": "NSE_INDEX|Nifty Bank",
     "symbol": "BANKNIFTY",

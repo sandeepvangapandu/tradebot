@@ -62,6 +62,10 @@ def main() -> int:
         "--straddle-proxy", action="store_true",
         help="Transform index OHLCV into synthetic ATM straddle premium OHLCV",
     )
+    parser.add_argument(
+        "--strategy-only", default=None,
+        help="Run only the specified strategy (by name). Useful for isolated backtests.",
+    )
 
     args = parser.parse_args()
 
@@ -77,6 +81,7 @@ def main() -> int:
         prices_in_rupees=args.prices_in_rupees,
         options_proxy=args.options_proxy,
         straddle_proxy=args.straddle_proxy,
+        strategy_only=args.strategy_only,
     )
 
     results = harness.run()

@@ -43,7 +43,7 @@
     "time_based_exit": "14:00:00",
     "max_holding_minutes": 270,
     "trailing_stop_loss": {
-      "enabled": true,
+  "enabled": false,
       "activation_pct": 30.0,
       "trail_pct": 15.0
     }
@@ -66,6 +66,7 @@
     "entry_window_start": "09:30:00",
     "entry_window_end": "11:30:00",
     "emergency_exit_move_pct": 2.0,
-    "require_confluence": false
+    "require_confluence": false,
+    "strategy_type": "theta_positive"
   }
 }

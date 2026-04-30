@@ -98,5 +98,8 @@
   "risk_management": {
     "max_open_positions": 2,
     "max_trades_per_day": 3
+  },
+  "params": {
+    "strategy_type": "trend_following"
   }
 }

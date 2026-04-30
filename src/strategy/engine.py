@@ -194,12 +194,21 @@ class SetEvaluator(threading.Thread):
             "min_timeframes_aligned", 2
         )
 
+        # VIX regime filter configuration
+        self._vix_filter_enabled = strategy_config.params.get("vix_filter", True)
+        self._vix_symbol = strategy_config.params.get("vix_symbol", "NSE_INDEX|INDIA_VIX")
+        self._vix_high_threshold = strategy_config.params.get("vix_high_threshold", 18.0)  # >18% = high vol
+        self._vix_low_threshold = strategy_config.params.get("vix_low_threshold", 12.0)   # <12% = low vol
+        # Strategy type classification from config (optional override)
+        self._strategy_type = strategy_config.params.get("strategy_type", "auto")  # auto|trend|mean_reversion|breakout
+
         # Multi-timeframe bars provider (optional)
         self._bars_by_timeframe_provider: Optional[callable] = None
 
         logger.info(
             f"Initialized SetEvaluator for {strategy_config.name}/{entry_set.name} "
-            f"(enhanced_filters={self._use_enhanced_filters}, strict_mode={self._strict_mode})"
+            f"(enhanced_filters={self._use_enhanced_filters}, strict_mode={self._strict_mode}, "
+            f"vix_filter={self._vix_filter_enabled})"
         )
 
     def run(self) -> None:
@@ -278,6 +287,16 @@ class SetEvaluator(threading.Thread):
             if self._last_signal_time.date() != now.date():
                 self._signals_generated_today = 0
 
+        # VIX regime filter
+        if self._vix_filter_enabled:
+            if not self._check_vix_regime():
+                logger.debug(
+                    f"[{self._config.name}] VIX regime blocked: "
+                    f"strategy_type={self._strategy_type}, vix_high={self._vix_high_threshold}, "
+                    f"vix_low={self._vix_low_threshold}"
+                )
+                return False
+
         return True
 
     def _is_trading_allowed_time(self, timestamp: datetime) -> bool:
@@ -313,6 +332,118 @@ class SetEvaluator(threading.Thread):
             return True
 
         return False
+
+    def _determine_strategy_type(self) -> str:
+        """Classify strategy as trend_following, mean_reversion, breakout, or theta_positive.
+
+        Uses heuristic analysis of strategy name, entry conditions, and parameters.
+        Returns "auto" if unable to classify.
+        """
+        name_lower = self._config.name.lower()
+        # Check explicit config override first
+        if self._strategy_type != "auto":
+            return self._strategy_type
+
+        # Heuristic classification by name/conditions
+        # Trend following: uses moving average crossovers, Supertrend, MACD with ADX confirmation
+        trend_keywords = ["supertrend", "ema_cross", "macd", "trend", "momentum"]
+        if any(kw in name_lower for kw in trend_keywords):
+            return "trend_following"
+
+        # Mean reversion: uses RSI oversold/overbought, Bollinger Bands, CPR
+        mr_keywords = ["cpr", "rsi", "bollinger", "bb", "mean_reversion", "reversal"]
+        if any(kw in name_lower for kw in mr_keywords):
+            return "mean_reversion"
+
+        # Breakout: uses previous day high/low, opening range, VWAP breakout
+        breakout_keywords = ["orb", "pdh", "pdl", "breakout", "vwap_breakout"]
+        if any(kw in name_lower for kw in breakout_keywords):
+            return "breakout"
+
+        # Theta-positive (option selling): straddle, condor, credit spread, iron condor
+        theta_keywords = ["straddle", "condor", "credit_spread", "iron_condor", "theta"]
+        if any(kw in name_lower for kw in theta_keywords):
+            return "theta_positive"
+
+        # Check entry set signal types for options selling (CE/PE with SELL side inferred)
+        # If strategy sells options (STRADDLE or sells CE/PE), it's likely theta-positive
+        for entry in self._config.entry_sets:
+            if entry.signal in ("SELL_CE", "SELL_PE", "STRADDLE"):
+                return "theta_positive"
+
+        return "auto"
+
+    def _get_vix_value(self, bars: dict[str, pd.DataFrame]) -> Optional[float]:
+        """Extract current VIX value from the bars dictionary.
+
+        Looks for the VIX symbol configured in `_vix_symbol`.
+        Returns the latest close price as a percentage (e.g., 15.5 for 15.5%).
+
+        Args:
+            bars: Current bars dict from provider.
+
+        Returns:
+            VIX value as float (percentage) or None if unavailable.
+        """
+        vix_key = self._vix_symbol
+        if vix_key not in bars:
+            return None
+        vix_df = bars[vix_key]
+        if vix_df.empty or "close" not in vix_df.columns:
+            return None
+        # VIX data is typically stored in percentage points (e.g., 15.5)
+        close_val = vix_df["close"].iloc[-1]
+        if pd.isna(close_val):
+            return None
+        return float(close_val)
+
+    def _check_vix_regime(self) -> bool:
+        """Check if current VIX level allows trading for this strategy type.
+
+        Applies regime gating rules:
+        - VIX > high_threshold (18%): only theta_positive strategies allowed
+        - VIX < low_threshold (12%): only mean_reversion and breakout allowed
+        - Between thresholds: all strategies allowed
+
+        Returns:
+            True if trading is allowed under current VIX regime.
+        """
+        try:
+            bars = self._bars_provider()
+            vix = self._get_vix_value(bars)
+            if vix is None:
+                logger.debug(f"[{self._config.name}] VIX data not available, skipping regime filter")
+                return True  # Fail open — don't block if VIX unavailable
+
+            strategy_type = self._determine_strategy_type()
+            logger.debug(f"[{self._config.name}] VIX={vix:.1f}%, strategy_type={strategy_type}")
+
+            # High volatility regime — block non-theta strategies
+            if vix > self._vix_high_threshold:
+                if strategy_type not in ("theta_positive", "auto"):
+                    logger.info(
+                        f"[{self._config.name}] BLOCKED: VIX {vix:.1f}% > {self._vix_high_threshold}%, "
+                        f"strategy type '{strategy_type}' not allowed in high-vol regime"
+                    )
+                    return False
+                return True
+
+            # Low volatility regime — block trend-following strategies
+            if vix < self._vix_low_threshold:
+                if strategy_type == "trend_following":
+                    logger.info(
+                        f"[{self._config.name}] BLOCKED: VIX {vix:.1f}% < {self._vix_low_threshold}%, "
+                        f"trend strategy not allowed in low-vol regime"
+                    )
+                    return False
+                return True
+
+            # Normal regime (12–18%): all strategies allowed
+            return True
+
+        except Exception as e:
+            logger.warning(f"[{self._config.name}] VIX regime check failed: {e}")
+            return True  # Fail open
 
     def _is_expiry_day(self, symbol: str, timestamp: datetime) -> bool:
         """Check if today is expiry day for the symbol.
@@ -657,8 +788,8 @@ class SetEvaluator(threading.Thread):
             current_price = int(df["close"].iloc[-1])
 
             # Calculate SL and target first (needed for risk-based sizing)
-            stop_loss = self._calculate_stop_loss(current_price, df)
-            target = self._calculate_target(current_price, df)
+            stop_loss = self._calculate_stop_loss(current_price, df, symbol)
+            target = self._calculate_target(current_price, df, symbol)
 
             # Calculate quantity based on position sizing
             # Research score will be applied later by order manager
@@ -667,6 +798,7 @@ class SetEvaluator(threading.Thread):
                 stop_loss=stop_loss,
                 df=df,
                 research_score=None,  # Will be applied in order manager
+                symbol=symbol,
             )
 
             # Get underlying for options
@@ -708,6 +840,7 @@ class SetEvaluator(threading.Thread):
         stop_loss: int | None = None,
         df: pd.DataFrame | None = None,
         research_score: float | None = None,
+        symbol: str | None = None,
     ) -> int:
         """Calculate position quantity based on sizing method.
 
@@ -767,7 +900,7 @@ class SetEvaluator(threading.Thread):
         quantity = self._apply_research_score_scaling(quantity, research_score)
 
         # Apply volatility adjustment
-        quantity = self._apply_volatility_adjustment(quantity, df)
+        quantity = self._apply_volatility_adjustment(quantity, df, symbol)
 
         # Round to lot size
         quantity = self._round_to_lot_size(quantity, lot_size)
@@ -954,16 +1087,19 @@ class SetEvaluator(threading.Thread):
 
         return max(adjusted_qty, 0)
 
-    def _apply_volatility_adjustment(self, quantity: int, df: pd.DataFrame | None) -> int:
-        """Apply volatility-based position sizing adjustment.
+    def _apply_volatility_adjustment(self, quantity: int, df: pd.DataFrame | None, symbol: str) -> int:
+        """Apply volatility-based position size adjustment using ATR.
 
-        Adjustments:
-        - High volatility (ATR > 1.5x average): reduce size by 25%
-        - Low volatility (ATR < 0.75x average): increase size by 10%
+        Uses cached IndicatorEngine from ConditionEvaluator when available to avoid
+        O(N) recomputation per bar.
+
+        Reduces position size during high volatility (ATR > 1.5× its 20-bar average)
+        and increases slightly during low volatility (ATR < 0.75× average).
 
         Args:
             quantity: Current quantity.
             df: OHLCV DataFrame for ATR calculation.
+            symbol: Trading symbol for engine cache lookup.
 
         Returns:
             Adjusted quantity.
@@ -974,7 +1110,17 @@ class SetEvaluator(threading.Thread):
         try:
             from src.strategy.indicators import IndicatorEngine
 
-            engine = IndicatorEngine(df)
+            # Try to reuse cached engine from ConditionEvaluator
+            engine = None
+            if hasattr(self, '_evaluator') and self._evaluator:
+                engine = self._evaluator.get_engine(symbol)
+                if engine:
+                    # Incrementally update engine with latest data
+                    engine.update(df)
+            if engine is None:
+                # Fallback: create fresh engine (cold start or missing cache)
+                engine = IndicatorEngine(df)
+
             atr_series = engine.atr(14)
 
             if len(atr_series) < 20:
@@ -990,11 +1136,9 @@ class SetEvaluator(threading.Thread):
             multiplier = 1.0
 
             if atr_ratio > 1.5:
-                # High volatility - reduce size
                 multiplier = 0.75
                 logger.debug(f"High volatility adjustment: ATR ratio={atr_ratio:.2f}, reducing size by 25%")
             elif atr_ratio < 0.75:
-                # Low volatility - increase size slightly
                 multiplier = 1.10
                 logger.debug(f"Low volatility adjustment: ATR ratio={atr_ratio:.2f}, increasing size by 10%")
 
@@ -1048,12 +1192,15 @@ class SetEvaluator(threading.Thread):
 
         return quantity
 
-    def _calculate_stop_loss(self, entry_price: int, df: pd.DataFrame) -> Optional[int]:
+    def _calculate_stop_loss(self, entry_price: int, df: pd.DataFrame, symbol: str) -> Optional[int]:
         """Calculate stop loss price.
+
+        Uses cached IndicatorEngine when available.
 
         Args:
             entry_price: Entry price in PAISA.
             df: OHLCV DataFrame for ATR calculation.
+            symbol: Trading symbol for engine cache lookup.
 
         Returns:
             Stop loss price in PAISA or None.
@@ -1063,44 +1210,48 @@ class SetEvaluator(threading.Thread):
             return None
 
         if isinstance(sl_rule, (int, float)):
-            # Fixed points
             points = int(sl_rule)
             if self._entry_set.signal_type in (SignalType.BUY, SignalType.BUY_CE):
                 return entry_price - points
             else:
                 return entry_price + points
 
-        elif isinstance(sl_rule, str):
-            # ATR-based: e.g., "1.5xATR"
-            if "xatr" in sl_rule.lower():
-                try:
-                    multiplier = float(sl_rule.lower().replace("xatr", ""))
-                    from src.strategy.indicators import IndicatorEngine
+        elif isinstance(sl_rule, str) and "xatr" in sl_rule.lower():
+            try:
+                multiplier = float(sl_rule.lower().replace("xatr", ""))
+                from src.strategy.indicators import IndicatorEngine
 
+                engine = None
+                if hasattr(self, '_evaluator') and self._evaluator:
+                    engine = self._evaluator.get_engine(symbol)
+                    if engine:
+                        engine.update(df)
+                if engine is None:
                     engine = IndicatorEngine(df)
-                    atr = engine.atr(14)
-                    atr_value = int(atr.iloc[-1])
-                    points = int(atr_value * multiplier)
 
-                    if self._entry_set.signal_type in (
-                        SignalType.BUY,
-                        SignalType.BUY_CE,
-                    ):
-                        return entry_price - points
-                    else:
-                        return entry_price + points
-                except Exception as e:
-                    logger.error(f"Failed to calculate ATR-based SL: {e}")
-                    return None
+                atr = engine.atr(14)
+                atr_value = int(atr.iloc[-1])
+                points = int(atr_value * multiplier)
+
+                if self._entry_set.signal_type in (SignalType.BUY, SignalType.BUY_CE):
+                    return entry_price - points
+                else:
+                    return entry_price + points
+            except Exception as e:
+                logger.error(f"Failed to calculate ATR-based SL: {e}")
+                return None
 
         return None
 
-    def _calculate_target(self, entry_price: int, df: pd.DataFrame) -> Optional[int]:
+    def _calculate_target(self, entry_price: int, df: pd.DataFrame, symbol: str) -> Optional[int]:
         """Calculate target price.
+
+        Uses cached IndicatorEngine when available.
 
         Args:
             entry_price: Entry price in PAISA.
             df: OHLCV DataFrame for ATR calculation.
+            symbol: Trading symbol for engine cache lookup.
 
         Returns:
             Target price in PAISA or None.
@@ -1110,35 +1261,36 @@ class SetEvaluator(threading.Thread):
             return None
 
         if isinstance(target_rule, (int, float)):
-            # Fixed points
             points = int(target_rule)
             if self._entry_set.signal_type in (SignalType.BUY, SignalType.BUY_CE):
                 return entry_price + points
             else:
                 return entry_price - points
 
-        elif isinstance(target_rule, str):
-            # ATR-based: e.g., "3xATR"
-            if "xatr" in target_rule.lower():
-                try:
-                    multiplier = float(target_rule.lower().replace("xatr", ""))
-                    from src.strategy.indicators import IndicatorEngine
+        elif isinstance(target_rule, str) and "xatr" in target_rule.lower():
+            try:
+                multiplier = float(target_rule.lower().replace("xatr", ""))
+                from src.strategy.indicators import IndicatorEngine
 
+                engine = None
+                if hasattr(self, '_evaluator') and self._evaluator:
+                    engine = self._evaluator.get_engine(symbol)
+                    if engine:
+                        engine.update(df)
+                if engine is None:
                     engine = IndicatorEngine(df)
-                    atr = engine.atr(14)
-                    atr_value = int(atr.iloc[-1])
-                    points = int(atr_value * multiplier)
 
-                    if self._entry_set.signal_type in (
-                        SignalType.BUY,
-                        SignalType.BUY_CE,
-                    ):
-                        return entry_price + points
-                    else:
-                        return entry_price - points
-                except Exception as e:
-                    logger.error(f"Failed to calculate ATR-based target: {e}")
-                    return None
+                atr = engine.atr(14)
+                atr_value = int(atr.iloc[-1])
+                points = int(atr_value * multiplier)
+
+                if self._entry_set.signal_type in (SignalType.BUY, SignalType.BUY_CE):
+                    return entry_price + points
+                else:
+                    return entry_price - points
+            except Exception as e:
+                logger.error(f"Failed to calculate ATR-based target: {e}")
+                return None
 
         return None
 
@@ -1259,6 +1411,53 @@ class StrategyEngine:
         "STRADDLE": SignalType.STRADDLE,
     }
 
+    @staticmethod
+    def _classify_strategy_type(strategy: StrategyConfig) -> str:
+        """Classify strategy as trend_following, mean_reversion, breakout, or theta_positive.
+
+        Uses heuristic analysis of strategy name and entry conditions.
+
+        Args:
+            strategy: StrategyConfig to classify.
+
+        Returns:
+            Strategy type string.
+        """
+        name_lower = strategy.name.lower()
+
+        # Explicit override
+        strat_type = strategy.params.get("strategy_type", "auto")
+        if strat_type != "auto":
+            return strat_type
+
+        # Trend following: MA crossovers, Supertrend, MACD with ADX
+        trend_kw = ["supertrend", "ema_cross", "macd", "trend", "momentum", "adx"]
+        if any(kw in name_lower for kw in trend_kw):
+            return "trend_following"
+
+        # Mean reversion: RSI, Bollinger Bands, CPR
+        mr_kw = ["cpr", "rsi", "bollinger", "bb", "mean_reversion", "reversal", "oscillator"]
+        if any(kw in name_lower for kw in mr_kw):
+            return "mean_reversion"
+
+        # Breakout: PDH/PDL, ORB, VWAP breakout
+        bo_kw = ["orb", "pdh", "pdl", "breakout", "vwap_breakout"]
+        if any(kw in name_lower for kw in bo_kw):
+            return "breakout"
+
+        # Theta-positive: option selling strategies
+        theta_kw = ["straddle", "condor", "credit_spread", "iron_condor", "theta", "short_option"]
+        if any(kw in name_lower for kw in theta_kw):
+            return "theta_positive"
+
+        # Check entry signal types
+        for entry in strategy.entry_sets:
+            sig = entry.signal.upper()
+            if sig in ("SELL_CE", "SELL_PE", "STRADDLE"):
+                return "theta_positive"
+
+        return "auto"
+
     def evaluate_bar_sync(
         self,
         bars: dict[str, pd.DataFrame],
@@ -1320,6 +1519,37 @@ class StrategyEngine:
                 elapsed_mins = (bar_time - last_sig).total_seconds() / 60
                 if elapsed_mins < cooldown_bars:
                     continue
+
+            # VIX regime filter for backtest (mirrors SetEvaluator._check_vix_regime)
+            if strategy.params.get("vix_filter", True):
+                # Determine VIX value from bars
+                vix_symbol = strategy.params.get("vix_symbol", "NSE_INDEX|INDIA_VIX")
+                vix_value = None
+                if vix_symbol in bars:
+                    vix_df = bars[vix_symbol]
+                    if not vix_df.empty and "close" in vix_df.columns:
+                        vix_val = vix_df["close"].iloc[-1]
+                        if pd.notna(vix_val):
+                            vix_value = float(vix_val)
+                if vix_value is not None:
+                    # Determine strategy type (auto-detect or explicit)
+                    strat_type = strategy.params.get("strategy_type", "auto")
+                    if strat_type == "auto":
+                        strat_type = self._classify_strategy_type(strategy)
+                    vix_high = strategy.params.get("vix_high_threshold", 18.0)
+                    vix_low = strategy.params.get("vix_low_threshold", 12.0)
+                    if vix_value > vix_high and strat_type not in ("theta_positive", "auto"):
+                        logger.debug(
+                            f"[{strategy.name}] VIX {vix_value:.1f}% > {vix_high}%, "
+                            f"strategy '{strat_type}' blocked in high-vol regime"
+                        )
+                        continue
+                    if vix_value < vix_low and strat_type == "trend_following":
+                        logger.debug(
+                            f"[{strategy.name}] VIX {vix_value:.1f}% < {vix_low}%, "
+                            f"trend strategy blocked in low-vol regime"
+                        )
+                        continue
 
             # Instrument key
             instrument_key: Optional[str] = None

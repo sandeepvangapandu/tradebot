@@ -166,14 +166,36 @@ class UpstoxLiveBroker(BaseBroker):
         self._connected = False
         self._stop_websocket.set()
 
+        # Stop the WebSocket thread first
         if self._websocket_thread and self._websocket_thread.is_alive():
             self._websocket_thread.join(timeout=5)
 
+        # Close the WebSocket connection
         if self._websocket:
             try:
                 self._websocket.close()
             except Exception as e:
                 logger.debug(f"Error closing WebSocket: {e}")
+            self._websocket = None
+
+        # Explicitly close the ApiClient urllib3 connection pool.
+        # This prevents [Errno 9] Bad file descriptor errors during GC
+        # which occur when ApiClient.__del__ tries to close already-reclaimed
+        # OS file descriptors at interpreter shutdown.
+        if self._api_client is not None:
+            try:
+                self._api_client.close()
+            except (OSError, IOError):
+                # Socket already closed by the OS at shutdown — safe to ignore
+                pass
+            except Exception as e:
+                logger.debug(f"Error during ApiClient cleanup: {e}")
+            finally:
+                self._api_client = None
+                self._order_api = None
+                self._portfolio_api = None
+                self._user_api = None
+                self._market_api = None
 
         logger.info("UpstoxLiveBroker disconnected")
 

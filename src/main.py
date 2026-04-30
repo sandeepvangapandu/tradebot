@@ -617,7 +617,16 @@ class TradingBot:
             logger.info("Stopping scheduler...")
             self.scheduler.stop()
 
-        # 8. Log final summary
+        # 8. Disconnect live broker (closes urllib3 pool + WebSocket thread)
+        # Must happen before GC to prevent [Errno 9] Bad file descriptor
+        if hasattr(self, "live_broker") and self.live_broker is not None:
+            logger.info("Disconnecting live broker...")
+            try:
+                self.live_broker.disconnect()
+            except Exception as exc:
+                logger.debug("Live broker disconnect error (ignored): {}", exc)
+
+        # 9. Log final summary
         if self.trade_log and self.paper_broker:
             logger.info("Logging final P&L summary...")
             try:

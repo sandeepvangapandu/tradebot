@@ -1737,6 +1737,20 @@ class PositionManager:
                 # Sync with risk manager after position close
                 self._sync_risk_manager()
 
+                # Wire CircuitBreaker (Scheme 4)
+                if getattr(self, "_risk_manager", None) and getattr(self._risk_manager, "circuit_breaker", None):
+                    if total_pnl < 0:
+                        trade_details = {
+                            "direction": "BUY" if position.side.value == "BUY" else "SELL",
+                            "strategy": position.strategy_id,
+                            "sl_distance_pct": abs((position.entry_price - (position.stop_loss_price or 0)) / position.entry_price * 100) if position.entry_price else 0,
+                            "holding_time_min": (position.exit_time - position.entry_time).total_seconds() / 60 if position.exit_time and position.entry_time else 0,
+                            "hour": position.entry_time.hour if position.entry_time else -1,
+                        }
+                        self._risk_manager.circuit_breaker.record_loss(trade_details)
+                    elif total_pnl > 0:
+                        self._risk_manager.circuit_breaker.record_win()
+
                 # Call callback if set
                 if self._on_position_close:
                     try:

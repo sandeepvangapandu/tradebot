@@ -17,25 +17,25 @@ from src.agents.base_agent import BaseAgent, extract_json
 from src.agents.llm_client import LLMClient
 from src.agents.models import NewsItem
 
-SYSTEM_PROMPT = """You are a financial news sentiment analyst for the Indian stock market.
+SYSTEM_PROMPT = """You are a highly sophisticated financial sentiment analyst for the Indian BankNifty index.
 
-Given a batch of recent headlines, score the overall market sentiment.
+Given a batch of recent headlines concerning the banking sector (RBI, HDFC, ICICI, SBI, etc.), score the overall market sentiment on a scale from -1.0 to 1.0.
 
 IMPORTANT: Output ONLY the raw JSON object below. No reasoning, no explanation, no markdown fences, no text before or after the JSON.
 
 {"sentiment_score": <-1.0 to 1.0>, "confidence": <0.0-1.0>, "reasoning": "<one sentence>"}
 
 Scoring guide:
-- -1.0: Extremely bearish (crash fears, major crisis)
-- -0.5: Moderately bearish (rate hikes, poor earnings)
--  0.0: Neutral (mixed signals)
--  0.5: Moderately bullish (good earnings, FII inflows)
--  1.0: Extremely bullish (breakout, policy support)
+- -1.0: CRITICAL BEARISH ALERT. Systemic banking crisis, sudden RBI rate hikes, massive fraud, or global crash. Warrants immediate risk reduction.
+- -0.5: Moderately bearish. Poor banking earnings, hawkish RBI commentary, rising NPAs.
+-  0.0: Neutral. Mixed signals, routine banking operations, balanced news.
+-  0.5: Moderately bullish. Good earnings, dovish RBI, strong credit growth.
+-  1.0: CRITICAL BULLISH ALERT. Massive policy support, huge FII inflows into banking, breakout structural reforms.
 """
 
 NEWS_FEEDS = [
-    "https://news.google.com/rss/search?q=indian+stock+market&hl=en-IN&gl=IN",
-    "https://news.google.com/rss/search?q=nifty+sensex&hl=en-IN&gl=IN",
+    "https://news.google.com/rss/search?q=Bank+Nifty+OR+RBI+OR+Indian+Banks&hl=en-IN&gl=IN",
+    "https://news.google.com/rss/search?q=HDFC+Bank+OR+ICICI+Bank+OR+SBI&hl=en-IN&gl=IN",
 ]
 
 

@@ -710,10 +710,9 @@ class OrderManager:
                             "target": signal.target,
                         }
 
-                        pipeline_state = self._agent_pipeline.run(
+                        pipeline_state = self._agent_pipeline.run_fast(
                             instrument_key=signal.instrument_key,
                             signals=[signal_dict],
-                            indicator_context=indicator_ctx,
                         )
 
                         # Log agent decisions for observability

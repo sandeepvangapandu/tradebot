@@ -98,7 +98,8 @@
       "Bash(git push *)",
       "Bash(git fetch *)",
       "Bash(git pull *)",
-      "Bash(git stash *)"
+      "Bash(git stash *)",
+      "Bash(2>&1)"
     ]
   }
 }

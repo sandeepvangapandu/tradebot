@@ -74,7 +74,7 @@ class HarnessResults:
     metrics: dict = field(default_factory=dict)
     bars_processed: int = 0
 
-    def _compute_metrics(self, initial_capital: int) -> None:
+    def _compute_metrics(self, initial_capital: int, total_fees_paisa: int = 0) -> None:
         """Populate self.metrics from self.trades and self.equity_curve."""
         if not self.trades:
             self.metrics = {
@@ -109,7 +109,9 @@ class HarnessResults:
             "win_rate": round(len(winners) / len(pnls) * 100, 2),
             "profit_factor": round(gross_profit / gross_loss, 2),
             "net_pnl_rupees": round(sum(pnls) / 100, 2),
-            "total_fees_rupees": round(sum(t.get("fees", 0) for t in self.trades) / 100, 2),
+            "total_fees_rupees": round(
+                (total_fees_paisa or sum(t.get("fees", 0) for t in self.trades)) / 100, 2
+            ),
             "max_drawdown_rupees": round(max_dd / 100, 2),
             "max_drawdown_pct": round(max_dd / initial_capital * 100, 2) if initial_capital else 0,
             "return_pct": round(ret_pct, 2),
@@ -682,8 +684,16 @@ class BacktestHarness:
         # Force close any remaining positions at last bar
         self._close_all_positions(results)
 
-        # Compute aggregate metrics
-        results._compute_metrics(self._capital)
+        # Compute aggregate metrics — pull fees from paper broker since the
+        # harness records `fees: 0` per trade (broker deducts internally).
+        try:
+            broker_trades = self._paper_broker.get_trade_history()
+            total_fees_paisa = sum(
+                int(t.get("charges", {}).get("total", 0)) for t in broker_trades
+            )
+        except Exception:
+            total_fees_paisa = 0
+        results._compute_metrics(self._capital, total_fees_paisa=total_fees_paisa)
 
         logger.info(
             f"Backtest complete | bars={results.bars_processed} | "

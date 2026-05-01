@@ -84,8 +84,10 @@ class AgentPipeline:
         memory_db: MemoryDB,
         regime_confidence_threshold: float = 0.3,
     ) -> None:
+        from src.agents.news_agent import NewsAgent
         self._regime_agent = RegimeAgent(llm_client=llm_client)
         self._signal_validator = SignalValidatorAgent(llm_client=llm_client)
+        self._news_agent = NewsAgent(llm_client=llm_client)
         self._injector = MemoryInjector(memory_db=memory_db, max_lessons=5)
         self._confidence_threshold = regime_confidence_threshold
 
@@ -326,4 +328,109 @@ class AgentPipeline:
             agent_decisions=result.get("agent_decisions", []),
             short_circuited=result.get("short_circuited", False),
             short_circuit_reason=result.get("short_circuit_reason", ""),
+        )
+
+    def start_async_macro_loop(self, context_provider: Any, interval_seconds: int = 180) -> None:
+        """Start a background thread to continually compute the macro regime.
+        
+        Args:
+            context_provider: A callable returning dict with latest market indicators.
+            interval_seconds: How often to refresh the LLM regime analysis.
+        """
+        import threading
+        import time
+
+        def _loop() -> None:
+            logger.info("Async macro context loop started ({}s interval)", interval_seconds)
+            while True:
+                try:
+                    # 1. Fetch latest raw data from main thread
+                    ctx = context_provider()
+                    if not ctx:
+                        time.sleep(10)
+                        continue
+
+                    # 2. Ask LLM to determine overarching regime
+                    regime_result = self._regime_agent.run(context=ctx)
+                    classification = self._regime_agent.to_classification(regime_result)
+                    
+                    # 3. Fetch News Sentiment (Every 10 min, handled natively by NewsAgent cache_ttl=600s, but we'll fetch anyway)
+                    # We can pass empty context to NewsAgent, it fetches headlines itself.
+                    headlines = self._news_agent.fetch_headlines(max_items=15)
+                    news_result = self._news_agent.run(context={"headlines": headlines})
+                    sentiment_score = float(news_result.get("sentiment_score", 0.0))
+                    
+                    if sentiment_score <= -0.8 or sentiment_score >= 0.8:
+                        logger.warning(
+                            "EXTREME SENTIMENT DETECTED: {:.1f} | Reason: {}", 
+                            sentiment_score, news_result.get("reasoning", "")
+                        )
+
+                    # 4. Update the instant-access validator cache
+                    # We inject the sentiment score and playbook directly into the validator
+                    self._signal_validator.update_context(
+                        regime=classification.regime,
+                        vix=ctx.get("vix", 15.0),
+                        sentiment_score=sentiment_score,
+                        playbook=ctx.get("playbook"),
+                    )
+                except Exception as e:
+                    logger.warning("Async macro loop error: {}", e)
+                
+                time.sleep(interval_seconds)
+
+        t = threading.Thread(target=_loop, daemon=True, name="MacroContextLoop")
+        t.start()
+
+    def run_fast(self, instrument_key: str, signals: list[dict[str, Any]]) -> PipelineState:
+        """Fast-path synchronous execution using cached async context.
+        
+        Bypasses the StateGraph entirely, directly hitting the SignalValidator
+        which relies on the context pre-computed by `start_async_macro_loop`.
+        """
+        if not signals:
+            return PipelineState(instrument_key=instrument_key, signals=signals)
+
+        validated: list[dict[str, Any]] = []
+        decisions: list[AgentDecision] = []
+
+        for signal in signals:
+            # We don't need to pass regime/sentiment here because it's cached in the validator!
+            context = {"signal": signal}
+            val_result = self._signal_validator.run(context=context, instrument_key=instrument_key)
+
+            if self._signal_validator.last_decision:
+                decisions.append(self._signal_validator.last_decision)
+
+            decision = self._signal_validator.to_decision(
+                val_result, signal_id=signal.get("signal_id", ""),
+            )
+
+            if decision.is_approved:
+                modified_signal = dict(signal)
+                if decision.adjusted_stop_loss is not None:
+                    modified_signal["stop_loss"] = decision.adjusted_stop_loss
+                if decision.adjusted_target is not None:
+                    modified_signal["target"] = decision.adjusted_target
+                if decision.adjusted_quantity_pct != 1.0:
+                    orig_qty = modified_signal.get("quantity", 1)
+                    modified_signal["quantity"] = max(
+                        1, int(orig_qty * decision.adjusted_quantity_pct),
+                    )
+                modified_signal["validation_confidence"] = decision.confidence
+                modified_signal["validation_reasoning"] = decision.reasoning
+                validated.append(modified_signal)
+                
+                logger.info(
+                    "FAST_PATH APPROVED | {} | conf_multiplier={:.2f}",
+                    signal.get("signal_id", "?"),
+                    decision.adjusted_quantity_pct,
+                )
+
+        return PipelineState(
+            instrument_key=instrument_key,
+            signals=signals,
+            validated_signals=validated,
+            agent_decisions=decisions,
+            short_circuited=False,
         )

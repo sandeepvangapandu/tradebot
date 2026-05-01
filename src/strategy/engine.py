@@ -57,7 +57,7 @@ MORNING_SESSION_END = dt_time(11, 30)
 LUNCH_SESSION_START = dt_time(11, 30)
 LUNCH_SESSION_END = dt_time(13, 30)
 AFTERNOON_SESSION_START = dt_time(13, 30)
-AFTERNOON_SESSION_END = dt_time(14, 45)
+AFTERNOON_SESSION_END = dt_time(15, 0)  # Extended for Power Hour (Scheme 5)
 SQUARE_OFF_START = dt_time(15, 0)
 MARKET_CLOSE_TIME = dt_time(15, 15)
 
@@ -106,6 +106,7 @@ class Signal:
     underlying: Optional[str] = None
     timeframe: str = "5m"
     trigger_price: Optional[int] = None
+    confidence: float = 0.8  # Default confidence for AgentPipeline fallback
     signal_id: str = field(default_factory=lambda: __import__("uuid").uuid4().hex[:16])
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -133,6 +134,7 @@ class Signal:
             "underlying": self.underlying,
             "timeframe": self.timeframe,
             "trigger_price": self.trigger_price,
+            "confidence": self.confidence,
             "signal_id": self.signal_id,
             "metadata": self.metadata,
         }

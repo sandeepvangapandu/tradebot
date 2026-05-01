@@ -770,7 +770,7 @@ class ConditionEvaluator:
         engine = self._indicator_engines[target_symbol]
 
         try:
-            return self._compute_indicator(engine, name, parameters)
+            return self._compute_indicator(engine, name, parameters, target_symbol)
         except Exception as e:
             # These failures are almost always "insufficient warmup bars"
             # (pandas-ta returns None until enough data is available). Log at
@@ -792,6 +792,7 @@ class ConditionEvaluator:
         engine: IndicatorEngine,
         name: str,
         parameters: dict[str, Any],
+        target_symbol: str | None = None,
     ) -> pd.Series | None:
         """Compute an indicator by name using the engine.
 

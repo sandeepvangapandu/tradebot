@@ -17,29 +17,45 @@ from src.agents.models import SignalDecision
 
 VALID_ACTIONS = {"approve", "reject", "modify"}
 
-SYSTEM_PROMPT = """You are a signal validation agent for an Indian equity/derivatives trading bot.
+SYSTEM_PROMPT = """You are the Tactical Signal Validator for an autonomous AI trading desk on the NSE.
+You are the final gatekeeper. Every trade MUST pass through you.
 
-Your job is quality control: review trading signals and decide whether they should be executed.
-
-For each signal, decide:
-- "approve": Signal is good, execute as-is
-- "reject": Signal is bad, do not execute
-- "modify": Signal has merit but needs adjustment (SL, target, or size)
+You modulate the position size using a CONFIDENCE_MULTIPLIER (0.0 to 2.0).
 
 IMPORTANT: Output ONLY the raw JSON object below. No reasoning, no explanation, no markdown fences, no text before or after the JSON.
 
-{"action": "approve|reject|modify", "adjusted_stop_loss": <paisa or null>, "adjusted_target": <paisa or null>, "adjusted_quantity_pct": <0.25 to 1.5, default 1.0>, "confidence": <0.0-1.0>, "reasoning": "<one sentence>"}
+{"confidence_multiplier": <0.0 to 2.0>, "adjusted_stop_loss": <paisa or null>, "adjusted_target": <paisa or null>, "reasoning": "<one short sentence>"}
 
-Rules:
-- REJECT signals that go against the current market regime
-- REJECT signals with risk-reward ratio below 1.5:1
-- MODIFY signals in volatile markets by reducing quantity
-- APPROVE signals that align with regime and have good risk-reward
+DUAL-CONSENSUS CLASH LOGIC:
+- If the algo signal direction matches the Morning Playbook Bias (e.g. BUY & Bullish), output multiplier 2.0 (High Conviction).
+- If the algo signal direction is explicitly FORBIDDEN by the Morning Playbook, check the Live Context (VIX/News).
+- If the Live Context supports the Algo (e.g., market suddenly crashed since morning), override the Playbook (multiplier 1.0).
+- If the Live Context does NOT support the Algo, reject the trade (multiplier 0.0).
+
+OI FORTRESS RULES:
+- If the signal is BUY and the entry price is within 0.5% of the OI Ceiling (CE wall), reduce multiplier to 0.3 or reject.
+- If the signal is SELL and the entry price is within 0.5% of the OI Floor (PE wall), reduce multiplier to 0.3 or reject.
+- On expiry day, Max Pain acts as a gravity center — trade TOWARD max pain, not away from it.
+
+SMART SIZE ESCALATOR:
+- Apply the session_size_rules from the Playbook. Multiply the base multiplier by the session percentage.
+- Multiply the final confidence_multiplier by the Day-of-Week RL Multiplier (e.g. if base is 1.0, session is 0.5, and DOW is 1.5, final is 0.75).
+- During Power Hour (14:30-15:00), only approve trades with multiplier >= power_hour_min_conviction.
+
+SAFETY RULES:
+- If VIX is very high (>20), tighten the stop_loss by 20%.
+- If risk-reward is poor (< 1.5), output multiplier 0.0.
+- If the current time is past the Playbook's new_trade_cutoff_time, reject ALL new trades.
 """
 
 
+import threading
+
 class SignalValidatorAgent(BaseAgent):
     """Validates trading signals using LLM with deterministic fallback.
+
+    Uses an asynchronous context (updated via update_context) and provides
+    synchronous validation returning a confidence multiplier.
 
     Args:
         llm_client: Configured LLM client for calling the language model.
@@ -49,34 +65,121 @@ class SignalValidatorAgent(BaseAgent):
     def __init__(self, llm_client: LLMClient, min_risk_reward: float = 1.5) -> None:
         super().__init__(llm_client)
         self._min_rr = min_risk_reward
+        self._context_lock = threading.Lock()
+        self._latest_context: dict[str, Any] = {
+            "regime": "unknown",
+            "vix": 15.0,
+            "sentiment_score": 0.0,
+            "playbook": {"bias": "Neutral", "forbidden_directions": []},
+        }
 
     @property
     def agent_name(self) -> str:
         """Unique name for this agent."""
         return "signal_validator"
 
+    def update_context(
+        self, 
+        regime: str, 
+        vix: float, 
+        sentiment_score: float = 0.0, 
+        playbook: dict[str, Any] | None = None
+    ) -> None:
+        """Update the overarching macro context asynchronously.
+        
+        Args:
+            regime: Current market regime (e.g., 'bullish_high_vol').
+            vix: Current VIX value.
+            sentiment_score: Current news sentiment score (-1.0 to 1.0).
+            playbook: The morning AI playbook.
+        """
+        if playbook is None:
+            playbook = {"bias": "Neutral", "forbidden_directions": []}
+            
+        with self._context_lock:
+            self._latest_context["regime"] = regime
+            self._latest_context["vix"] = vix
+            self._latest_context["sentiment_score"] = sentiment_score
+            self._latest_context["playbook"] = playbook
+        logger.debug("SignalValidator context updated: regime={}, vix={}, sentiment={}", regime, vix, sentiment_score)
+
     def _build_prompt(self, context: dict[str, Any]) -> str:
-        """Build the user prompt from the signal context.
+        """Build the user prompt from the signal and the latest cached context.
 
         Args:
-            context: Dict containing signal, regime, sentiment fields.
+            context: Dict containing the signal to validate.
 
         Returns:
             Formatted prompt string for the LLM.
         """
         sig = context.get("signal", {})
+        
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        now = datetime.now(ZoneInfo("Asia/Kolkata"))
+        current_time_str = now.strftime("%H:%M")
+        
+        # Determine session phase for Smart Size Escalator
+        hour = now.hour
+        minute = now.minute
+        if hour == 9 and minute >= 30 or hour == 10 and minute <= 30:
+            session_phase = "early_morning"
+        elif hour == 10 and minute > 30 or hour == 11 and minute < 30:
+            session_phase = "mid_morning"
+        elif hour >= 13 and hour < 14 or (hour == 14 and minute < 30):
+            session_phase = "post_lunch"
+        elif hour == 14 and minute >= 30 or hour == 15:
+            session_phase = "power_hour"
+        else:
+            session_phase = "off_hours"
+        
+        # Read day-of-week sizing if available
+        dow_multiplier = 1.0
+        dow = now.strftime("%A")
+        try:
+            from pathlib import Path
+            import json
+            strategy_name = sig.get('strategy', sig.get('strategy_name', 'unknown'))
+            dow_path = Path(f"config/strategies/{strategy_name}_dow_sizing.json")
+            if dow_path.exists():
+                with open(dow_path, "r") as f:
+                    dow_data = json.load(f)
+                    dow_multiplier = float(dow_data.get(dow, 1.0))
+        except Exception as e:
+            logger.debug("Could not read DOW sizing for {}: {}", sig.get('strategy'), e)
+        
+        with self._context_lock:
+            regime = self._latest_context.get("regime", "unknown")
+            vix = self._latest_context.get("vix", 15.0)
+            sent_score = self._latest_context.get("sentiment_score", 0.0)
+            playbook = self._latest_context.get("playbook", {})
+
+        session_rules = playbook.get("session_size_rules", {})
+
         return (
-            "Validate this trading signal:\n"
-            f"Direction: {sig.get('direction', 'unknown')}\n"
+            "Validate this trading signal instantly:\n"
+            f"Direction: {sig.get('direction', sig.get('signal_type', 'unknown'))}\n"
             f"Instrument: {sig.get('instrument_key', 'unknown')}\n"
-            f"Strategy: {sig.get('strategy', 'unknown')}\n"
-            f"Entry Price: {sig.get('entry_price', 0)} paisa\n"
+            f"Strategy: {sig.get('strategy', sig.get('strategy_name', 'unknown'))}\n"
+            f"Entry Price: {sig.get('entry_price', sig.get('price', 0))} paisa\n"
             f"Stop Loss: {sig.get('stop_loss', 0)} paisa\n"
             f"Target: {sig.get('target', 0)} paisa\n"
-            f"Signal Confidence: {sig.get('confidence', 0):.2f}\n\n"
-            f"Market Regime: {context.get('regime', 'unknown')}\n"
-            f"Sentiment Score: {context.get('sentiment_score', 50):.0f}/100 "
-            f"({context.get('sentiment_classification', 'neutral')})\n"
+            f"Algo Confidence: {sig.get('confidence', 0.5):.2f}\n\n"
+            f"--- LIVE CONTEXT (Current Time: {current_time_str} IST) ---\n"
+            f"Market Regime: {regime}\n"
+            f"Current VIX: {vix:.2f}\n"
+            f"News Sentiment Score: {sent_score:.2f} (-1.0 is crash, 1.0 is extreme bull)\n\n"
+            f"--- MORNING AI PLAYBOOK ---\n"
+            f"Strategic Bias: {playbook.get('bias', 'Neutral')}\n"
+            f"Forbidden Directions: {playbook.get('forbidden_directions', [])}\n"
+            f"OI Ceiling (Resistance): {playbook.get('oi_ceiling', 'N/A')} paisa\n"
+            f"OI Floor (Support): {playbook.get('oi_floor', 'N/A')} paisa\n"
+            f"Max Pain Strike: {playbook.get('max_pain_strike', 'N/A')} paisa\n"
+            f"New Trade Cutoff Time: {playbook.get('new_trade_cutoff_time', '15:00')} IST\n\n"
+            f"--- SESSION SIZING (Smart Size Escalator) ---\n"
+            f"Current Session Phase: {session_phase}\n"
+            f"Session Size Rules: {session_rules}\n"
+            f"Day-of-Week RL Multiplier: {dow_multiplier:.2f}x\n"
         )
 
     def _build_system_prompt(self, lessons: list[str]) -> str:
@@ -105,22 +208,23 @@ class SignalValidatorAgent(BaseAgent):
             raw: Raw text response from the LLM.
 
         Returns:
-            Structured result dict with action, adjustments, confidence, reasoning.
+            Structured result dict with confidence_multiplier and reasoning.
 
         Raises:
             ValueError: If no valid JSON can be extracted.
         """
         data = extract_json(raw)
-        action = data.get("action", "reject")
-        if action not in VALID_ACTIONS:
-            action = "reject"
+        
+        multiplier = float(data.get("confidence_multiplier", 1.0))
+        multiplier = max(0.0, min(2.0, multiplier))
+
+        action = "approve" if multiplier > 0 else "reject"
 
         return {
             "action": action,
             "adjusted_stop_loss": data.get("adjusted_stop_loss"),
             "adjusted_target": data.get("adjusted_target"),
-            "adjusted_quantity_pct": float(data.get("adjusted_quantity_pct", 1.0)),
-            "confidence": max(0.0, min(1.0, float(data.get("confidence", 0.5)))),
+            "confidence_multiplier": multiplier,
             "reasoning": data.get("reasoning", ""),
         }
 
@@ -128,16 +232,20 @@ class SignalValidatorAgent(BaseAgent):
         """Deterministic fallback when LLM is unavailable or parsing fails.
 
         Checks signal confidence, risk-reward ratio, and regime alignment
-        in priority order and returns approve/reject accordingly.
+        in priority order and returns a multiplier.
 
         Args:
-            context: Dict containing signal, regime, and sentiment fields.
+            context: Dict containing signal fields.
 
         Returns:
-            Structured result dict with action and reasoning.
+            Structured result dict with multiplier and reasoning.
         """
         sig = context.get("signal", {})
-        regime = context.get("regime", "unknown")
+        
+        with self._context_lock:
+            regime = self._latest_context.get("regime", "unknown")
+            vix = self._latest_context.get("vix", 15.0)
+
         direction = sig.get("direction", "").upper()
         confidence = sig.get("confidence", 0.0)
         entry = sig.get("entry_price", 0)
@@ -150,8 +258,7 @@ class SignalValidatorAgent(BaseAgent):
                 "action": "reject",
                 "adjusted_stop_loss": None,
                 "adjusted_target": None,
-                "adjusted_quantity_pct": 1.0,
-                "confidence": 0.8,
+                "confidence_multiplier": 0.0,
                 "reasoning": f"Fallback: signal confidence {confidence:.2f} < 0.5",
             }
 
@@ -171,8 +278,7 @@ class SignalValidatorAgent(BaseAgent):
                         "action": "reject",
                         "adjusted_stop_loss": None,
                         "adjusted_target": None,
-                        "adjusted_quantity_pct": 1.0,
-                        "confidence": 0.85,
+                        "confidence_multiplier": 0.0,
                         "reasoning": (
                             f"Fallback: risk-reward {rr:.2f} < {self._min_rr}"
                         ),
@@ -180,18 +286,17 @@ class SignalValidatorAgent(BaseAgent):
 
         # 3. Check regime alignment
         counter_trend = (
-            (direction == "BUY" and regime == "trending_down")
-            or (direction == "SELL" and regime == "trending_up")
+            (direction == "BUY" and "down" in regime.lower())
+            or (direction == "SELL" and "up" in regime.lower())
         )
         if counter_trend:
             return {
-                "action": "reject",
+                "action": "approve",
                 "adjusted_stop_loss": None,
                 "adjusted_target": None,
-                "adjusted_quantity_pct": 1.0,
-                "confidence": 0.75,
+                "confidence_multiplier": 0.5,
                 "reasoning": (
-                    f"Fallback: {direction} is counter-trend in {regime}"
+                    f"Fallback: {direction} is counter-trend in {regime}, sizing down"
                 ),
             }
 
@@ -199,8 +304,7 @@ class SignalValidatorAgent(BaseAgent):
             "action": "approve",
             "adjusted_stop_loss": None,
             "adjusted_target": None,
-            "adjusted_quantity_pct": 1.0,
-            "confidence": 0.6,
+            "confidence_multiplier": 1.0,
             "reasoning": "Fallback: signal passes basic checks",
         }
 
@@ -217,9 +321,9 @@ class SignalValidatorAgent(BaseAgent):
         return SignalDecision(
             signal_id=signal_id,
             action=result["action"],
-            confidence=result["confidence"],
+            confidence=0.9, # Confidence is no longer returned explicitly by LLM
             reasoning=result.get("reasoning", ""),
             adjusted_stop_loss=result.get("adjusted_stop_loss"),
             adjusted_target=result.get("adjusted_target"),
-            adjusted_quantity_pct=result.get("adjusted_quantity_pct", 1.0),
+            adjusted_quantity_pct=result.get("confidence_multiplier", 1.0),
         )

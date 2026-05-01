@@ -121,12 +121,12 @@ class LLMClient:
     def __init__(
         self,
         api_key: str,
-        model: str = "nvidia/nemotron-3-super-120b-a12b:free",
-        fallback_model: str = "google/gemma-4-31b-it:free",
-        temperature: float = 0.1,
-        max_tokens: int = 1024,
-        rate_limit_rpm: int = 30,
-        provider: str = "openrouter",
+        model: str = "llama3-70b-8192",
+        fallback_model: str = "llama3-8b-8192",
+        temperature: float = 0.0,
+        max_tokens: int = 512,
+        rate_limit_rpm: int = 60,
+        provider: str = "groq",
     ) -> None:
         self._api_key = api_key
         self._model = model

@@ -115,7 +115,7 @@ def render():
                         "Unrealized P&L (Rs.)": p.unrealized_pnl,
                     }
                 )
-            st.dataframe(pd.DataFrame(pos_data), use_container_width=True)
+            st.dataframe(pd.DataFrame(pos_data), width='stretch')
         else:
             st.info("No open positions")
 

@@ -64,6 +64,7 @@ from src.utils.health_monitor import HealthMonitor
 from src.utils.holidays import is_trading_day
 from src.utils.logger import setup_logger
 from src.utils.scheduler import get_scheduler
+from src.data.options_resolver import OptionsResolver
 
 from src.agents.llm_client import LLMClient
 from src.agents.pipeline import AgentPipeline
@@ -114,10 +115,16 @@ class TradingBot:
 
     def startup(self) -> None:
         """Execute startup sequence."""
+        self._running = True
         logger.info("=" * 60)
         logger.info("Starting Upstox Trading Bot")
         logger.info("=" * 60)
 
+        # 0. Reset HealthMonitor singleton state from any previous run.
+        # The HealthMonitor is a singleton — if the bot is restarted in the
+        # same Python process, stale components from the prior run would
+        # cause instant FAILED alerts as soon as monitoring restarts.
+        HealthMonitor().reset()
         # 1. Initialize logger
         setup_logger(
             log_level=self.settings.log_level,
@@ -200,6 +207,7 @@ class TradingBot:
         )
         self.order_tracker = OrderTracker(
             broker=self.paper_broker,
+            db_url=self.db_url,
         )
         self.order_manager = OrderManager(
             signal_queue=self.signal_queue,
@@ -209,6 +217,7 @@ class TradingBot:
             risk_manager=self.risk_manager,
             position_manager=self.position_manager,
             strategy_quarantine=self.strategy_quarantine,
+            db_url=self.db_url,
         )
         logger.info("Order and position managers initialized")
 
@@ -284,12 +293,76 @@ class TradingBot:
         self.portfolio_feed.register_order_callback(self._on_order_update)
         self.portfolio_feed.register_position_callback(self._on_position_update)
 
-        # Subscribe to underlyings
+        # Subscribe to underlyings (indices for spot price / CPR / warmup bars)
         underlyings = ["NSE_INDEX|Nifty Bank", "NSE_INDEX|Nifty 50"]
         self.market_feed.start(underlyings, mode="full")
         self.portfolio_feed.start()
-        logger.info("WebSocket feeds started")
+        logger.info("WebSocket feeds started — subscribed to index underlyings")
 
+        # 8b. Dynamic ATM option subscription on first tick.
+        # We can't resolve ATM strike until we have the live spot price.
+        # Register a one-shot callback: extract spot from first BankNifty tick
+        # then subscribe to the resolved ATM CE/PE option contracts.
+        _banknifty_key = "NSE_INDEX|Nifty Bank"
+        _options_subscribed = [False]  # mutable flag for closure
+
+        def _subscribe_atm_options_once(tick: Any) -> None:
+            """One-shot: subscribe to ATM options on first BankNifty tick."""
+            if _options_subscribed[0]:
+                return
+            if not isinstance(tick, dict):
+                return
+            feeds = tick.get("feeds", {})
+            if _banknifty_key not in feeds:
+                return
+
+            # Extract spot price from tick
+            try:
+                payload = feeds[_banknifty_key]
+                ltpc = payload.get("ltpc") or {}
+                ltp = ltpc.get("ltp")
+                if ltp is None:
+                    ff = payload.get("fullFeed", {})
+                    inner = ff.get("indexFF") or ff.get("marketFF") or {}
+                    ltpc = inner.get("ltpc") or {}
+                    ltp = ltpc.get("ltp")
+                if ltp is None:
+                    return
+                spot_paisa = int(round(float(ltp) * 100))
+            except Exception as exc:
+                logger.debug("ATM subscription: could not extract spot — {}", exc)
+                return
+
+            _options_subscribed[0] = True
+            logger.info(
+                "ATM subscription triggered — BankNifty spot: ₹{:.2f}",
+                spot_paisa / 100,
+            )
+
+            # Resolve ATM option keys for all active option strategies
+            if not self.strategy_engine or not self.instrument_manager:
+                return
+            try:
+                resolver = OptionsResolver(self.instrument_manager)
+                active_strategies = self.strategy_engine.get_active_strategies()
+                option_keys = resolver.resolve_all_strategies(active_strategies, spot_paisa)
+                if option_keys:
+                    self.market_feed.subscribe(option_keys, mode="full")
+                    logger.info(
+                        "Subscribed to {} ATM option instrument(s): {}",
+                        len(option_keys),
+                        option_keys,
+                    )
+                else:
+                    logger.warning(
+                        "No ATM option instruments resolved — "
+                        "check strategy instrument_selection configs"
+                    )
+            except Exception as exc:
+                logger.error("ATM option subscription failed: {}", exc)
+
+        if self.market_feed is not None:
+            self.market_feed.register_callback(_subscribe_atm_options_once)
         # 9. Load strategies
         strategy_dir = Path("config/strategies")
         if strategy_dir.exists():
@@ -309,9 +382,70 @@ class TradingBot:
                 bars_provider=_bars_provider,
             )
             self.strategy_engine.load_strategies()
+
+            # Resolve options instruments per strategy and subscribe to them
+            from src.strategy.instrument_resolver import resolve_options_instruments
+            options_to_subscribe: set[str] = set()
+            for strategy in self.strategy_engine.strategies:
+                if not strategy.enabled:
+                    continue
+                underlying = strategy.underlying or {}
+                underlying_key = (
+                    underlying.get("instrument_key")
+                    if isinstance(underlying, dict)
+                    else getattr(underlying, "instrument_key", None)
+                )
+                if not underlying_key:
+                    continue
+                # Get spot from latest warmup bar of underlying
+                spot_paisa = None
+                if self.bar_builder is not None:
+                    df = self.bar_builder.get_bars(underlying_key, timeframe=1)
+                    if df is not None and not df.empty:
+                        spot_paisa = int(df.iloc[-1]["close"])
+                if spot_paisa is None:
+                    logger.warning(
+                        "Cannot resolve options for {}: no warmup bars for {} — will retry on first live tick",
+                        strategy.name, underlying_key,
+                    )
+                    continue
+                keys = resolve_options_instruments(strategy, spot_paisa, self.instrument_manager)
+                options_to_subscribe.update(keys)
+
+            if options_to_subscribe:
+                self.market_feed.subscribe(list(options_to_subscribe), mode="full")
+                logger.info("Dynamically subscribed to {} resolved option contracts", len(options_to_subscribe))
+
             self.strategy_engine.start()
             logger.info("Strategy engine started")
 
+            # 9b. Wire signal forwarder: drain StrategyEngine's internal
+            # signal queue → OrderManager's signal queue.
+            # Without this thread, all strategy signals go into a void
+            # because StrategyEngine creates its own queue that nobody reads.
+            def _forward_signals() -> None:
+                """Forward signals from StrategyEngine to OrderManager."""
+                logger.info("SignalForwarder thread started")
+                while self._running:
+                    try:
+                        sig = self.strategy_engine.get_signal(timeout=1.0)
+                        if sig is not None:
+                            logger.info(
+                                "SIGNAL_FORWARDED | {} | {} | {} | {}",
+                                sig.strategy_name,
+                                getattr(sig, 'signal_type', ''),
+                                getattr(sig, 'instrument_key', ''),
+                                getattr(sig, 'signal_id', ''),
+                            )
+                            self.signal_queue.put(sig)
+                    except Exception as exc:
+                        logger.debug("SignalForwarder error: {}", exc)
+                logger.info("SignalForwarder thread stopped")
+
+            self._signal_forwarder = threading.Thread(
+                target=_forward_signals, daemon=True, name="SignalForwarder"
+            )
+            self._signal_forwarder.start()
         # 10. Start order manager
         self.order_manager.start()
         logger.info("Order manager started")
@@ -323,7 +457,7 @@ class TradingBot:
 
         # 12. Initialize health monitor
         self.health_monitor = HealthMonitor()
-        self.health_monitor.register_component("market_feed", heartbeat_timeout=30)
+        self.health_monitor.register_component("market_feed", heartbeat_timeout=300)  # 5 min — keepalive thread bumps every 60s
         self.health_monitor.register_component("database", heartbeat_timeout=120)
         self.health_monitor.register_component("scheduler", heartbeat_timeout=120)
         self.health_monitor.start_monitoring(interval=30)
@@ -337,9 +471,36 @@ class TradingBot:
                 lambda _msg: _hm.heartbeat("market_feed")
             )
 
-        # database + scheduler heartbeats: lightweight 30s interval job that
-        # pings DB and bumps both watchdogs. Without this, both components
-        # are perpetually marked FAILED even when healthy.
+            # Register a real market_feed recovery strategy that has access
+            # to the actual self.market_feed instance. The default recovery
+            # in HealthMonitor referenced MarketFeed.get_instance() which
+            # does not exist, so every recovery attempt silently failed and
+            # exhausted the 3-attempt cap in ~45s.
+            _feed = self.market_feed
+
+            def _recover_market_feed(component_name: str) -> bool:
+                """Real recovery: restart the WebSocket streamer."""
+                logger.info("Attempting market_feed recovery via real instance...")
+                try:
+                    _feed.stop()
+                    import time as _time
+                    _time.sleep(2)
+                    # Re-subscribe to the same symbols that were active
+                    subs = list(getattr(_feed, "_subscribed_keys", set()) or
+                                getattr(_feed, "_subscribed_symbols", set()))
+                    if subs:
+                        _feed.start(subs, mode="full")
+                    else:
+                        logger.warning("market_feed recovery: no known subscriptions to restore")
+                    logger.info("market_feed recovery successful")
+                    return True
+                except Exception as exc:
+                    logger.error("market_feed recovery failed: {}", exc)
+                    return False
+
+            _hm.register_recovery_strategy("market_feed", _recover_market_feed)
+
+
         from sqlalchemy import text as _sql_text
 
         def _heartbeat_pulse() -> None:
@@ -461,7 +622,6 @@ class TradingBot:
                 self.llm_client.is_configured,
             )
 
-        self._running = True
         logger.info("=" * 60)
         logger.info("Trading Bot Startup Complete")
         logger.info("=" * 60)

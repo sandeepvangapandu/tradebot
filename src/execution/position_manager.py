@@ -169,7 +169,7 @@ class ManagedPosition:
     entry_price: int  # in paisa
     entry_time: datetime
     product_type: ProductType
-    position_id: str = field(default_factory=lambda: f"POS_{datetime.now(IST).strftime('%Y%m%d%H%M%S')}_{id(object())}")
+    position_id: str = field(default_factory=lambda: f"POS_{datetime.now(IST).strftime('%Y%m%d%H%M%S')}_{__import__('uuid').uuid4().hex[:8].upper()}")
 
     # Same-bar exit guard — the bar timestamp at which this position was opened.
     # PositionManager will skip SL/target/trailing checks for this position
@@ -845,7 +845,14 @@ class PositionManager:
             )
 
             self._positions[position.position_id] = position
-            self._instrument_to_position[instrument_key] = position.position_id
+            # Support multiple open positions per instrument (e.g. two legs on same strike)
+            existing = self._instrument_to_position.get(instrument_key)
+            if existing and not isinstance(existing, list):
+                self._instrument_to_position[instrument_key] = [existing, position.position_id]
+            elif isinstance(existing, list):
+                existing.append(position.position_id)
+            else:
+                self._instrument_to_position[instrument_key] = position.position_id
 
             # Initialize 4-tier partial profit system
             if self._partial_profit_manager and stop_loss_price is not None:
@@ -1717,8 +1724,16 @@ class PositionManager:
                     position.exit_reason = reason
                     position.realized_pnl = remaining_pnl
 
-                    # Clean up tracking
-                    if position.instrument_key in self._instrument_to_position:
+                    # Clean up tracking (handle list when multiple positions per instrument)
+                    existing = self._instrument_to_position.get(position.instrument_key)
+                    if isinstance(existing, list):
+                        try:
+                            existing.remove(position.position_id)
+                        except ValueError:
+                            pass
+                        if not existing:
+                            del self._instrument_to_position[position.instrument_key]
+                    elif position.instrument_key in self._instrument_to_position:
                         del self._instrument_to_position[position.instrument_key]
 
                 # Calculate blended exit price if partial exits exist

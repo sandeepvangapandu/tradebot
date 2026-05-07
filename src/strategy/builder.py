@@ -11,7 +11,7 @@ from typing import Any, Literal, Optional, Union
 
 import yaml
 from loguru import logger
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class ComparisonOperator(str, Enum):
@@ -280,6 +280,11 @@ class PositionSizing(BaseModel):
 class InstrumentSelection(BaseModel):
     """Instrument selection criteria."""
 
+    model_config = ConfigDict(extra="allow")
+
+    # Strategy type ("options", "equity", "futures", etc.)
+    type: Optional[str] = None
+
     # For equity/F&O
     symbols: list[str] = Field(
         default_factory=list, description="List of symbols to trade"
@@ -288,13 +293,21 @@ class InstrumentSelection(BaseModel):
     underlying: Optional[str] = Field(
         default=None, description="Underlying symbol for options"
     )
+    # Singular option type (CE or PE)
     option_type: Optional[Literal["CE", "PE"]] = None
-    strike_selection: Optional[dict[str, Any]] = Field(
+    # Multiple option types (e.g. ["CE", "PE"] used in options strategy configs)
+    option_types: Optional[list[Literal["CE", "PE"]]] = None
+    # Strike selection: either a plain string ("atm") or a dict with offset
+    strike_selection: Optional[Union[str, dict[str, Any]]] = Field(
         default=None,
-        description="ATM, ITM, OTM selection with offset",
+        description="ATM, ITM, OTM selection — string or dict with offset",
     )
+    # Expiry: accepts both field name variants used across configs
     expiry_selection: Optional[str] = Field(
         default=None, description="WEEKLY, MONTHLY, or specific date"
+    )
+    expiry_type: Optional[str] = Field(
+        default=None, description="weekly_current, monthly_current, etc."
     )
     # Filters
     min_price: Optional[int] = None  # In PAISA

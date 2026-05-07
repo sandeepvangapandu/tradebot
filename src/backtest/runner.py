@@ -27,12 +27,20 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--data", required=True,
-        help="Path to 1-minute OHLCV CSV file (paisa prices, IST timestamps)",
+        "--data", default=None,
+        help="Path to single 1-minute OHLCV CSV file (paisa prices, IST timestamps)",
+    )
+    parser.add_argument(
+        "--data-dir", default=None,
+        help="Directory containing multiple CSV files for parallel backtesting",
+    )
+    parser.add_argument(
+        "--parallel-workers", type=int, default=4,
+        help="Max number of parallel workers (default: 4)",
     )
     parser.add_argument(
         "--instrument", default="NSE_INDEX|Nifty Bank",
-        help='Instrument key, e.g. "NSE_INDEX|Nifty Bank" (default)',
+        help='Instrument key for single file run, e.g. "NSE_INDEX|Nifty Bank" (default)',
     )
     parser.add_argument(
         "--strategies", default="config/strategies",
@@ -68,41 +76,112 @@ def main() -> int:
     )
 
     args = parser.parse_args()
+    
+    if not args.data and not args.data_dir:
+        parser.error("Must provide either --data or --data-dir")
 
-    from src.backtest.harness import BacktestHarness
+    from src.backtest.harness import BacktestHarness, run_multi_symbol_backtest
 
-    harness = BacktestHarness(
-        data_file=args.data,
-        instrument_key=args.instrument,
-        strategy_dir=args.strategies,
-        capital=args.capital,
-        start_date=args.start_date,
-        end_date=args.end_date,
-        prices_in_rupees=args.prices_in_rupees,
-        options_proxy=args.options_proxy,
-        straddle_proxy=args.straddle_proxy,
-        strategy_only=args.strategy_only,
-    )
+    def _print_metrics(title: str, m: dict, bars: int):
+        print("\n" + "─" * 50)
+        print(f"  {title}")
+        print("─" * 50)
+        print(f"  Total Trades     : {m.get('total_trades', 0)}")
+        print(f"  Win Rate         : {m.get('win_rate', 0):.1f}%")
+        print(f"  Profit Factor    : {m.get('profit_factor', 0):.2f}")
+        print(f"  Net P&L          : ₹ {m.get('net_pnl_rupees', 0):,.2f}")
+        print(f"  Max Drawdown     : ₹ {m.get('max_drawdown_rupees', 0):,.2f} "
+              f"({m.get('max_drawdown_pct', 0):.1f}%)")
+        print(f"  Sharpe Ratio     : {m.get('sharpe_ratio', 0):.2f}")
+        print(f"  Total Fees       : ₹ {m.get('total_fees_rupees', 0):,.2f}")
+        print(f"  Return           : {m.get('return_pct', 0):+.2f}%")
+        print(f"  Bars Processed   : {bars}")
+        print("─" * 50 + "\n")
 
-    results = harness.run()
-    m = results.metrics
+    if args.data_dir:
+        from pathlib import Path
+        data_dir = Path(args.data_dir)
+        csv_files = list(data_dir.glob("*.csv"))
+        if not csv_files:
+            print(f"No CSV files found in {args.data_dir}")
+            return 1
+            
+        data_files = {}
+        for f in csv_files:
+            # Map filename to instrument roughly
+            name = f.stem.split("_")[0].upper()
+            inst_key = f"NSE_INDEX|{name}"
+            data_files[inst_key] = str(f)
+            
+        print(f"Starting parallel backtest for {len(data_files)} instruments with {args.parallel_workers} workers...")
+        results_map = run_multi_symbol_backtest(
+            data_files=data_files,
+            strategy_dir=args.strategies,
+            capital=args.capital,
+            start_date=args.start_date,
+            end_date=args.end_date,
+            max_workers=args.parallel_workers,
+        )
+        
+        # Portfolio aggregation
+        port_trades = 0
+        port_pnl = 0.0
+        port_fees = 0.0
+        port_wins = 0
+        port_losses = 0
+        port_gross_profit = 0.0
+        port_gross_loss = 0.0
+        
+        for inst, res in results_map.items():
+            _print_metrics(f"RESULTS FOR {inst}", res.metrics, res.bars_processed)
+            m = res.metrics
+            port_trades += m.get("total_trades", 0)
+            port_pnl += m.get("net_pnl_rupees", 0.0)
+            port_fees += m.get("total_fees_rupees", 0.0)
+            
+            # Reconstruct wins/losses for port profit factor and win rate
+            trades_list = res.trades
+            for t in trades_list:
+                pnl = t.get("net_pnl", 0) / 100.0
+                if pnl > 0:
+                    port_wins += 1
+                    port_gross_profit += pnl
+                else:
+                    port_losses += 1
+                    port_gross_loss += abs(pnl)
+                    
+        port_wr = (port_wins / port_trades * 100) if port_trades > 0 else 0.0
+        port_pf = (port_gross_profit / port_gross_loss) if port_gross_loss > 0 else float('inf')
+        
+        port_metrics = {
+            "total_trades": port_trades,
+            "win_rate": port_wr,
+            "profit_factor": port_pf,
+            "net_pnl_rupees": port_pnl,
+            "total_fees_rupees": port_fees,
+            "max_drawdown_rupees": 0, # Difficult to accurately aggregate without merged equity curve
+            "max_drawdown_pct": 0,
+            "sharpe_ratio": 0,
+            "return_pct": (port_pnl / ((args.capital or 100000000)/100)) * 100
+        }
+        _print_metrics("AGGREGATED PORTFOLIO RESULTS", port_metrics, 0)
 
-    print("\n" + "─" * 50)
-    print(f"  BACKTEST RESULTS")
-    if args.start_date or args.end_date:
-        print(f"  {args.start_date or 'start'} → {args.end_date or 'end'}")
-    print("─" * 50)
-    print(f"  Total Trades     : {m.get('total_trades', 0)}")
-    print(f"  Win Rate         : {m.get('win_rate', 0):.1f}%")
-    print(f"  Profit Factor    : {m.get('profit_factor', 0):.2f}")
-    print(f"  Net P&L          : ₹ {m.get('net_pnl_rupees', 0):,.2f}")
-    print(f"  Max Drawdown     : ₹ {m.get('max_drawdown_rupees', 0):,.2f} "
-          f"({m.get('max_drawdown_pct', 0):.1f}%)")
-    print(f"  Sharpe Ratio     : {m.get('sharpe_ratio', 0):.2f}")
-    print(f"  Total Fees       : ₹ {m.get('total_fees_rupees', 0):,.2f}")
-    print(f"  Return           : {m.get('return_pct', 0):+.2f}%")
-    print(f"  Bars Processed   : {results.bars_processed}")
-    print("─" * 50 + "\n")
+    else:
+        harness = BacktestHarness(
+            data_file=args.data,
+            instrument_key=args.instrument,
+            strategy_dir=args.strategies,
+            capital=args.capital,
+            start_date=args.start_date,
+            end_date=args.end_date,
+            prices_in_rupees=args.prices_in_rupees,
+            options_proxy=args.options_proxy,
+            straddle_proxy=args.straddle_proxy,
+            strategy_only=args.strategy_only,
+        )
+
+        results = harness.run()
+        _print_metrics("BACKTEST RESULTS", results.metrics, results.bars_processed)
 
     return 0
 

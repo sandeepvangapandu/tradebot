@@ -4,6 +4,7 @@
 venv/
 env/
 
+
 # Python
 __pycache__/
 *.py[cod]
@@ -18,6 +19,9 @@ build/
 data/
 logs/
 *.db
+.agent/
+.claude/
+.claude-flow/
 
 # IDE
 .idea/
@@ -36,3 +40,14 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Agents and Swarm
+.agents/
+.swarm/
+.mcp.json
+
+# Backup files
+*.bak
+
+# Root test scratchpads
+/test_*.py

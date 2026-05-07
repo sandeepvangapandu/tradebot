@@ -722,7 +722,8 @@ class BacktestEngine:
                     if self.options_mode:
                         fill_price = inst_price  # no index-level slippage
                     else:
-                        slippage = int(inst_price * self.slippage_pct / 100)
+                        dynamic_slippage = self.slippage_pct * self._get_slippage_factor(bar_time)
+                        slippage = int(inst_price * dynamic_slippage / 100)
                         fill_price = (
                             inst_price + slippage if side == "BUY" else inst_price - slippage
                         )
@@ -752,38 +753,70 @@ class BacktestEngine:
                             continue
 
                     # BSM option pricing pre-computation (if enabled)
-                    option_type = None
-                    strike = None
-                    expiry_ts = None
-                    entry_premium = None
-                    if self.options_mode and self.use_bsm:
-                        option_type = entry_set.signal  # "CE" or "PE"
-                        strike = int(round(inst_price / self.strike_interval)) * self.strike_interval
-                        expiry_ts = self._compute_expiry(bar_time, instrument)
-                        iv_entry = self._get_iv_at(bar_time)
-                        T_entry = time_to_expiry(bar_time.timestamp(), expiry_ts.timestamp())
-                        kind = "call" if option_type == "CE" else "put"
-                        entry_premium = bsm_price_paisa(
-                            inst_price, strike, T_entry, iv_entry, self.risk_free_rate, kind
-                        )
+                    option_types_to_process = []
+                    hedge_required = strategy.risk_management.get("hedge_required", False) if hasattr(strategy, "risk_management") else False
+                    hedge_offset = strategy.params.get("hedge_offset", 500) if hasattr(strategy, "params") else 500
 
-                    self.positions[pos_key] = {
-                        "instrument": instrument,
-                        "side": side,
-                        "entry_price": fill_price,
-                        "entry_time": bar_time,
-                        "quantity": qty,
-                        "strategy": strategy,
-                        "strategy_name": strategy.name,
-                        # BSM metadata (None for proxy mode)
-                        "option_type": option_type,
-                        "option_strike": strike,
-                        "option_expiry": expiry_ts,
-                        "option_entry_premium": entry_premium,
-                    }
+                    if self.options_mode and self.use_bsm:
+                        if entry_set.signal == "STRADDLE":
+                            option_types_to_process = ["CE", "PE"]
+                            if hedge_required:
+                                option_types_to_process.extend(["CE_HEDGE", "PE_HEDGE"])
+                        else:
+                            option_types_to_process = [entry_set.signal]
+                    else:
+                        # Proxy mode just treats it as a single aggregated unit
+                        option_types_to_process = [entry_set.signal]
+
+                    for opt_type in option_types_to_process:
+                        pos_key_specific = f"{pos_key}|{opt_type}" if len(option_types_to_process) > 1 else pos_key
+                        
+                        strike = None
+                        expiry_ts = None
+                        entry_premium = None
+                        
+                        # Determine direction for the specific leg
+                        # Hedges are bought (long), main legs are sold (short)
+                        leg_side = side
+                        if "HEDGE" in opt_type:
+                            leg_side = "BUY" if side == "SELL" else "SELL"
+                        
+                        if self.options_mode and self.use_bsm:
+                            atm_strike = int(round(inst_price / self.strike_interval)) * self.strike_interval
+                            
+                            if opt_type == "CE_HEDGE":
+                                strike = atm_strike + hedge_offset
+                            elif opt_type == "PE_HEDGE":
+                                strike = atm_strike - hedge_offset
+                            else:
+                                strike = atm_strike
+                                
+                            expiry_ts = self._compute_expiry(bar_time, instrument)
+                            iv_entry = self._get_iv_at(bar_time)
+                            T_entry = time_to_expiry(bar_time.timestamp(), expiry_ts.timestamp())
+                            kind = "call" if "CE" in opt_type else "put"
+                            entry_premium = bsm_price_paisa(
+                                inst_price, strike, T_entry, iv_entry, self.risk_free_rate, kind
+                            )
+
+                        self.positions[pos_key_specific] = {
+                            "instrument": instrument,
+                            "side": leg_side,
+                            "entry_price": fill_price,
+                            "entry_time": bar_time,
+                            "quantity": qty,
+                            "strategy": strategy,
+                            "strategy_name": strategy.name,
+                            # BSM metadata
+                            "option_type": opt_type.split("_")[0], # CE_HEDGE -> CE
+                            "option_strike": strike,
+                            "option_expiry": expiry_ts,
+                            "option_entry_premium": entry_premium,
+                        }
+                    
                     # Mark this direction as used this bar
                     directions_entered_this_bar.add(direction_key)
-                    logger.debug(f"[{strategy.name}] Entered {side} {qty} @ {fill_price} paisa")
+                    logger.debug(f"[{strategy.name}] Entered Iron Condor/Straddle {qty} @ {fill_price} paisa (Types: {option_types_to_process})")
 
             # --- Phase 4: Hard square-off at 15:15 ---
             if bar_time_t and bar_time_t >= HARD_SQUARE_OFF:
@@ -1017,7 +1050,8 @@ class BacktestEngine:
             if use_proxy:
                 # Original delta-based proxy approximation
                 option_entry_premium = int(entry * self.option_premium_pct / 100)
-                premium_slippage_per_side = int(option_entry_premium * self.slippage_pct / 100)
+                dynamic_slippage = self.slippage_pct * self._get_slippage_factor(exit_time)
+                premium_slippage_per_side = int(option_entry_premium * dynamic_slippage / 100)
                 total_premium_slippage = premium_slippage_per_side * 2
                 index_change = exit_price - entry if side == "BUY" else entry - exit_price
                 premium_change = int(index_change * self.option_delta)
@@ -1048,7 +1082,8 @@ class BacktestEngine:
                 exit_premium = bsm_price_paisa(exit_price, strike, T_exit, sigma, self.risk_free_rate, kind)
                 entry_premium_val = entry_premium_stored
                 # Slippage as round-trip cost on entry premium
-                premium_slippage_per_side = int(entry_premium_val * self.slippage_pct / 100)
+                dynamic_slippage = self.slippage_pct * self._get_slippage_factor(exit_time)
+                premium_slippage_per_side = int(entry_premium_val * dynamic_slippage / 100)
                 total_premium_slippage = premium_slippage_per_side * 2
                 if side == "BUY":
                     raw_pnl = (exit_premium - entry_premium_val) * qty
@@ -1070,7 +1105,8 @@ class BacktestEngine:
                     fees = self.commission_per_order * 2
         else:
             # Standard: P&L on the actual instrument with adverse exit slippage
-            slippage = int(exit_price * self.slippage_pct / 100)
+            dynamic_slippage = self.slippage_pct * self._get_slippage_factor(exit_time)
+            slippage = int(exit_price * dynamic_slippage / 100)
             fill = exit_price - slippage if side == "BUY" else exit_price + slippage
             if side == "BUY":
                 raw_pnl = (fill - entry) * qty

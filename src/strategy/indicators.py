@@ -344,6 +344,10 @@ class IndicatorEngine:
         VWAP resets at the start of each trading day.
         For Indian markets, trading day starts at 9:15 AM IST.
 
+        For index instruments (e.g. NSE_INDEX|Nifty Bank) which always report
+        volume=0, falls back to Typical Price = (H+L+C)/3 as a VWAP proxy.
+        This preserves VWAP-based conditions rather than producing NaN.
+
         Returns:
             Series with VWAP values in PAISA.
         """
@@ -355,11 +359,25 @@ class IndicatorEngine:
             # Python loop over days.
             df = self._df
             typical_price = (df["high"] + df["low"] + df["close"]) / 3
+
+            # Index instruments always report volume=0 — VWAP would be NaN
+            # for every bar. Fall back to typical price as proxy so that
+            # VWAP-based conditions (Spot_Price > VWAP) still produce a
+            # meaningful comparison instead of silently returning False.
+            if (df["volume"] == 0).all():
+                logger.debug(
+                    "VWAP: all volume=0 (index instrument) — using typical price as proxy"
+                )
+                return typical_price
+
             tpv = typical_price * df["volume"]
             day_key = df.index.date
             cum_tpv = tpv.groupby(day_key).cumsum()
             cum_vol = df["volume"].groupby(day_key).cumsum()
-            return cum_tpv / cum_vol.replace(0, float("nan"))
+            # For bars where cumulative volume is still zero (e.g. first tick
+            # with vol=0 in a mixed dataset), fall back to typical price.
+            vwap = cum_tpv / cum_vol.replace(0, float("nan"))
+            return vwap.fillna(typical_price)
 
         return self._cached(("vwap",), _compute)
 

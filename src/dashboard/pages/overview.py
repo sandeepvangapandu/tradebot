@@ -79,7 +79,7 @@ def render():
                         "Opened At": p.opened_at,
                     }
                 )
-            st.dataframe(pd.DataFrame(pos_data), use_container_width=True)
+            st.dataframe(pd.DataFrame(pos_data), width='stretch')
         else:
             st.info("No open positions")
 
@@ -101,7 +101,7 @@ def render():
                         "Duration (min)": round(t.duration_minutes, 1),
                     }
                 )
-            st.dataframe(pd.DataFrame(trade_data), use_container_width=True)
+            st.dataframe(pd.DataFrame(trade_data), width='stretch')
         else:
             st.info("No trades today")
 

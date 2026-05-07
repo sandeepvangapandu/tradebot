@@ -53,7 +53,7 @@
         {
           "indicator": "Volume",
           "comparison": ">",
-          "value": 1.2,
+          "value": 0.9,
           "timeframe": "5min",
           "parameters": {
             "relative_to": "avg_20"
@@ -81,7 +81,7 @@
         {
           "indicator": "Volume",
           "comparison": ">",
-          "value": 1.2,
+          "value": 0.9,
           "timeframe": "5min",
           "parameters": {
             "relative_to": "avg_20"

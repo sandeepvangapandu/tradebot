@@ -179,6 +179,24 @@ class SetEvaluator(threading.Thread):
         self._last_signal_time: Optional[datetime] = None
         self._signals_generated_today: int = 0
 
+        # Resolve EntrySet.signal (str) → SignalType enum once at init.
+        # EntrySet.signal is a plain string like "CE", "PE", "BUY", "SELL",
+        # "BUY_CE", "BUY_PE", "STRADDLE" — NOT the SignalType enum.
+        # The engine previously accessed self._resolved_signal_type which
+        # doesn't exist on EntrySet; this resolves it to the correct type.
+        _SIGNAL_MAP: dict[str, SignalType] = {
+            "BUY": SignalType.BUY,
+            "SELL": SignalType.SELL,
+            "CE": SignalType.BUY_CE,
+            "BUY_CE": SignalType.BUY_CE,
+            "PE": SignalType.BUY_PE,
+            "BUY_PE": SignalType.BUY_PE,
+            "STRADDLE": SignalType.SELL,  # STRADDLE → SELL (split into CE+PE by OrderManager)
+        }
+        self._resolved_signal_type: SignalType = _SIGNAL_MAP.get(
+            str(entry_set.signal).upper(), SignalType.SELL
+        )
+
         # Enhanced filter configuration
         self._strict_mode = strategy_config.params.get("strict_mode", False)
         self._use_enhanced_filters = strategy_config.params.get(
@@ -587,7 +605,7 @@ class SetEvaluator(threading.Thread):
 
         # 2. Expiry day filter
         if avoid_expiry_day:
-            underlying = self._config.instrument_selection.underlying or symbol
+            underlying = self._instr_sel_get("underlying") or symbol
             if self._is_expiry_day(underlying, timestamp):
                 logger.info(
                     f"[{symbol}] Expiry day filter blocked: "
@@ -605,13 +623,39 @@ class SetEvaluator(threading.Thread):
         # All filters passed, proceed with standard evaluation
         return self._evaluate_for_symbol(symbol, bars)
 
+    def _instr_sel_get(self, attr: str, default=None):
+        """Safe accessor for instrument_selection (handles both Pydantic model and dict).
+
+        Args:
+            attr: Attribute/key name to look up.
+            default: Value to return when attr is absent or instrument_selection is None.
+
+        Returns:
+            The attribute value, or default.
+        """
+        sel = self._config.instrument_selection
+        if sel is None:
+            return default
+        if isinstance(sel, dict):
+            return sel.get(attr, default)
+        return getattr(sel, attr, default)
+
     def _get_symbols_to_evaluate(self) -> list[str]:
         """Get list of symbols to evaluate for this set.
 
-        Returns:
-            List of symbols from instrument selection.
+        For options-type strategies, evaluation is performed on the underlying
+        instrument (spot index). Order placement uses resolved option contracts
+        separately (see instrument_resolver).
         """
-        return self._config.instrument_selection.symbols
+        sel_type = self._instr_sel_get("type")
+        if sel_type == "options":
+            underlying = self._config.underlying or {}
+            if isinstance(underlying, dict):
+                ik = underlying.get("instrument_key")
+            else:
+                ik = getattr(underlying, "instrument_key", None)
+            return [ik] if ik else []
+        return self._instr_sel_get("symbols", []) or []
 
     def set_multi_timeframe_provider(self, provider: callable) -> None:
         """Set provider for multi-timeframe bars.
@@ -645,6 +689,15 @@ class SetEvaluator(threading.Thread):
         if len(bars[symbol]) < 2:
             return False
 
+        logger.info(
+            "[{}|{}] Evaluating {} conditions | symbol={} | bars={}",
+            self._config.name,
+            self._entry_set.name,
+            len(self._entry_set.conditions),
+            symbol,
+            len(bars[symbol]),
+        )
+
         # Evaluate all conditions
         conditions_met = self._evaluator.evaluate_all(
             self._entry_set.conditions, symbol_bars, symbol
@@ -652,6 +705,7 @@ class SetEvaluator(threading.Thread):
 
         if not conditions_met:
             return False
+
 
         # Evaluate enhanced filters if enabled
         if self._use_enhanced_filters:
@@ -715,7 +769,7 @@ class SetEvaluator(threading.Thread):
         Returns:
             'long' for BUY/BUY_CE, 'short' for SELL/BUY_PE.
         """
-        if self._entry_set.signal_type in (SignalType.BUY, SignalType.BUY_CE):
+        if self._resolved_signal_type in (SignalType.BUY, SignalType.BUY_CE):
             return "long"
         return "short"
 
@@ -821,8 +875,8 @@ class SetEvaluator(threading.Thread):
 
             # Get underlying for options
             underlying = None
-            if self._entry_set.signal_type in (SignalType.BUY_CE, SignalType.BUY_PE):
-                underlying = self._config.instrument_selection.underlying or symbol
+            if self._resolved_signal_type in (SignalType.BUY_CE, SignalType.BUY_PE):
+                underlying = self._instr_sel_get("underlying") or symbol
 
             # Build metadata
             metadata: dict[str, Any] = {
@@ -831,11 +885,20 @@ class SetEvaluator(threading.Thread):
             if filter_metadata:
                 metadata.update(filter_metadata)
 
+            # Pass instrument selection config to OrderManager for option resolution
+            if hasattr(self._config, "instrument_selection") and self._config.instrument_selection:
+                sel = self._config.instrument_selection
+                metadata["instrument_selection"] = sel.model_dump() if hasattr(sel, "model_dump") else sel
+            
+            if hasattr(self._config, "underlying") and self._config.underlying:
+                und = self._config.underlying
+                metadata["underlying"] = und.model_dump() if hasattr(und, "model_dump") else und
+
             signal = Signal(
                 strategy_name=self._config.name,
                 set_name=self._entry_set.name,
                 instrument_key=symbol,
-                signal_type=self._entry_set.signal_type,
+                signal_type=self._resolved_signal_type,
                 underlying=underlying,
                 quantity=quantity,
                 price=current_price,
@@ -936,7 +999,7 @@ class SetEvaluator(threading.Thread):
         """
         # Try to get lot size from instrument manager if available
         # For now, default to 1 (equity) or check config
-        symbols = self._config.instrument_selection.symbols if self._config.instrument_selection else []
+        symbols = self._instr_sel_get("symbols", []) or []
         if symbols:
             # F&O instruments typically have lot sizes > 1
             # This would be resolved from instrument master in production
@@ -1223,13 +1286,13 @@ class SetEvaluator(threading.Thread):
         Returns:
             Stop loss price in PAISA or None.
         """
-        sl_rule = self._config.exit.stop_loss
+        sl_rule = self._config.exit_rules.stop_loss_pct
         if sl_rule is None:
             return None
 
         if isinstance(sl_rule, (int, float)):
             points = int(sl_rule)
-            if self._entry_set.signal_type in (SignalType.BUY, SignalType.BUY_CE):
+            if self._resolved_signal_type in (SignalType.BUY, SignalType.BUY_CE):
                 return entry_price - points
             else:
                 return entry_price + points
@@ -1251,7 +1314,7 @@ class SetEvaluator(threading.Thread):
                 atr_value = int(atr.iloc[-1])
                 points = int(atr_value * multiplier)
 
-                if self._entry_set.signal_type in (SignalType.BUY, SignalType.BUY_CE):
+                if self._resolved_signal_type in (SignalType.BUY, SignalType.BUY_CE):
                     return entry_price - points
                 else:
                     return entry_price + points
@@ -1274,13 +1337,13 @@ class SetEvaluator(threading.Thread):
         Returns:
             Target price in PAISA or None.
         """
-        target_rule = self._config.exit.target
+        target_rule = self._config.exit_rules.target_pct
         if target_rule is None:
             return None
 
         if isinstance(target_rule, (int, float)):
             points = int(target_rule)
-            if self._entry_set.signal_type in (SignalType.BUY, SignalType.BUY_CE):
+            if self._resolved_signal_type in (SignalType.BUY, SignalType.BUY_CE):
                 return entry_price + points
             else:
                 return entry_price - points
@@ -1302,7 +1365,7 @@ class SetEvaluator(threading.Thread):
                 atr_value = int(atr.iloc[-1])
                 points = int(atr_value * multiplier)
 
-                if self._entry_set.signal_type in (SignalType.BUY, SignalType.BUY_CE):
+                if self._resolved_signal_type in (SignalType.BUY, SignalType.BUY_CE):
                     return entry_price + points
                 else:
                     return entry_price - points
@@ -1346,6 +1409,8 @@ class StrategyEngine:
         self._signal_queue: queue.Queue[Signal] = queue.Queue()
         self._bar_close_event = threading.Event()
         self._stop_event = threading.Event()
+        # Initialized in start(); guarded in stop() against pre-start shutdown.
+        self._monitor_thread: threading.Thread | None = None
 
         self._builder = StrategyBuilder()
         self._evaluator = ConditionEvaluator()  # shared evaluator for sync path
@@ -1554,17 +1619,35 @@ class StrategyEngine:
                     strat_type = strategy.params.get("strategy_type", "auto")
                     if strat_type == "auto":
                         strat_type = self._classify_strategy_type(strategy)
+                        
+                    # Strict gating based on strategy params (applies to ALL strategies, including theta_positive)
+                    max_vix = strategy.params.get("max_vix")
+                    min_vix = strategy.params.get("min_vix")
+                    
+                    if max_vix is not None and vix_value > max_vix:
+                        logger.debug(
+                            f"[{strategy.name}] VIX {vix_value:.1f} > max_vix {max_vix}, strategy blocked"
+                        )
+                        continue
+                        
+                    if min_vix is not None and vix_value < min_vix:
+                        logger.debug(
+                            f"[{strategy.name}] VIX {vix_value:.1f} < min_vix {min_vix}, strategy blocked"
+                        )
+                        continue
+
+                    # Heuristic/regime gating for trend strategies
                     vix_high = strategy.params.get("vix_high_threshold", 18.0)
                     vix_low = strategy.params.get("vix_low_threshold", 12.0)
                     if vix_value > vix_high and strat_type not in ("theta_positive", "auto"):
                         logger.debug(
-                            f"[{strategy.name}] VIX {vix_value:.1f}% > {vix_high}%, "
+                            f"[{strategy.name}] VIX {vix_value:.1f} > {vix_high}, "
                             f"strategy '{strat_type}' blocked in high-vol regime"
                         )
                         continue
                     if vix_value < vix_low and strat_type == "trend_following":
                         logger.debug(
-                            f"[{strategy.name}] VIX {vix_value:.1f}% < {vix_low}%, "
+                            f"[{strategy.name}] VIX {vix_value:.1f} < {vix_low}, "
                             f"trend strategy blocked in low-vol regime"
                         )
                         continue
@@ -1747,7 +1830,8 @@ class StrategyEngine:
         for evaluator in self._evaluators:
             evaluator.join(timeout=5.0)
 
-        self._monitor_thread.join(timeout=5.0)
+        if self._monitor_thread is not None:
+            self._monitor_thread.join(timeout=5.0)
         logger.info("StrategyEngine stopped")
 
     def _monitor_bar_close(self) -> None:
@@ -1834,6 +1918,11 @@ class StrategyEngine:
             except queue.Empty:
                 break
         return signals
+
+    @property
+    def strategies(self) -> list[StrategyConfig]:
+        """Return all loaded strategies (active and inactive)."""
+        return list(self._strategies.values())
 
     def get_active_strategies(self) -> list[StrategyConfig]:
         """Get list of currently active strategies.

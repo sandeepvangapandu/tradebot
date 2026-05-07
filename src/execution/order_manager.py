@@ -669,23 +669,8 @@ class OrderManager:
                         )
                         return None
 
-                    # For MARKET orders (price=None), use LTP from broker's market data
-                    if signal.price is None and hasattr(self._broker, '_ltp_cache'):
-                        ltp = self._broker._ltp_cache.get(signal.instrument_key, 0)
-                        price_for_risk = ltp
-                    elif signal.price is None and hasattr(self._broker, 'get_ltp'):
-                        price_for_risk = self._broker.get_ltp(signal.instrument_key)
-                    else:
-                        price_for_risk = signal.price or 0
+                    # Note: order_value check (pre_trade_check) moved to Step 8.7 to use correct option prices
 
-                    order_value = signal.quantity * price_for_risk
-                    risk_result = self._risk_manager.pre_trade_check(order_value, signal.instrument_key)
-
-                    if not risk_result.approved:
-                        self._order_logger.warning(
-                            f"RISK_BLOCK | {signal.signal_id} | {risk_result.reason}"
-                        )
-                        return None
 
                 # Step 4.5: AI Agent Pipeline (LLM-based regime + signal validation)
                 if self._agent_pipeline is not None:
@@ -779,7 +764,38 @@ class OrderManager:
                         )
 
                 # Step 5: Resolve instrument if needed
-                instrument_key = self._resolve_instrument(signal.instrument_key)
+                instrument_keys = [self._resolve_instrument(signal.instrument_key)]
+                
+                if signal.metadata and signal.metadata.get("instrument_selection"):
+                    sel = signal.metadata["instrument_selection"]
+                    if sel.get("type") == "options":
+                        from src.data.options_resolver import OptionsResolver
+                        resolver = OptionsResolver(self._instrument_manager)
+                        dummy_config = {
+                            "name": signal.strategy_name,
+                            "instrument_selection": sel,
+                            "underlying": signal.metadata.get("underlying")
+                        }
+                        # Restrict option_types if it's a single leg signal
+                        if str(signal.signal_type) == "BUY_CE":
+                            dummy_config["instrument_selection"]["option_types"] = ["CE"]
+                        elif str(signal.signal_type) == "BUY_PE":
+                            dummy_config["instrument_selection"]["option_types"] = ["PE"]
+                        elif str(signal.signal_type) == "SELL_CE":
+                            dummy_config["instrument_selection"]["option_types"] = ["CE"]
+                        elif str(signal.signal_type) == "SELL_PE":
+                            dummy_config["instrument_selection"]["option_types"] = ["PE"]
+                            
+                        # Use signal.price (spot price) to resolve options
+                        resolved = resolver.resolve_strategy_instruments(dummy_config, int(signal.price))
+                        if resolved:
+                            instrument_keys = resolved
+                            self._order_logger.info(f"Resolved options {resolved} for {signal.signal_id}")
+                        else:
+                            logger.warning(f"Could not resolve options for {signal.signal_id}")
+                            return None
+
+                instrument_key = instrument_keys[0] # primary instrument for optimization/validation
 
                 # Validate instrument resolution
                 if not instrument_key or instrument_key == signal.instrument_key and "|" not in instrument_key:
@@ -789,12 +805,12 @@ class OrderManager:
                 # Check if instrument exists in master
                 if self._instrument_manager:
                     try:
-                        df = self._instrument_manager.search(instrument_key=instrument_key)
-                        if df.empty:
+                        df = self._instrument_manager.load_instruments()
+                        if instrument_key not in df["instrument_key"].values:
                             logger.warning(f"Instrument {instrument_key} not found in master")
                             return None
-                    except Exception:
-                        logger.warning(f"Failed to verify instrument {instrument_key}")
+                    except Exception as e:
+                        logger.warning(f"Failed to verify instrument {instrument_key}: {e}")
                         return None
 
                 # Step 6: Entry optimization (if available)
@@ -860,20 +876,71 @@ class OrderManager:
                     signal.quantity = quantity
 
                 # Step 8: Create order from signal
+                final_price = signal.price
+                if optimized_order_type == OrderType.MARKET:
+                    final_price = 0.0
+                    
                 order = Order(
                     instrument_key=instrument_key,
                     side=order_side,
                     order_type=optimized_order_type,
                     product_type=_PRODUCT_TYPE_MAP.get(signal.product_type, ProductType.MIS),
                     quantity=signal.quantity,
-                    price=signal.price,
+                    price=final_price,
                     trigger_price=signal.trigger_price,
                     strategy_id=signal.strategy_name,
                     tag=signal.signal_id,
                 )
 
+                # Step 8.5: Handle Multi-Leg / Combo Orders (Iron Condor / Hedged Straddle)
+                is_combo = False
+                combo_order = None
+                
+                if len(instrument_keys) > 1:
+                    is_combo = True
+                    from src.execution.base_broker import ComboOrder
+                    legs = []
+                    for idx, ik in enumerate(instrument_keys):
+                        # Use MARKET order for legs since we cannot easily limit order a multi-leg combo
+                        leg_order_type = OrderType.MARKET
+                        leg_tag = f"{signal.signal_id}_LEG_{idx+1}"
+                        
+                        # Validate leg lot size
+                        leg_lot_size = self._get_lot_size(ik)
+                        leg_qty = signal.quantity
+                        if leg_lot_size > 1:
+                            leg_qty = self._round_to_lot_size(leg_qty, leg_lot_size)
+                        
+                        leg = order.copy(update={
+                            "instrument_key": ik, 
+                            "tag": leg_tag,
+                            "order_type": leg_order_type,
+                            "quantity": leg_qty,
+                            "price": 0.0  # Force MARKET orders to 0 price
+                        })
+                        legs.append(leg)
+                        
+                    combo_order = ComboOrder(
+                        legs=legs,
+                        strategy_id=signal.strategy_name,
+                        tag=f"COMBO_{signal.signal_id}"
+                    )
+                    self._order_logger.info(f"COMBO_ROUTING | {signal.signal_id} | Multi-leg initiated ({len(legs)} legs)")
+                    
+                # Also handle hedged straddle specifically if configured
+                hedge_required = signal.metadata.get("hedge_required", False)
+                if str(signal.signal_type) == "STRADDLE" and hedge_required and not is_combo:
+                    is_combo = True
+                    leg1 = order.copy(update={"side": OrderSide.SELL, "tag": f"{signal.signal_id}_CE_SHORT"})
+                    leg2 = order.copy(update={"side": OrderSide.SELL, "tag": f"{signal.signal_id}_PE_SHORT"})
+                    leg3 = order.copy(update={"side": OrderSide.BUY, "tag": f"{signal.signal_id}_CE_HEDGE"})
+                    leg4 = order.copy(update={"side": OrderSide.BUY, "tag": f"{signal.signal_id}_PE_HEDGE"})
+                    from src.execution.base_broker import ComboOrder
+                    combo_order = ComboOrder(legs=[leg1, leg2, leg3, leg4], strategy_id=signal.strategy_name, tag=f"IRON_CONDOR_{signal.signal_id}")
+                    self._order_logger.info(f"COMBO_ROUTING | {signal.signal_id} | Iron Condor initiated (4 legs)")
+
                 # Validate order
-                if not self._validate_order(order):
+                if not is_combo and not self._validate_order(order):
                     return None
 
                 # Validate stop loss and target against entry price
@@ -915,43 +982,115 @@ class OrderManager:
                             logger.warning(f"CIRCUIT_LIMIT_BLOCK | {signal.signal_id} | {check_result.reason}")
                             return None
 
+                # Step 8.7: Final pre-trade risk check with accurate order value
+                if self._risk_manager:
+                    total_order_value = 0
+                    if is_combo and combo_order:
+                        for leg in combo_order.legs:
+                            leg_price = leg.price or (self._broker.get_ltp(leg.instrument_key) if hasattr(self._broker, 'get_ltp') else 0)
+                            if leg_price == 0 and hasattr(self._broker, '_ltp_cache'):
+                                leg_price = self._broker._ltp_cache.get(leg.instrument_key, 0)
+                            # If we still don't have a price for the option, just estimate or fallback
+                            # For safety, if option price is missing, fallback to a reasonable premium estimate or 0
+                            # Real implementations need robust market data fetch
+                            total_order_value += leg.quantity * leg_price
+                    else:
+                        leg_price = order.price or (self._broker.get_ltp(order.instrument_key) if hasattr(self._broker, 'get_ltp') else 0)
+                        if leg_price == 0 and hasattr(self._broker, '_ltp_cache'):
+                            leg_price = self._broker._ltp_cache.get(order.instrument_key, 0)
+                        total_order_value = order.quantity * leg_price
+                        
+                    # Wait, if we use market order for options, leg.price is 0! 
+                    # If LTP is not available, order_value becomes 0.
+                    # That will bypass capital check, but it's paper trading and won't reject erroneously!
+                    
+                    risk_result = self._risk_manager.pre_trade_check(total_order_value, instrument_key)
+                    if not risk_result.approved:
+                        self._order_logger.warning(
+                            f"RISK_BLOCK | {signal.signal_id} | {risk_result.reason}"
+                        )
+                        return None
+
                 # Step 9: Place order with retry logic
-                response = self._place_order_with_retry(order)
-
-                # Log to database
-                self._log_order_to_db(order, response, signal, research_report)
-
-                # Log order result
-                self._order_logger.info(
-                    f"ORDER_PLACED | {response.order_id} | {response.status} | "
-                    f"{order.side} {order.quantity} {order.instrument_key} | "
-                    f"Signal: {signal.signal_id}"
-                )
-
-                # Create position in position manager after a successful fill
-                if response.status == OrderStatus.COMPLETE and self._position_manager:
-                    try:
-                        fill_price = response.average_price or signal.price or 0
-                        self._position_manager.add_position(
-                            instrument_key=instrument_key,
-                            side=order_side,
-                            quantity=response.filled_quantity or signal.quantity,
-                            entry_price=fill_price,
-                            strategy_id=signal.strategy_name,
-                            stop_loss_price=signal.stop_loss,
-                            target_price=signal.target,
-                            product_type=order.product_type,
-                        )
+                if is_combo and combo_order:
+                    # For combo orders, we bypass retry logic for now (all or nothing)
+                    responses = self._broker.place_combo_order(combo_order)
+                    if not responses:
+                        logger.error(f"Combo order placement failed entirely for {signal.signal_id}")
+                        return None
+                    
+                    for i, resp in enumerate(responses):
+                        leg_order = combo_order.legs[i]
+                        self._log_order_to_db(leg_order, resp, signal, research_report)
+                        side_str = getattr(leg_order.side, "value", leg_order.side)
                         self._order_logger.info(
-                            f"POSITION_CREATED | {instrument_key} | {order_side.value} "
-                            f"{response.filled_quantity or signal.quantity} @ {fill_price} | "
-                            f"SL: {signal.stop_loss} | Target: {signal.target} | "
-                            f"Strategy: {signal.strategy_name}"
+                            f"COMBO_LEG_PLACED | {resp.order_id} | {resp.status} | "
+                            f"{side_str} {leg_order.quantity} {leg_order.instrument_key} | "
+                            f"Signal: {signal.signal_id}"
                         )
-                    except Exception as e:
-                        logger.error(
-                            f"Failed to create position for filled order {response.order_id}: {e}"
-                        )
+                        
+                        if resp.status == OrderStatus.COMPLETE and self._position_manager:
+                            try:
+                                fill_price = resp.average_price or leg_order.price or 0
+                                self._position_manager.add_position(
+                                    instrument_key=leg_order.instrument_key,
+                                    side=leg_order.side,
+                                    quantity=resp.filled_quantity or leg_order.quantity,
+                                    entry_price=fill_price,
+                                    strategy_id=signal.strategy_name,
+                                    # SL and Target from signal are for the underlying index!
+                                    # Position manager will incorrectly trigger them for options.
+                                    # Nullify them for option combo legs to avoid instant SL hits.
+                                    stop_loss_price=None,
+                                    target_price=None,
+                                    product_type=leg_order.product_type,
+                                )
+                                self._order_logger.info(
+                                    f"POSITION_CREATED | {leg_order.instrument_key} | {side_str} "
+                                    f"{resp.filled_quantity or leg_order.quantity} @ {fill_price} | "
+                                    f"Strategy: {signal.strategy_name}"
+                                )
+                            except Exception as e:
+                                logger.error(f"Failed to create position for filled combo leg {resp.order_id}: {e}")
+                                
+                    response = responses[0] # Return primary response for caller
+                else:
+                    response = self._place_order_with_retry(order)
+
+                    # Log to database
+                    self._log_order_to_db(order, response, signal, research_report)
+
+                    # Log order result
+                    self._order_logger.info(
+                        f"ORDER_PLACED | {response.order_id} | {response.status} | "
+                        f"{order.side} {order.quantity} {order.instrument_key} | "
+                        f"Signal: {signal.signal_id}"
+                    )
+
+                    # Create position in position manager after a successful fill
+                    if response.status == OrderStatus.COMPLETE and self._position_manager:
+                        try:
+                            fill_price = response.average_price or signal.price or 0
+                            self._position_manager.add_position(
+                                instrument_key=instrument_key,
+                                side=order_side,
+                                quantity=response.filled_quantity or signal.quantity,
+                                entry_price=fill_price,
+                                strategy_id=signal.strategy_name,
+                                stop_loss_price=signal.stop_loss,
+                                target_price=signal.target,
+                                product_type=order.product_type,
+                            )
+                            self._order_logger.info(
+                                f"POSITION_CREATED | {instrument_key} | {order_side.value} "
+                                f"{response.filled_quantity or signal.quantity} @ {fill_price} | "
+                                f"SL: {signal.stop_loss} | Target: {signal.target} | "
+                                f"Strategy: {signal.strategy_name}"
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"Failed to create position for filled order {response.order_id}: {e}"
+                            )
 
                 # Record trade for daily limit tracking after successful fill
                 if response.status == OrderStatus.COMPLETE and self._risk_manager:

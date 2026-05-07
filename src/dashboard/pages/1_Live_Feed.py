@@ -195,7 +195,7 @@ def render() -> None:
     st.subheader("📊 Live Quotes")
     st.dataframe(
         df,
-        use_container_width=True,
+        width='stretch',
         hide_index=True,
         column_config={
             "Change %": st.column_config.NumberColumn(format="%.2f %%"),
@@ -212,9 +212,9 @@ def render() -> None:
         gainers = valid.nlargest(3, "Change %")[["Instrument", "LTP (Rs.)", "Change %"]]
         losers = valid.nsmallest(3, "Change %")[["Instrument", "LTP (Rs.)", "Change %"]]
         a.markdown("**Top Gainers**")
-        a.dataframe(gainers, use_container_width=True, hide_index=True)
+        a.dataframe(gainers, width='stretch', hide_index=True)
         b.markdown("**Top Losers**")
-        b.dataframe(losers, use_container_width=True, hide_index=True)
+        b.dataframe(losers, width='stretch', hide_index=True)
 
     # --- Auto refresh ---
     if auto_refresh:

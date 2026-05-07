@@ -17,6 +17,7 @@ from datetime import date, datetime, time as dt_time
 from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import pandas as pd
 from loguru import logger
@@ -572,11 +573,13 @@ class BacktestHarness:
         )
 
         total_bars = len(self._master_df)
-        for i, (bar_time, bar) in enumerate(self._master_df.iterrows()):
+        # Using itertuples instead of iterrows for 5x speedup
+        for i, row in enumerate(self._master_df.itertuples()):
+            bar_time = row.Index
             bar_time_ist: datetime = (
                 bar_time.astimezone(IST) if bar_time.tzinfo else bar_time.replace(tzinfo=IST)
             )
-            current_price = int(bar["close"])
+            current_price = int(row.close)
 
             # --- Advance bar provider (no lookahead) ---
             self._bar_provider.advance(self._instrument_key, i)
@@ -592,6 +595,39 @@ class BacktestHarness:
             if today != prev_date:
                 if prev_date is not None:
                     logger.info(f"[BACKTEST] New day: {today} (prev: {prev_date})")
+                    
+                    # Auto-disable dead strategies
+                    strat_stats = {}
+                    for trade in results.trades:
+                        s_id = trade.get("strategy_id")
+                        if not s_id: continue
+                        if s_id not in strat_stats:
+                            strat_stats[s_id] = {"wins": 0, "losses": 0, "gross_profit": 0, "gross_loss": 0, "total": 0}
+                        
+                        pnl = trade.get("net_pnl", 0)
+                        strat_stats[s_id]["total"] += 1
+                        if pnl > 0:
+                            strat_stats[s_id]["wins"] += 1
+                            strat_stats[s_id]["gross_profit"] += pnl
+                        else:
+                            strat_stats[s_id]["losses"] += 1
+                            strat_stats[s_id]["gross_loss"] += abs(pnl)
+                            
+                    for s_id, stats in strat_stats.items():
+                        total = stats["total"]
+                        if total >= 10:
+                            win_rate = (stats["wins"] / total) * 100
+                            profit_factor = stats["gross_profit"] / stats["gross_loss"] if stats["gross_loss"] > 0 else float('inf')
+                            
+                            strategy = self._strategy_engine._strategies.get(s_id)
+                            if strategy and strategy.enabled:
+                                if win_rate < 45.0 or profit_factor < 1.0:
+                                    logger.warning(
+                                        f"[QUARANTINE] Auto-disabling strategy {s_id} | "
+                                        f"Trades: {total} | WR: {win_rate:.1f}% | PF: {profit_factor:.2f}"
+                                    )
+                                    strategy.enabled = False
+                                    
                 self._risk_manager.reset_daily()
                 prev_date = today
 
@@ -735,3 +771,54 @@ class BacktestHarness:
                 })
         except Exception as exc:
             logger.warning(f"[BACKTEST] End-of-data close_all failed: {exc}")
+
+def _run_single(inst_key: str, filepath: str, strategy_dir: str, capital: Optional[int], start_date: Optional[date], end_date: Optional[date]) -> tuple[str, HarnessResults]:
+    try:
+        harness = BacktestHarness(
+            data_file=filepath,
+            instrument_key=inst_key,
+            strategy_dir=strategy_dir,
+            capital=capital,
+            start_date=start_date,
+            end_date=end_date,
+            prices_in_rupees=False,
+        )
+        res = harness.run()
+        return inst_key, res
+    except Exception as exc:
+        logger.error(f"Backtest failed for {inst_key}: {exc}")
+        return inst_key, HarnessResults()
+
+def run_multi_symbol_backtest(
+    data_files: dict[str, str],
+    strategy_dir: str = "config/strategies",
+    capital: Optional[int] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    max_workers: int = 4,
+) -> dict[str, HarnessResults]:
+    """Run backtests concurrently across multiple instruments using ProcessPoolExecutor.
+    
+    Args:
+        data_files: Mapping of instrument_key -> data_file path.
+        strategy_dir: Directory containing strategy JSON configs.
+        capital: Initial capital for each backtest.
+        start_date: Optional start date filter.
+        end_date: Optional end date filter.
+        max_workers: Max concurrent processes.
+        
+    Returns:
+        Mapping of instrument_key -> HarnessResults.
+    """
+    results_map = {}
+            
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_run_single, key, path, strategy_dir, capital, start_date, end_date): key
+            for key, path in data_files.items()
+        }
+        for future in as_completed(futures):
+            inst_key, res = future.result()
+            results_map[inst_key] = res
+            
+    return results_map

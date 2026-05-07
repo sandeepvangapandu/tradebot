@@ -18,6 +18,7 @@ from src.execution.base_broker import (
     BaseBroker,
     BrokerError,
     Order,
+    ComboOrder,
     OrderResponse,
     OrderSide,
     OrderStatus,
@@ -465,6 +466,19 @@ class PaperBroker(BaseBroker):
 
         position.last_price = fill_price
         return position
+
+    def place_combo_order(self, combo: ComboOrder) -> list[OrderResponse]:
+        """Place a multi-leg combination order.
+        
+        In paper trading, this executes all legs sequentially, ensuring
+        they either all succeed or fail together conceptually. Since paper
+        trading rarely fails once margins are checked, we just loop through.
+        """
+        responses = []
+        for leg in combo.legs:
+            resp = self.place_order(leg)
+            responses.append(resp)
+        return responses
 
     def modify_order(self, order_id: str, changes: dict) -> OrderResponse:
         """Modify an existing order (not supported in paper trading for filled orders).

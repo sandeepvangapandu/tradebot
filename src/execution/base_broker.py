@@ -70,6 +70,19 @@ class Order(BaseModel):
         use_enum_values = True
 
 
+class ComboOrder(BaseModel):
+    """Represents a multi-leg combination order (e.g., Iron Condor, Straddle).
+    
+    All legs are executed simultaneously if supported by the broker.
+    """
+    legs: list[Order] = Field(..., min_items=2, description="Individual order legs")
+    strategy_id: Optional[str] = Field(default=None, description="ID of the strategy")
+    tag: Optional[str] = Field(default=None, description="Optional tag (e.g., 'IRON_CONDOR')")
+    
+    class Config:
+        use_enum_values = True
+
+
 class OrderResponse(BaseModel):
     """Response from broker after placing/modifying an order."""
     order_id: str = Field(..., description="Unique order ID from broker")
@@ -161,6 +174,21 @@ class BaseBroker(ABC):
 
         Raises:
             BrokerError: If order placement fails.
+        """
+        pass
+
+    @abstractmethod
+    def place_combo_order(self, combo: ComboOrder) -> list[OrderResponse]:
+        """Place a multi-leg combination order with the broker.
+        
+        Args:
+            combo: The ComboOrder containing all legs.
+            
+        Returns:
+            List of OrderResponses, one for each leg.
+            
+        Raises:
+            BrokerError: If combo placement fails.
         """
         pass
 

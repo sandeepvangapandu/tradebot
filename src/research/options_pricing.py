@@ -14,6 +14,15 @@ from typing import Optional
 
 from loguru import logger
 
+try:
+    from numba import njit
+except ImportError:
+    def njit(*args, **kwargs):
+        def decorator(func):
+            return func
+        if len(args) == 1 and callable(args[0]):
+            return args[0]
+        return decorator
 
 @dataclass
 class OptionGreeks:
@@ -27,7 +36,7 @@ class OptionGreeks:
     d1: float
     d2: float
 
-
+@njit(cache=True)
 def _norm_cdf(x: float) -> float:
     """Standard normal cumulative distribution function using error function.
 
@@ -38,9 +47,9 @@ def _norm_cdf(x: float) -> float:
         CDF value.
     """
     # Using math.erf: Φ(x) = (1 + erf(x/√2)) / 2
-    return (1.0 + math.erf(x / math.sqrt(2.0))) / 2.0
+    return (1.0 + math.erf(x / 1.4142135623730951)) / 2.0
 
-
+@njit(cache=True)
 def _norm_pdf(x: float) -> float:
     """Standard normal probability density function.
 
@@ -50,8 +59,33 @@ def _norm_pdf(x: float) -> float:
     Returns:
         PDF value.
     """
-    return math.exp(-0.5 * x * x) / math.sqrt(2.0 * math.pi)
+    return math.exp(-0.5 * x * x) / 2.5066282746310002
 
+# We cannot use njit easily on string comparison, but let's change bsm_price 
+# to a helper that takes an int for kind (0=call, 1=put) so numba can compile it,
+# or we can just leave kind as string and bypass njit for the outer wrapper,
+# but since numba supports strings to some extent, we will try.
+
+@njit(cache=True)
+def _bsm_price_core(S: float, K: float, T: float, sigma: float, r: float, is_call: bool) -> float:
+    if sigma <= 0.0:
+        return 0.0
+    if T <= 0.0:
+        if is_call:
+            return max(0.0, S - K)
+        else:
+            return max(0.0, K - S)
+
+    sqrtT = math.sqrt(T)
+    d1 = (math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * sqrtT)
+    d2 = d1 - sigma * sqrtT
+
+    if is_call:
+        price = S * _norm_cdf(d1) - K * math.exp(-r * T) * _norm_cdf(d2)
+    else:
+        price = K * math.exp(-r * T) * _norm_cdf(-d2) - S * _norm_cdf(-d1)
+
+    return max(0.0, price)
 
 def bsm_price(
     S: float,
@@ -77,27 +111,11 @@ def bsm_price(
     Raises:
         ValueError: Invalid parameters or negative sigma/T.
     """
-    if sigma <= 0:
-        raise ValueError("sigma must be positive")
-    if T <= 0:
-        # Expired: option worth intrinsic only
-        if kind.lower() == "call":
-            return max(0.0, S - K)
-        else:
-            return max(0.0, K - S)
-
-    sqrtT = math.sqrt(T)
-    d1 = (math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * sqrtT)
-    d2 = d1 - sigma * sqrtT
-
-    if kind.lower() == "call":
-        price = S * _norm_cdf(d1) - K * math.exp(-r * T) * _norm_cdf(d2)
-    elif kind.lower() == "put":
-        price = K * math.exp(-r * T) * _norm_cdf(-d2) - S * _norm_cdf(-d1)
-    else:
+    if kind.lower() not in ("call", "put"):
         raise ValueError(f"kind must be 'call' or 'put', got {kind}")
 
-    return max(0.0, price)
+    is_call = kind.lower() == "call"
+    return _bsm_price_core(float(S), float(K), float(T), float(sigma), float(r), is_call)
 
 
 def bsm_greeks(

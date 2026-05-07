@@ -80,7 +80,7 @@ def render():
                 "Trades",
                 "Wins",
             ]
-            st.dataframe(display_df, use_container_width=True)
+            st.dataframe(display_df, width='stretch')
         else:
             st.info(
                 "No daily P&L data yet. The bot records daily summaries after market close."

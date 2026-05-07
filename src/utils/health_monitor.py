@@ -147,9 +147,13 @@ class HealthMonitor:
 
     def _register_default_recovery_strategies(self) -> None:
         """Register default recovery strategies for common components."""
-        # WebSocket feed recovery
-        self.register_recovery_strategy("websocket_feed", self._recover_websocket)
-        self.register_recovery_strategy("market_feed", self._recover_websocket)
+        # NOTE: market_feed recovery is intentionally NOT registered here.
+        # The default _recover_websocket referenced MarketFeed.get_instance()
+        # which doesn't exist on MarketDataFeed. Callers (TradingBot.startup)
+        # should register their own recovery strategies with access to the
+        # real instance. Without a registered strategy the monitor logs a
+        # warning and marks the component FAILED — much better than silently
+        # exhausting 3 attempts on a broken no-op recovery.
 
         # Database connection recovery
         self.register_recovery_strategy("database", self._recover_database)
@@ -344,12 +348,38 @@ class HealthMonitor:
                 logger.warning(f"Component {name} is already registered")
                 return
 
-            self._components[name] = ComponentStatus(name=name)
+            status = ComponentStatus(name=name)
+            # Stamp registration time so _check_health can apply a startup
+            # grace period before marking this component FAILED.
+            status.metadata["registered_at"] = datetime.now()
+            self._components[name] = status
             self._heartbeat_timeouts[name] = heartbeat_timeout
 
             logger.info(
                 f"Registered component {name} with heartbeat timeout {heartbeat_timeout}s"
             )
+
+    def reset(self) -> None:
+        """Reset all monitoring state.
+
+        Clears all registered components, heartbeat timeouts, recovery
+        strategies, and recovery attempt counters. Call this at the top
+        of TradingBot.startup() to avoid stale singleton state from a
+        previous run (which would cause instant false-alarm FAILED alerts
+        the moment monitoring starts for the new run).
+
+        Note: Does NOT stop the monitoring thread — call stop_monitoring()
+        first if the thread is running.
+        """
+        with self._instance_lock:
+            self._components.clear()
+            self._heartbeat_timeouts.clear()
+            self._recovery_strategies.clear()
+            self._alert_callbacks.clear()
+            # Re-register the built-in recovery strategies so they're available
+            # after reset (database, memory, order_manager).
+            self._register_default_recovery_strategies()
+            logger.info("HealthMonitor state reset")
 
     def unregister_component(self, name: str) -> None:
         """Unregister a component from health monitoring.
@@ -620,6 +650,15 @@ class HealthMonitor:
             for name, status in self._components.items():
                 timeout = self._heartbeat_timeouts.get(name, 60)
 
+                # Grace period: don't mark FAILED within 90s of registration.
+                # This prevents race conditions where the health monitor fires
+                # before heartbeats have had a chance to arrive.
+                registered_at = status.metadata.get("registered_at")
+                if registered_at is not None:
+                    seconds_since_registration = (now - registered_at).total_seconds()
+                    if seconds_since_registration < 90:
+                        continue
+
                 # Check for missed heartbeats (mark as FAILED)
                 if status.status not in (
                     ComponentHealth.FAILED,
@@ -627,7 +666,6 @@ class HealthMonitor:
                 ):
                     time_since_heartbeat = (now - status.last_heartbeat).total_seconds()
                     if time_since_heartbeat > timeout * self.FAILED_HEARTBEAT_MULTIPLIER:
-                        old_status = status.status
                         status.status = ComponentHealth.FAILED
                         logger.error(
                             f"Component {name} marked FAILED: "
@@ -652,10 +690,14 @@ class HealthMonitor:
                     if status.recovery_attempts < self.MAX_RECOVERY_ATTEMPTS:
                         self._attempt_recovery(name)
                     else:
-                        logger.critical(
-                            f"Component {name} has exceeded max recovery attempts "
-                            f"({self.MAX_RECOVERY_ATTEMPTS}). Manual intervention required."
-                        )
+                        # Log CRITICAL only once (first time we hit the cap).
+                        # After that, suppress repeated spam every 30s.
+                        if not status.metadata.get("max_recovery_logged"):
+                            status.metadata["max_recovery_logged"] = True
+                            logger.critical(
+                                f"Component {name} has exceeded max recovery attempts "
+                                f"({self.MAX_RECOVERY_ATTEMPTS}). Manual intervention required."
+                            )
 
     def _attempt_recovery(self, component_name: str) -> bool:
         """Attempt to recover a failed component.

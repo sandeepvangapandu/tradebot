@@ -53,7 +53,7 @@ def render():
             )
 
             st.subheader("📊 Strategy Comparison")
-            st.dataframe(display_df, use_container_width=True)
+            st.dataframe(display_df, width='stretch')
 
             st.markdown("---")
 

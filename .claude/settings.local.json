@@ -99,7 +99,16 @@
       "Bash(git fetch *)",
       "Bash(git pull *)",
       "Bash(git stash *)",
-      "Bash(2>&1)"
+      "Bash(2>&1)",
+      "Bash(claude mcp *)",
+      "Skill(ruflo-core:init-project)",
+      "Bash(cp /Users/sandeepvangapandu/Downloads/Trading/CLAUDE.md /Users/sandeepvangapandu/Downloads/Trading/CLAUDE.md.bak)",
+      "Bash(npx @claude-flow/cli@latest init --preset standard)",
+      "Bash(pytest tests/test_strategies.py -x)"
     ]
-  }
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "claude-flow"
+  ]
 }

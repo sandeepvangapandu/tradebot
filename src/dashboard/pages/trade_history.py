@@ -61,7 +61,7 @@ def render():
             st.markdown("---")
 
             # Trade table
-            st.dataframe(df, use_container_width=True)
+            st.dataframe(df, width='stretch')
 
             # P&L distribution chart
             st.subheader("P&L Distribution")

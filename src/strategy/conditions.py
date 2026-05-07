@@ -501,34 +501,54 @@ class ConditionEvaluator:
         if df is None or df.empty:
             return {}
 
-        # Cache key: prior-trading-day's date. Pin cache to the latest bar's
-        # date so multiple condition checks within the same session reuse it.
+        # Cache key: current trading date. Multiple condition checks in the
+        # same session reuse the cached value without recomputing.
         latest_date = df.index[-1].date()
         cache_key = (symbol or "_", latest_date.isoformat())
         cached = self._cpr_cache.get(cache_key)
         if cached is not None:
             return cached
 
-        # Resample 1-minute bars to daily OHLC
+        # --- Group by IST trading date ---
+        # Use .date on the timezone-aware index rather than resample("1D").
+        # resample("1D") uses calendar-midnight UTC boundaries which can split
+        # a single 9:15-15:30 IST trading session across two calendar days.
         try:
-            daily = df.resample("1D").agg(
+            trading_date = df.index.date  # array of date objects (IST)
+            agg = df.groupby(trading_date).agg(
                 {"open": "first", "high": "max", "low": "min",
                  "close": "last", "volume": "sum"}
-            ).dropna()
+            )
         except Exception:
             return {}
 
-        # Need at least one fully-completed prior day
-        if len(daily) < 2:
+        # Need at least one fully-completed prior day (min 2 sessions total)
+        if len(agg) < 2:
             self._cpr_cache[cache_key] = {}
             return {}
 
-        # Use the last fully-closed day = second-to-last row when today's
-        # session is in progress; or last row when latest_date is not today.
-        prev_day_df = daily.iloc[[-2]]
-        if daily.index[-1].date() != latest_date:
-            # Latest bar is on a different (older) date; treat last as prev.
-            prev_day_df = daily.iloc[[-1]]
+        # Use the last fully-closed day (second-to-last when today is live,
+        # last row when latest_date predates today — e.g. on a non-trading day).
+        from datetime import date as _date
+        today = _date.today()
+        if latest_date == today:
+            prev_day_df = agg.iloc[[-2]]
+        else:
+            prev_day_df = agg.iloc[[-1]]
+
+        # Scale sanity check: bar prices must be in paisa.
+        # BankNifty spot is ~40,000-55,000 INR = 4,000,000-5,500,000 paisa.
+        # If daily high < 50,000 the data is likely in rupees — skip CPR.
+        daily_high = float(prev_day_df["high"].iloc[0])
+        if daily_high < 50_000:
+            logger.warning(
+                "_auto_cpr: prior-day high={:.0f} looks like rupees (expected paisa) "
+                "for {} — skipping CPR to avoid scale mismatch. "
+                "Ensure BarBuilder seed data converts prices to paisa.",
+                daily_high, symbol or "?"
+            )
+            self._cpr_cache[cache_key] = {}
+            return {}
 
         try:
             cpr = engine.calculate_cpr(prev_day_df)
@@ -536,8 +556,22 @@ class ConditionEvaluator:
             logger.debug(f"calculate_cpr failed: {exc}")
             cpr = {}
 
+        if cpr:
+            logger.info(
+                "_auto_cpr [{}]: pivot={:.0f} bc={:.0f} tc={:.0f} "
+                "width={:.1f}p ({:.3f}%) — prior_day={}",
+                symbol or "?",
+                cpr.get("pivot", 0),
+                cpr.get("bc", 0),
+                cpr.get("tc", 0),
+                cpr.get("cpr_width", 0),
+                cpr.get("cpr_width_pct", 0),
+                prev_day_df.index[0],
+            )
+
         self._cpr_cache[cache_key] = cpr
         return cpr
+
 
     def register_instrument(
         self, symbol: str, engine: IndicatorEngine
@@ -749,6 +783,16 @@ class ConditionEvaluator:
         ):
             if "volume" not in df.columns:
                 return None
+            # Index instruments (NSE_INDEX|*) always report volume=0.
+            # Returning 0 would permanently block volume-based conditions.
+            # Return a neutral ratio of 1.0 so conditions like "Volume > 0.9"
+            # pass without false-blocking on index data.
+            if (df["volume"] == 0).all():
+                logger.debug(
+                    f"Volume ratio: all volume=0 for {target_symbol} (index?) "
+                    "— returning neutral 1.0 to avoid blocking volume conditions"
+                )
+                return pd.Series(1.0, index=df.index)
             period = parameters.get("period", 20)
             avg_vol = df["volume"].rolling(window=period).mean()
             ratio = df["volume"] / avg_vol.replace(0, float("nan"))

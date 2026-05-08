@@ -393,6 +393,26 @@ class UpstoxLiveBroker(BaseBroker):
             logger.error(f"Order placement failed: {error_msg}")
             raise BrokerError(f"Order placement failed: {error_msg}")
 
+    def place_combo_order(self, combo) -> list[OrderResponse]:
+        """Place a multi-leg combination order.
+
+        Executes each leg sequentially as individual orders.
+
+        Args:
+            combo: ComboOrder containing all legs.
+
+        Returns:
+            List of OrderResponses, one per leg.
+
+        Raises:
+            BrokerError: If any leg fails.
+        """
+        responses = []
+        for leg in combo.legs:
+            response = self.place_order(leg)
+            responses.append(response)
+        return responses
+
     @retry(
         retry=retry_if_exception_type(BrokerError),
         stop=stop_after_attempt(3),

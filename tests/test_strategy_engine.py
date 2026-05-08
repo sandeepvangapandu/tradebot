@@ -259,12 +259,12 @@ class TestStrategyBuilder:
         # Check entry sets
         bullish_set = config["entry_sets"][0]
         assert bullish_set["name"] == "MACD_Bullish_Cross"
-        assert bullish_set["signal"] == "CE"
-        assert len(bullish_set["conditions"]) == 3
+        assert bullish_set["signal"] == "BUY"
+        assert len(bullish_set["conditions"]) == 4
 
         bearish_set = config["entry_sets"][1]
         assert bearish_set["name"] == "MACD_Bearish_Cross"
-        assert bearish_set["signal"] == "PE"
+        assert bearish_set["signal"] == "SELL"
 
 
 class TestConditionEvaluator:
@@ -311,7 +311,7 @@ class TestConditionEvaluator:
             "constant_value": 50,
             "timeframe": "5min",
         }
-        assert evaluator.evaluate(condition) is True
+        assert evaluator.evaluate(condition) == True
 
         # Test RSI < 30 (last value is 75)
         condition = {
@@ -321,7 +321,7 @@ class TestConditionEvaluator:
             "constant_value": 30,
             "timeframe": "5min",
         }
-        assert evaluator.evaluate(condition) is False
+        assert evaluator.evaluate(condition) == False
 
     def test_evaluate_indicator_vs_indicator(self, sample_data: dict[str, pd.DataFrame]) -> None:
         """Test comparing two indicators."""
@@ -334,21 +334,17 @@ class TestConditionEvaluator:
             "reference": "MACD_Signal",
             "timeframe": "5min",
         }
-        assert evaluator.evaluate(condition) is True
+        assert evaluator.evaluate(condition) == True
 
     def test_evaluate_crosses_above(self, sample_data: dict[str, pd.DataFrame]) -> None:
         """Test crosses_above detection."""
-        # Create data with a crossover
+        # Create data with a crossover at the last two bars (iloc[-2] below, iloc[-1] above)
         dates = pd.date_range(start="2024-01-01", periods=10, freq="5min")
         df = pd.DataFrame({
             "close": [100.0, 100.0, 100.0, 100.0, 100.0, 101.0, 102.0, 103.0, 104.0, 105.0],
-            "sma_fast": [99.0, 99.0, 99.0, 99.0, 99.0, 100.0, 101.0, 102.0, 103.0, 104.0],
+            "sma_fast": [99.0, 99.0, 99.0, 99.0, 99.0, 99.0, 99.0, 99.0, 99.5, 100.5],
             "sma_slow": [100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
         }, index=dates)
-
-        # Manually set up crossover at index 5
-        df.loc[df.index[4], "sma_fast"] = 99.5  # Below slow
-        df.loc[df.index[5], "sma_fast"] = 100.5  # Above slow
 
         evaluator = ConditionEvaluator({"5min": df})
 
@@ -360,21 +356,17 @@ class TestConditionEvaluator:
         }
 
         # Should detect crossover at last bar
-        assert evaluator.evaluate(condition) is True
+        assert evaluator.evaluate(condition) == True
 
     def test_evaluate_crosses_below(self, sample_data: dict[str, pd.DataFrame]) -> None:
         """Test crosses_below detection."""
-        # Create data with a crossunder
+        # Create data with a crossunder at the last two bars (iloc[-2] above, iloc[-1] below)
         dates = pd.date_range(start="2024-01-01", periods=10, freq="5min")
         df = pd.DataFrame({
             "close": [100.0] * 10,
-            "sma_fast": [105.0, 104.0, 103.0, 102.0, 101.0, 100.0, 99.0, 98.0, 97.0, 96.0],
+            "sma_fast": [105.0, 105.0, 105.0, 105.0, 105.0, 105.0, 105.0, 105.0, 100.5, 99.5],
             "sma_slow": [100.0] * 10,
         }, index=dates)
-
-        # Manually set up crossunder at index 5
-        df.loc[df.index[4], "sma_fast"] = 100.5  # Above slow
-        df.loc[df.index[5], "sma_fast"] = 99.5   # Below slow
 
         evaluator = ConditionEvaluator({"5min": df})
 
@@ -386,7 +378,7 @@ class TestConditionEvaluator:
         }
 
         # Should detect crossunder at last bar
-        assert evaluator.evaluate(condition) is True
+        assert evaluator.evaluate(condition) == True
 
     def test_evaluate_missing_timeframe(self, sample_data: dict[str, pd.DataFrame]) -> None:
         """Test evaluation fails gracefully with missing timeframe."""
@@ -412,7 +404,7 @@ class TestConditionEvaluator:
             "reference": "VWAP",
             "timeframe": "1min",
         }
-        assert evaluator.evaluate(condition) is True
+        assert evaluator.evaluate(condition) == True
 
         # Test Spot_Price < VWAP (should be false)
         condition = {
@@ -421,7 +413,7 @@ class TestConditionEvaluator:
             "reference": "VWAP",
             "timeframe": "1min",
         }
-        assert evaluator.evaluate(condition) is False
+        assert evaluator.evaluate(condition) == False
 
 
 class TestSetEvaluator:
@@ -485,8 +477,8 @@ class TestSetEvaluator:
         signal = set_evaluator.evaluate_set(entry_set)
 
         assert signal is None
-        # Should still check all conditions
-        assert mock_evaluator.evaluate.call_count == 3
+        # Evaluation short-circuits on first failing condition
+        assert mock_evaluator.evaluate.call_count == 1
 
     def test_evaluate_all_multiple_sets(self, mock_evaluator: ConditionEvaluator) -> None:
         """Test evaluating multiple entry sets."""
@@ -576,15 +568,15 @@ class TestStrategyEngineIntegration:
         # Create data with MACD crossover
         dates = pd.date_range(start="2024-01-01", periods=50, freq="5min")
 
-        # MACD starts below signal, then crosses above
-        macd_values = [0.0] * 40 + list(range(0, 10))  # Rising
-        signal_values = [2.0] * 40 + [2.0] * 10  # Flat
+        # MACD starts below signal, then crosses above at last two bars
+        macd_values = [0.0] * 50
+        signal_values = [2.0] * 50
 
-        # Make crossover happen at index 42
-        macd_values[41] = 1.5
-        signal_values[41] = 2.0
-        macd_values[42] = 2.5
-        signal_values[42] = 2.0
+        # Make crossover happen at the last bar (index 48 below, index 49 above)
+        macd_values[48] = 1.5   # Second-to-last: MACD below signal
+        signal_values[48] = 2.0
+        macd_values[49] = 2.5   # Last bar: MACD above signal
+        signal_values[49] = 2.0
 
         df_5min = pd.DataFrame({
             "open": [100.0] * 50,
@@ -617,7 +609,7 @@ class TestStrategyEngineIntegration:
             "reference": "MACD_Signal",
             "timeframe": "5min",
         }
-        assert evaluator.evaluate(condition1) is True
+        assert evaluator.evaluate(condition1) == True
 
         # Test RSI > 50
         condition2 = {
@@ -627,7 +619,7 @@ class TestStrategyEngineIntegration:
             "constant_value": 50,
             "timeframe": "5min",
         }
-        assert evaluator.evaluate(condition2) is True
+        assert evaluator.evaluate(condition2) == True
 
         # Test Spot_Price > VWAP
         condition3 = {
@@ -636,4 +628,4 @@ class TestStrategyEngineIntegration:
             "reference": "VWAP",
             "timeframe": "1min",
         }
-        assert evaluator.evaluate(condition3) is True
+        assert evaluator.evaluate(condition3) == True

@@ -1,0 +1,3 @@
+-- Seed data placeholder for Phase 0
+-- Add development seed data here as needed.
+-- This file is intentionally empty for Phase 0.

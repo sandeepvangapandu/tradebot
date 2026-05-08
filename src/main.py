@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import queue
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -112,6 +113,7 @@ class TradingBot:
 
         self._running = False
         self._shutdown_event = threading.Event()
+        self._db_run_id: int | None = None
 
     def startup(self) -> None:
         """Execute startup sequence."""
@@ -163,6 +165,30 @@ class TradingBot:
         self.trade_log = TradeLog(session_factory=get_session)
         logger.info("Database initialized")
 
+        # 3b. Record bot run start in Postgres storage layer
+        try:
+            from src.storage.db import record_bot_run_start
+            _git_sha: str | None = None
+            _branch: str | None = None
+            try:
+                _git_sha = subprocess.check_output(
+                    ["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL
+                ).decode().strip()
+                _branch = subprocess.check_output(
+                    ["git", "branch", "--show-current"], stderr=subprocess.DEVNULL
+                ).decode().strip()
+            except Exception:
+                pass
+            self._db_run_id = record_bot_run_start(
+                branch=_branch,
+                git_sha=_git_sha,
+                mode=self.settings.trading_mode,
+                capital_paisa=self.settings.capital,
+            )
+            logger.info("Bot run recorded in storage DB (run_id={})", self._db_run_id)
+        except Exception as _db_exc:
+            logger.warning("Storage DB unavailable — bot run not recorded: {}", _db_exc)
+
         # 4. Download/load instruments
         logger.info("Loading instrument master...")
         self.instrument_manager = InstrumentManager()
@@ -204,6 +230,7 @@ class TradingBot:
             broker=self.paper_broker,
             risk_manager=self.risk_manager,
             partial_profit_manager=self.partial_profit_manager,
+            trade_logger=getattr(self, 'trade_log', None),
         )
         self.order_tracker = OrderTracker(
             broker=self.paper_broker,
@@ -1017,6 +1044,15 @@ class TradingBot:
                 )
             except Exception as exc:
                 logger.warning("Final summary logging failed: {}", exc)
+
+        # Record bot run end in Postgres storage layer
+        if self._db_run_id is not None:
+            try:
+                from src.storage.db import record_bot_run_end
+                record_bot_run_end(self._db_run_id, exit_reason="normal")
+                logger.info("Bot run end recorded (run_id={})", self._db_run_id)
+            except Exception as _db_exc:
+                logger.warning("Could not record bot run end: {}", _db_exc)
 
         # Save circuit breaker state
         if self.circuit_breaker:

@@ -135,7 +135,12 @@ class TradingBot:
         # 2. Authenticate
         logger.info("Authenticating with Upstox...")
         self.token_manager = TokenManager()
-        access_token = self.token_manager.get_valid_token()
+        try:
+            access_token = self.token_manager.get_valid_token()
+        except Exception as e:
+            logger.warning(f"Auto-authentication failed ({e}). Triggering interactive manual login...")
+            from src.auth.manual_login import manual_login
+            access_token = manual_login()
         logger.info("Authentication successful")
 
         # 3. Check if today is a trading day
@@ -207,7 +212,7 @@ class TradingBot:
         )
         self.order_tracker = OrderTracker(
             broker=self.paper_broker,
-            db_url=self.db_url,
+            db_url=self.settings.database_url,
         )
         self.order_manager = OrderManager(
             signal_queue=self.signal_queue,
@@ -217,7 +222,7 @@ class TradingBot:
             risk_manager=self.risk_manager,
             position_manager=self.position_manager,
             strategy_quarantine=self.strategy_quarantine,
-            db_url=self.db_url,
+            db_url=self.settings.database_url,
         )
         logger.info("Order and position managers initialized")
 

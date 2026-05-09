@@ -84,9 +84,9 @@ class TestSignalValidatorAgent:
         assert result["action"] == "approve"
 
     def test_fallback_rejects_counter_trend(self):
-        # Fallback approves counter-trend trades but reduces size (confidence_multiplier=0.5)
-        # rather than rejecting outright — the design choice is to size down, not block.
-        # The fallback reads regime from self._latest_context (set via update_context), not context.
+        # Fallback rejects counter-trend signals outright (confidence_multiplier=0.0).
+        # The fallback reads regime from self._latest_context (set via update_context),
+        # not from the run() context dict.
         client = MagicMock(spec=LLMClient)
         client.is_configured = False
         agent = SignalValidatorAgent(llm_client=client)
@@ -94,8 +94,8 @@ class TestSignalValidatorAgent:
         result = agent.run(context=self._make_context(
             direction="BUY", regime="trending_down"
         ))
-        assert result["action"] == "approve"
-        assert result["confidence_multiplier"] == pytest.approx(0.5)
+        assert result["action"] == "reject"
+        assert result["confidence_multiplier"] == pytest.approx(0.0)
         assert "counter-trend" in result["reasoning"].lower()
 
     def test_fallback_rejects_low_confidence(self):

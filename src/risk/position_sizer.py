@@ -101,10 +101,10 @@ class KellyPositionSizer:
 
     def __init__(
         self,
-        half_kelly: bool = False,
-        max_kelly_pct: float = 0.40,
-        min_trades_for_kelly: int = 10,
-        fallback_pct: float = 0.05,
+        half_kelly: bool = True,
+        max_kelly_pct: float = 0.25,
+        min_trades_for_kelly: int = 20,
+        fallback_pct: float = 0.02,
     ) -> None:
         self._lock = threading.Lock()
 
@@ -355,12 +355,14 @@ class KellyPositionSizer:
                 safe_kelly,
             )
 
-        # Calculate position value based on Kelly (already capped at max_kelly_pct)
-        position_value = int(capital * safe_kelly)
+        # Calculate position value based on Kelly (already capped at max_kelly_pct).
+        # Use round() before int() to avoid floating-point truncation (e.g. 0.2 * 10_000_000
+        # can evaluate to 1_999_999.99... instead of 2_000_000 on some platforms).
+        position_value = int(round(capital * safe_kelly))
 
         # Optional caller-supplied cap. None = trust Kelly's own ceiling.
         if max_risk_per_trade_pct is not None:
-            max_risk_value = int(capital * max_risk_per_trade_pct)
+            max_risk_value = int(round(capital * max_risk_per_trade_pct))
             if position_value > max_risk_value:
                 logger.debug(
                     "Position capped by caller-supplied risk limit: {} -> {} paisa",

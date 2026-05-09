@@ -159,13 +159,18 @@ class TestRSI:
         assert valid_rsi.max() <= 100
 
     def test_rsi_warmup_period(self, sample_ohlc_data: pd.DataFrame) -> None:
-        """Test RSI has NaN values during warmup period."""
+        """Test RSI has NaN values during warmup period.
+
+        pandas-ta RSI (EMA-based) produces only 1 leading NaN then begins
+        computing. We verify that at least the first row is NaN and that
+        the RSI has fully converged by row 20.
+        """
         df = sample_ohlc_data.copy()
         df["rsi"] = ta.rsi(df["close"], length=14)
 
-        # First 14 values should be NaN
-        assert df["rsi"].iloc[:14].isna().all()
-        # After that should have values
+        # pandas-ta RSI emits at least one leading NaN
+        assert df["rsi"].iloc[0:1].isna().all()
+        # After sufficient warmup (row 20+) all values should be present
         assert df["rsi"].iloc[20:].notna().all()
 
     def test_rsi_overbought_oversold(self) -> None:
@@ -237,18 +242,25 @@ class TestVWAP:
         assert diff.dropna().mean() > 0
 
     def test_vwap_with_volume_spikes(self) -> None:
-        """Test VWAP responds to volume spikes."""
-        # Create data with volume spike at high price
+        """Test VWAP responds to volume spikes.
+
+        pandas-ta vwap requires a DatetimeIndex; supply one so the function
+        returns non-None values.
+        """
         prices = [100.0] * 20
         volumes = [1000] * 10 + [10000] + [1000] * 9
         prices[10] = 110  # High price with high volume
 
-        df = pd.DataFrame({
-            "high": [p + 1 for p in prices],
-            "low": [p - 1 for p in prices],
-            "close": prices,
-            "volume": volumes,
-        })
+        dates = pd.date_range(start="2024-01-01 09:15", periods=20, freq="5min")
+        df = pd.DataFrame(
+            {
+                "high": [p + 1 for p in prices],
+                "low": [p - 1 for p in prices],
+                "close": prices,
+                "volume": volumes,
+            },
+            index=dates,
+        )
 
         df["vwap"] = ta.vwap(df["high"], df["low"], df["close"], df["volume"])
 
@@ -256,7 +268,7 @@ class TestVWAP:
         vwap_after_spike = df["vwap"].iloc[15]
         assert vwap_after_spike > 100
 
-    def test_vwap_anchored(self) -> None:
+    def test_vwap_anchored(self, sample_ohlc_data: pd.DataFrame) -> None:
         """Test anchored VWAP calculation."""
         df = sample_ohlc_data.copy()
 

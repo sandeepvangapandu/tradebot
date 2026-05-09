@@ -312,16 +312,11 @@ class TestSupportResistance:
 
     def test_analyze_sr_insufficient_data(self, technical_analyzer: TechnicalAnalyzer, insufficient_data: pd.DataFrame) -> None:
         """Test S/R analysis with insufficient data."""
-        result = technical_analyze_sr_insufficient_data(technical_analyzer, insufficient_data)
+        result = technical_analyzer.analyze_support_resistance(insufficient_data, 50000, "BUY")
 
-
-def test_analyze_sr_insufficient_data(technical_analyzer: TechnicalAnalyzer, insufficient_data: pd.DataFrame) -> None:
-    """Test S/R analysis with insufficient data."""
-    result = technical_analyzer.analyze_support_resistance(insufficient_data, 50000, "BUY")
-
-    assert isinstance(result, AnalysisComponent)
-    assert result.score == 50.0
-    assert "Insufficient data" in result.reasoning
+        assert isinstance(result, AnalysisComponent)
+        assert result.score == 50.0
+        assert "Insufficient data" in result.reasoning
 
     def test_calculate_sr_score_buy_above_vwap(self, technical_analyzer: TechnicalAnalyzer) -> None:
         """Test S/R score when buying above VWAP."""

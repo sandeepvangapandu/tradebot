@@ -29,6 +29,8 @@ class TestBacktestReportGenerator:
                 exit_price=50500_00,
                 quantity=1,
                 pnl=500_00,
+                fees=50,
+                net_pnl=499_50,
                 exit_reason="target",
             ),
             Trade(
@@ -39,6 +41,8 @@ class TestBacktestReportGenerator:
                 exit_price=50200_00,
                 quantity=1,
                 pnl=-300_00,
+                fees=50,
+                net_pnl=-300_50,
                 exit_reason="stop_loss",
             ),
         ]
@@ -102,8 +106,13 @@ class TestBacktestReportGenerator:
     def test_plot_equity_curve(self, sample_results, tmp_path):
         """Test equity curve plot generation."""
         from src.backtest.report_generator import PLOTLY_AVAILABLE
-        if not PLOTLY_AVAILABLE:
-            pytest.skip("Plotly not installed")
+        try:
+            import kaleido  # noqa: F401
+            kaleido_available = True
+        except ImportError:
+            kaleido_available = False
+        if not PLOTLY_AVAILABLE or not kaleido_available:
+            pytest.skip("Plotly or Kaleido not installed")
         generator = BacktestReportGenerator(sample_results)
         output_path = tmp_path / "equity.png"
 
@@ -115,8 +124,13 @@ class TestBacktestReportGenerator:
     def test_plot_drawdown(self, sample_results, tmp_path):
         """Test drawdown plot generation."""
         from src.backtest.report_generator import PLOTLY_AVAILABLE
-        if not PLOTLY_AVAILABLE:
-            pytest.skip("Plotly not installed")
+        try:
+            import kaleido  # noqa: F401
+            kaleido_available = True
+        except ImportError:
+            kaleido_available = False
+        if not PLOTLY_AVAILABLE or not kaleido_available:
+            pytest.skip("Plotly or Kaleido not installed")
         generator = BacktestReportGenerator(sample_results)
         output_path = tmp_path / "drawdown.png"
 
@@ -128,8 +142,13 @@ class TestBacktestReportGenerator:
     def test_plot_trade_distribution(self, sample_results, tmp_path):
         """Test trade distribution plot generation."""
         from src.backtest.report_generator import PLOTLY_AVAILABLE
-        if not PLOTLY_AVAILABLE:
-            pytest.skip("Plotly not installed")
+        try:
+            import kaleido  # noqa: F401
+            kaleido_available = True
+        except ImportError:
+            kaleido_available = False
+        if not PLOTLY_AVAILABLE or not kaleido_available:
+            pytest.skip("Plotly or Kaleido not installed")
         generator = BacktestReportGenerator(sample_results)
         output_path = tmp_path / "distribution.png"
 
@@ -141,8 +160,13 @@ class TestBacktestReportGenerator:
     def test_generate_full_report(self, sample_results, tmp_path):
         """Test full report generation."""
         from src.backtest.report_generator import PLOTLY_AVAILABLE
-        if not PLOTLY_AVAILABLE:
-            pytest.skip("Plotly not installed")
+        try:
+            import kaleido  # noqa: F401
+            kaleido_available = True
+        except ImportError:
+            kaleido_available = False
+        if not PLOTLY_AVAILABLE or not kaleido_available:
+            pytest.skip("Plotly or Kaleido not installed")
         generator = BacktestReportGenerator(sample_results)
         output_dir = tmp_path / "report"
 

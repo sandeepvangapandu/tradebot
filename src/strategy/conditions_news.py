@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import logging
 
+from src.research.news_query import NewsQuery
+
 logger = logging.getLogger(__name__)
 
 
@@ -40,7 +42,6 @@ def has_negative_news_recent(
     if db_engine is None:
         return False
     try:
-        from src.research.news_query import NewsQuery
 
         return NewsQuery(db_engine=db_engine).has_negative_news(symbol, hours=hours)
     except Exception as exc:  # noqa: BLE001
@@ -66,7 +67,6 @@ def has_positive_news_recent(
     if db_engine is None:
         return False
     try:
-        from src.research.news_query import NewsQuery
 
         return NewsQuery(db_engine=db_engine).has_positive_news(symbol, hours=hours)
     except Exception as exc:  # noqa: BLE001
@@ -96,7 +96,6 @@ def aggregate_sentiment_above(
     if db_engine is None:
         return False
     try:
-        from src.research.news_query import NewsQuery
 
         agg = NewsQuery(db_engine=db_engine).aggregate_sentiment(symbol, hours=hours)
         return agg["avg_sentiment"] > threshold
@@ -127,7 +126,6 @@ def aggregate_sentiment_below(
     if db_engine is None:
         return False
     try:
-        from src.research.news_query import NewsQuery
 
         agg = NewsQuery(db_engine=db_engine).aggregate_sentiment(symbol, hours=hours)
         return agg["avg_sentiment"] < threshold

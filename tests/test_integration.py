@@ -176,7 +176,7 @@ class TestDailyTradeLimit:
         # 4th trade should be blocked
         allowed, reason = risk_mgr.can_take_new_trade("BANKNIFTY")
         assert not allowed
-        assert "Max 3 trades/day" in reason
+        assert "Daily trade limit reached" in reason
 
     def test_trade_limit_resets_daily(self):
         """Test that limit resets next day."""
@@ -283,7 +283,7 @@ class TestRiskManagerChecks:
 
         result = risk_mgr.check_position_size(order_value)
         assert not result.approved
-        assert "Position size too large" in result.reason
+        assert "Position size" in result.reason and "exceeds" in result.reason
 
     def test_capital_deployment_check(self):
         """Test capital deployment limit enforcement."""

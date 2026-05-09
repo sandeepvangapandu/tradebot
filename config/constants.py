@@ -45,9 +45,10 @@ FEES: dict[str, float] = {
     "sebi_charges_per_crore": 1000,          # Rs 10 per crore turnover (paisa)
 
     # Stamp duty (buy side only) - varies by state, using average rates
-    "stamp_duty_equity_delivery_pct": 0.00015,  # 0.015% on delivery buy
-    "stamp_duty_equity_intraday_pct": 0.00003,  # 0.003% on intraday buy
-    "stamp_duty_fno_pct": 0.00002,              # 0.002% on F&O buy
+    # Values are percentages (like other _pct fields); divide by 100 to get decimal.
+    "stamp_duty_equity_delivery_pct": 0.015,  # 0.015% on delivery buy
+    "stamp_duty_equity_intraday_pct": 0.003,  # 0.003% on intraday buy
+    "stamp_duty_fno_pct": 0.002,              # 0.002% on F&O buy
 
     # DP charges (for delivery sell) - Rs 13.5 per scrip per day
     "dp_charges_paisa": 1350,                # Rs 13.50 in paisa

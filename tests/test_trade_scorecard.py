@@ -205,24 +205,47 @@ class TestFinalScoreCalculation:
         self,
         trade_scorecard: TradeScorecard,
     ) -> None:
-        """Test that confidence affects final score."""
+        """Test that confidence affects final score when multiple components are present.
+
+        With a single component, normalization cancels confidence's effect.
+        With multiple components, reducing confidence on the high-score component
+        pulls the weighted average toward the other (lower-score) component.
+        """
+        # Case 1: trend_alignment (high score) has HIGH confidence
         components_high_conf = [
             AnalysisComponent(
-                name="test",
+                name="trend_alignment",
                 score=80.0,
-                weight=1.0,
+                weight=0.18,
                 confidence=100.0,
-                reasoning="Test",
+                reasoning="Test high conf",
+                data={},
+            ),
+            AnalysisComponent(
+                name="momentum",
+                score=30.0,
+                weight=0.13,
+                confidence=100.0,
+                reasoning="Test low score",
                 data={},
             ),
         ]
+        # Case 2: trend_alignment (high score) has LOW confidence — pulls result toward momentum's 30
         components_low_conf = [
             AnalysisComponent(
-                name="test",
+                name="trend_alignment",
                 score=80.0,
-                weight=1.0,
+                weight=0.18,
                 confidence=50.0,
-                reasoning="Test",
+                reasoning="Test low conf",
+                data={},
+            ),
+            AnalysisComponent(
+                name="momentum",
+                score=30.0,
+                weight=0.13,
+                confidence=100.0,
+                reasoning="Test low score",
                 data={},
             ),
         ]
@@ -230,7 +253,7 @@ class TestFinalScoreCalculation:
         score_high = trade_scorecard.calculate_final_score(components_high_conf)
         score_low = trade_scorecard.calculate_final_score(components_low_conf)
 
-        # High confidence should give higher effective score
+        # Reducing confidence on the high-score component should lower the effective final score
         assert score_high > score_low
 
     def test_calculate_final_score_weight_normalization(
@@ -345,13 +368,15 @@ class TestSignalStrength:
         assert strength == SignalStrength.WEAK_SELL
 
     def test_determine_signal_contrarian_buy(self, trade_scorecard: TradeScorecard) -> None:
-        """Test contrarian signals for BUY direction with low scores."""
-        strength = trade_scorecard.determine_signal_strength(20.0, "BUY")
+        """Test contrarian signals for BUY direction with very low scores (< 15)."""
+        # Score < 15 maps to STRONG_SELL for BUY direction (contrarian)
+        strength = trade_scorecard.determine_signal_strength(10.0, "BUY")
         assert strength == SignalStrength.STRONG_SELL  # Contrarian
 
     def test_determine_signal_contrarian_sell(self, trade_scorecard: TradeScorecard) -> None:
-        """Test contrarian signals for SELL direction with low scores."""
-        strength = trade_scorecard.determine_signal_strength(20.0, "SELL")
+        """Test contrarian signals for SELL direction with very low scores (< 15)."""
+        # Score < 15 maps to STRONG_BUY for SELL direction (contrarian)
+        strength = trade_scorecard.determine_signal_strength(10.0, "SELL")
         assert strength == SignalStrength.STRONG_BUY  # Contrarian
 
 
@@ -524,9 +549,11 @@ class TestWeightCustomization:
         assert "trend_alignment" in contributions
         assert "momentum" in contributions
 
-        # Each contribution should be score * weight * confidence
+        # Each contribution should be score * scorecard_weight * confidence
+        # Note: the scorecard uses its own weights dict (DEFAULT_WEIGHTS), not comp.weight
         for comp in sample_components:
-            expected = comp.score * comp.weight * (comp.confidence / 100.0)
+            scorecard_weight = trade_scorecard.weights.get(comp.name, 0.0)
+            expected = comp.score * scorecard_weight * (comp.confidence / 100.0)
             assert contributions[comp.name] == pytest.approx(expected, rel=1e-5)
 
 

@@ -89,34 +89,46 @@ def bearish_engulfing_data() -> pd.DataFrame:
 
 @pytest.fixture
 def morning_star_data() -> pd.DataFrame:
-    """Return OHLCV data with a morning star pattern.
+    """Return OHLCV data with a morning star pattern (3 candles).
 
-    - First: Large bearish
-    - Second: Small body (star)
-    - Third: Large bullish, closes into first
+    Criteria met:
+    - C1: Large bearish (body_ratio > 0.5)
+    - C2: Small body (body_ratio < 0.3) — the star
+    - C3: Large bullish (body_ratio > 0.5), close > midpoint of C1
     """
     data = {
-        "open": [50500, 50400, 50300, 50000, 49800, 49700],  # Downtrend leading to pattern
-        "high": [50600, 50500, 50400, 50100, 49900, 50200],
-        "low": [50400, 50300, 50200, 49900, 49650, 49650],
-        "close": [50450, 50350, 50250, 49950, 49750, 50100],  # Last bullish
-        "volume": [1000, 1000, 1000, 2000, 800, 2000],
+        # c1: large bearish — body=1000, range=1200, ratio~0.83
+        # c2: star — body=50, range=200, ratio=0.25
+        # c3: large bullish — body=700, range=800, ratio=0.875; close 50200 > midpoint 50000
+        "open":  [50500, 49400, 49500],
+        "high":  [50600, 49500, 50250],
+        "low":   [49400, 49300, 49450],
+        "close": [49500, 49450, 50200],
+        "volume": [2000, 800, 2000],
     }
-    # Take last 3 for morning star
-    return pd.DataFrame(data).iloc[-3:].reset_index(drop=True)
+    return pd.DataFrame(data)
 
 
 @pytest.fixture
 def evening_star_data() -> pd.DataFrame:
-    """Return OHLCV data with an evening star pattern."""
+    """Return OHLCV data with an evening star pattern (3 candles).
+
+    Criteria met:
+    - C1: Large bullish (body_ratio > 0.5)
+    - C2: Small body (body_ratio < 0.3) — the star
+    - C3: Large bearish (body_ratio > 0.5), close < midpoint of C1
+    """
     data = {
-        "open": [49500, 49600, 49700, 50000, 50200, 50300],  # Uptrend leading to pattern
-        "high": [49600, 49700, 49800, 50100, 50400, 50400],
-        "low": [49400, 49500, 49600, 49900, 50100, 50150],
-        "close": [49550, 49650, 49750, 50050, 50250, 50150],  # Last bearish
-        "volume": [1000, 1000, 1000, 2000, 800, 2000],
+        # c1: large bullish — body=1000, range=1200, ratio~0.83
+        # c2: star — body=50, range=200, ratio=0.25
+        # c3: large bearish — body=700, range=800, ratio=0.875; close 49900 < midpoint 50000
+        "open":  [49500, 50600, 50600],
+        "high":  [50600, 50700, 50650],
+        "low":   [49400, 50500, 49850],
+        "close": [50500, 50650, 49900],
+        "volume": [2000, 800, 2000],
     }
-    return pd.DataFrame(data).iloc[-3:].reset_index(drop=True)
+    return pd.DataFrame(data)
 
 
 @pytest.fixture

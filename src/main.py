@@ -447,6 +447,9 @@ class TradingBot:
             position_manager=self.position_manager,
             strategy_quarantine=self.strategy_quarantine,
             db_url=self.settings.database_url,
+            kelly_sizer=getattr(self, "kelly_sizer", None),
+            smart_router=getattr(self, "smart_router", None),
+            order_validator=getattr(self, "order_validator", None),
         )
         logger.info("Order and position managers initialized")
 
@@ -659,6 +662,20 @@ class TradingBot:
                     try:
                         sig = self.strategy_engine.get_signal(timeout=1.0)
                         if sig is not None:
+                            # Wave-5 gate: confluence + rejection + regime
+                            try:
+                                gated = self.strategy_engine._apply_wave5_gates(sig)
+                            except Exception as exc:
+                                logger.warning("wave5_gate error (passing through): {}", exc)
+                                gated = sig
+                            if gated is None:
+                                logger.info(
+                                    "SIGNAL_BLOCKED_BY_WAVE5 | {} | {} | {}",
+                                    sig.strategy_name,
+                                    getattr(sig, 'signal_type', ''),
+                                    getattr(sig, 'instrument_key', ''),
+                                )
+                                continue
                             logger.info(
                                 "SIGNAL_FORWARDED | {} | {} | {} | {}",
                                 sig.strategy_name,

@@ -143,6 +143,9 @@ class OrderManager:
         strategy_quarantine: Optional["StrategyQuarantine"] = None,
         market_feed: Optional[Any] = None,
         agent_pipeline: Optional[Any] = None,
+        kelly_sizer: Optional[Any] = None,
+        smart_router: Optional[Any] = None,
+        order_validator: Optional[Any] = None,
     ):
         """Initialize the OrderManager.
 
@@ -175,6 +178,10 @@ class OrderManager:
         self._strategy_quarantine = strategy_quarantine
         self._market_feed = market_feed
         self._agent_pipeline = agent_pipeline
+        # Bloomberg-build wave-5/E modules (optional, graceful degrade)
+        self._kelly_sizer = kelly_sizer
+        self._smart_router = smart_router
+        self._order_validator = order_validator
         self._lock = threading.Lock()
         self._pending_instruments: set[str] = set()  # Instruments currently being processed
         self._is_running = False

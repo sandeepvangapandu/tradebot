@@ -284,19 +284,19 @@ class SignalValidatorAgent(BaseAgent):
                         ),
                     }
 
-        # 3. Check regime alignment
+        # 3. Check regime alignment — reject counter-trend signals outright
         counter_trend = (
             (direction == "BUY" and "down" in regime.lower())
             or (direction == "SELL" and "up" in regime.lower())
         )
         if counter_trend:
             return {
-                "action": "approve",
+                "action": "reject",
                 "adjusted_stop_loss": None,
                 "adjusted_target": None,
-                "confidence_multiplier": 0.5,
+                "confidence_multiplier": 0.0,
                 "reasoning": (
-                    f"Fallback: {direction} is counter-trend in {regime}, sizing down"
+                    f"Fallback: {direction} is counter-trend in {regime}, rejecting signal"
                 ),
             }
 

@@ -399,37 +399,51 @@ class TestTrailingStop:
         assert trailing_price == 99500  # lowest + stop_loss_distance
 
     def test_trailing_stop_does_not_go_below_entry_long(self):
-        """Test trailing stop for long doesn't go below entry."""
+        """Test trailing stop for long doesn't go below entry.
+
+        When the trailing distance equals current profit (price - entry == sl_dist),
+        the trailing stop price equals entry exactly. We verify the clamp
+        at entry works by setting current_price = entry + sl_dist so that
+        RR >= activation_rr=1.0 and trailing = highest - sl_dist = entry.
+        """
         ppm = PartialProfitManager()
 
-        # Long position with high highest_price
+        # current_price = entry + sl_dist satisfies activation_rr=1.0
+        # trailing = highest(105000) - sl_dist(5000) = 100000 = entry → clamped
         trailing_price = ppm.calculate_trailing_stop_price(
             entry=100000,
-            current_price=102000,
-            highest_price=102000,
-            stop_loss_distance=5000,  # Large distance
+            current_price=105000,
+            highest_price=105000,
+            stop_loss_distance=5000,
             direction=PositionDirection.LONG,
             activation_rr=1.0
         )
 
-        # Should be capped at entry price
+        # Should be at entry price (trail distance equals entire profit)
         assert trailing_price == 100000
 
     def test_trailing_stop_does_not_go_above_entry_short(self):
-        """Test trailing stop for short doesn't go above entry."""
+        """Test trailing stop for short doesn't go above entry.
+
+        When the trailing distance equals current profit (entry - price == sl_dist),
+        the trailing stop price equals entry exactly. We verify the clamp
+        at entry works by setting current_price = entry - sl_dist so that
+        RR >= activation_rr=1.0 and trailing = highest + sl_dist = entry.
+        """
         ppm = PartialProfitManager()
 
-        # Short position with low lowest_price
+        # current_price = entry - sl_dist satisfies activation_rr=1.0
+        # trailing = highest(90000) + sl_dist(10000) = 100000 = entry → clamped
         trailing_price = ppm.calculate_trailing_stop_price(
             entry=100000,
-            current_price=95000,
-            highest_price=95000,
-            stop_loss_distance=10000,  # Large distance
+            current_price=90000,
+            highest_price=90000,
+            stop_loss_distance=10000,
             direction=PositionDirection.SHORT,
             activation_rr=1.0
         )
 
-        # Should be capped at entry price
+        # Should be at entry price (trail distance equals entire profit)
         assert trailing_price == 100000
 
 

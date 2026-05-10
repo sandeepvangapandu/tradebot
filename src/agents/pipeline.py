@@ -169,6 +169,15 @@ class AgentPipeline:
         sentiment_score = state.get("sentiment_score", 50.0)
         sentiment_classification = state.get("sentiment_classification", "neutral")
 
+        # Sync the validator's internal context with the regime detected in this
+        # pipeline run so that the deterministic fallback can apply counter-trend
+        # sizing rules even when no LLM is configured.
+        self._signal_validator.update_context(
+            regime=regime,
+            vix=state.get("vix", 15.0),
+            sentiment_score=sentiment_score / 100.0 if sentiment_score > 1 else sentiment_score,
+        )
+
         decisions: list[AgentDecision] = list(state.get("agent_decisions", []))
         validated: list[dict[str, Any]] = []
 

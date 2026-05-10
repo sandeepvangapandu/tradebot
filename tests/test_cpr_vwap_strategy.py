@@ -340,8 +340,13 @@ class TestCPRStrategyIntegration:
 
     def test_cpr_with_vwap_confluence(self) -> None:
         """Test that CPR and VWAP work together for mean reversion."""
-        # Create sample data
-        times = pd.date_range("2024-01-05 09:15", "2024-01-05 10:00", freq="5min")
+        import zoneinfo
+        # Use IST-aware DatetimeIndex so IndicatorEngine.vwap() index aligns
+        # with the DataFrame index when the result is assigned back.
+        times = pd.date_range(
+            "2024-01-05 09:15", "2024-01-05 10:00", freq="5min",
+            tz=zoneinfo.ZoneInfo("Asia/Kolkata"),
+        )
         n = len(times)
 
         # Price bouncing between CPR BC and Pivot, above VWAP

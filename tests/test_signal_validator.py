@@ -37,11 +37,14 @@ class TestSignalValidatorAgent:
         assert result["action"] == "approve"
 
     def test_llm_rejects_counter_trend(self):
+        # LLM rejects by returning confidence_multiplier=0.0; action field is ignored
         client = MagicMock(spec=LLMClient)
         client.is_configured = True
         client.invoke.return_value = LLMResponse(
             content=json.dumps({
-                "action": "reject", "confidence": 0.85,
+                "confidence_multiplier": 0.0,
+                "adjusted_stop_loss": None,
+                "adjusted_target": None,
                 "reasoning": "BUY signal in trending_down regime",
             }),
             success=True, latency_ms=200,
@@ -51,21 +54,25 @@ class TestSignalValidatorAgent:
         assert result["action"] == "reject"
 
     def test_llm_modifies_stop_loss(self):
+        # New API: LLM returns confidence_multiplier and adjusted fields; action is derived
+        # from multiplier > 0 → "approve" (with modifications applied via adjusted_stop_loss)
         client = MagicMock(spec=LLMClient)
         client.is_configured = True
         client.invoke.return_value = LLMResponse(
             content=json.dumps({
-                "action": "modify", "adjusted_stop_loss": 48500_00,
-                "adjusted_quantity_pct": 0.75, "confidence": 0.7,
+                "confidence_multiplier": 0.75,
+                "adjusted_stop_loss": 48500_00,
+                "adjusted_target": None,
                 "reasoning": "Widening SL due to high volatility",
             }),
             success=True, latency_ms=350,
         )
         agent = SignalValidatorAgent(llm_client=client)
         result = agent.run(context=self._make_context())
-        assert result["action"] == "modify"
+        # multiplier > 0 → action is "approve"; stop-loss modification is in adjusted_stop_loss
+        assert result["action"] == "approve"
         assert result["adjusted_stop_loss"] == 48500_00
-        assert result["adjusted_quantity_pct"] == 0.75
+        assert result["confidence_multiplier"] == pytest.approx(0.75)
 
     def test_fallback_approves_trend_aligned_buy(self):
         client = MagicMock(spec=LLMClient)
@@ -77,13 +84,19 @@ class TestSignalValidatorAgent:
         assert result["action"] == "approve"
 
     def test_fallback_rejects_counter_trend(self):
+        # Fallback rejects counter-trend signals outright (confidence_multiplier=0.0).
+        # The fallback reads regime from self._latest_context (set via update_context),
+        # not from the run() context dict.
         client = MagicMock(spec=LLMClient)
         client.is_configured = False
         agent = SignalValidatorAgent(llm_client=client)
+        agent.update_context(regime="trending_down", vix=15.0, sentiment_score=0.0)
         result = agent.run(context=self._make_context(
             direction="BUY", regime="trending_down"
         ))
         assert result["action"] == "reject"
+        assert result["confidence_multiplier"] == pytest.approx(0.0)
+        assert "counter-trend" in result["reasoning"].lower()
 
     def test_fallback_rejects_low_confidence(self):
         client = MagicMock(spec=LLMClient)

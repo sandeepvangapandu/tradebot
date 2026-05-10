@@ -1,7 +1,7 @@
 {
   "name": "CPR_VWAP_Bounce_BankNifty",
   "description": "Mean reversion using Central Pivot Range and VWAP for BankNifty options",
-  "enabled": false,
+  "enabled": true,
   "underlying": {
     "instrument_key": "NSE_INDEX|Nifty Bank",
     "symbol": "BANKNIFTY",
@@ -134,8 +134,8 @@
     "quantity": 2
   },
   "risk_management": {
-    "max_open_positions": 3,
-    "max_trades_per_day": 5,
+    "max_open_positions": 2,
+    "max_trades_per_day": 3,
     "require_narrow_cpr": true
   },
   "params": {

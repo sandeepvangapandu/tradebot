@@ -1290,9 +1290,12 @@ class SetEvaluator(threading.Thread):
         if sl_rule is None:
             return None
 
+        # BUY_PE = buying a Put option → order side is BUY → SL below entry
+        _buy_types = (SignalType.BUY, SignalType.BUY_CE, SignalType.BUY_PE)
+
         if isinstance(sl_rule, (int, float)):
             points = int(sl_rule)
-            if self._resolved_signal_type in (SignalType.BUY, SignalType.BUY_CE):
+            if self._resolved_signal_type in _buy_types:
                 return entry_price - points
             else:
                 return entry_price + points
@@ -1314,7 +1317,7 @@ class SetEvaluator(threading.Thread):
                 atr_value = int(atr.iloc[-1])
                 points = int(atr_value * multiplier)
 
-                if self._resolved_signal_type in (SignalType.BUY, SignalType.BUY_CE):
+                if self._resolved_signal_type in _buy_types:
                     return entry_price - points
                 else:
                     return entry_price + points
@@ -1341,9 +1344,12 @@ class SetEvaluator(threading.Thread):
         if target_rule is None:
             return None
 
+        # BUY_PE = buying a Put option → order side is BUY → target above entry
+        _buy_types = (SignalType.BUY, SignalType.BUY_CE, SignalType.BUY_PE)
+
         if isinstance(target_rule, (int, float)):
             points = int(target_rule)
-            if self._resolved_signal_type in (SignalType.BUY, SignalType.BUY_CE):
+            if self._resolved_signal_type in _buy_types:
                 return entry_price + points
             else:
                 return entry_price - points
@@ -1365,7 +1371,7 @@ class SetEvaluator(threading.Thread):
                 atr_value = int(atr.iloc[-1])
                 points = int(atr_value * multiplier)
 
-                if self._resolved_signal_type in (SignalType.BUY, SignalType.BUY_CE):
+                if self._resolved_signal_type in _buy_types:
                     return entry_price + points
                 else:
                     return entry_price - points
@@ -1995,3 +2001,131 @@ class StrategyEngine:
             StrategyConfluenceAnalyzer instance or None if not enabled.
         """
         return self._confluence_analyzer
+
+    # ------------------------------------------------------------------
+    # Wave-5 gate layer — set from TradingBot after modules are initialised
+    # ------------------------------------------------------------------
+
+    def set_wave5_modules(
+        self,
+        confluence_engine: Any = None,
+        rejection_filter: Any = None,
+        regime_router: Any = None,
+    ) -> None:
+        """Inject Wave-5 gate modules into the engine.
+
+        Called by TradingBot after _init_phase_modules().  When all three
+        modules are set the engine can call _apply_wave5_gates() before
+        forwarding signals.
+
+        NOTE: The live SetEvaluator threads are NOT wired to these gates yet —
+        they run on their own queues.  Gates are available for the synchronous
+        evaluate_bar_sync() path and for external callers.  Full integration
+        into the live emit path is deferred to the next session (see
+        BLOOMBERG_BUILD_HANDOFF.md — CHANGE_LOG "wave5_emit_wiring: DEFERRED").
+
+        Args:
+            confluence_engine: ConfluenceEngine instance or None.
+            rejection_filter: RejectionFilter instance or None.
+            regime_router: RegimeRouter instance or None.
+        """
+        self._wave5_confluence = confluence_engine
+        self._wave5_rejection = rejection_filter
+        self._wave5_regime = regime_router
+        gates_ok = sum(
+            x is not None for x in (confluence_engine, rejection_filter, regime_router)
+        )
+        logger.info("Wave-5 gates injected into StrategyEngine: %d/3 modules available", gates_ok)
+
+    def _apply_wave5_gates(
+        self,
+        signal: "Signal",
+        dimension_results: list[Any] | None = None,
+        spread_bps: float = 0.0,
+        open_positions: list[Any] | None = None,
+    ) -> bool:
+        """Pass a candidate signal through Wave-5 gates.
+
+        Returns True if the signal should proceed to order placement,
+        False if it should be rejected.
+
+        This method is SAFE to call — all exceptions are caught and the
+        signal is allowed through (graceful degrade) so that a gate
+        failure never prevents legitimate trades.
+
+        Args:
+            signal: Candidate Signal object.
+            dimension_results: Optional list of DimensionResult for confluence scoring.
+            spread_bps: Current bid-ask spread in basis points.
+            open_positions: List of currently open positions.
+        """
+        today = datetime.now(IST).date()
+
+        # 1. Regime router — is this strategy_type allowed today?
+        regime_ok = True
+        if hasattr(self, "_wave5_regime") and self._wave5_regime is not None:
+            try:
+                strategy_type = self._strategies.get(signal.strategy_name, None)
+                if strategy_type is not None:
+                    stype = StrategyEngine._classify_strategy_type(strategy_type)
+                else:
+                    stype = "auto"
+                if not self._wave5_regime.is_strategy_type_allowed(stype, today):
+                    reason = self._wave5_regime.get_blocked_reason(stype, today)
+                    logger.info("Wave-5 regime gate blocked %s: %s", signal.strategy_name, reason)
+                    regime_ok = False
+            except Exception as exc:
+                logger.debug("Wave-5 regime gate error (allow): {}", exc)
+
+        if not regime_ok:
+            return False
+
+        # 2. Confluence score
+        confluence_ok = True
+        if hasattr(self, "_wave5_confluence") and self._wave5_confluence is not None and dimension_results:
+            try:
+                result = self._wave5_confluence.evaluate(
+                    strategy_name=signal.strategy_name,
+                    instrument_key=signal.instrument_key,
+                    signal_type=signal.signal_type.value,
+                    dimension_results=dimension_results,
+                )
+                if not result.get("passed", True):
+                    logger.info(
+                        "Wave-5 confluence gate blocked %s: score=%.1f < threshold=%.1f",
+                        signal.strategy_name,
+                        result.get("composite_score", 0),
+                        result.get("threshold", 70),
+                    )
+                    confluence_ok = False
+            except Exception as exc:
+                logger.debug("Wave-5 confluence gate error (allow): {}", exc)
+
+        if not confluence_ok:
+            return False
+
+        # 3. Rejection filter — anti-signals
+        rejection_ok = True
+        if hasattr(self, "_wave5_rejection") and self._wave5_rejection is not None:
+            try:
+                allowed, reason, details = self._wave5_rejection.evaluate(
+                    signal=signal.to_dict(),
+                    context={
+                        "current_spread_bps": spread_bps,
+                        "open_positions": open_positions or [],
+                        "current_ts": datetime.now(IST),
+                        "trade_date": today,
+                    },
+                )
+                if not allowed:
+                    self._wave5_rejection.log_rejection(signal.to_dict(), reason, details)
+                    logger.info(
+                        "Wave-5 rejection filter blocked %s: %s",
+                        signal.strategy_name,
+                        reason,
+                    )
+                    rejection_ok = False
+            except Exception as exc:
+                logger.debug("Wave-5 rejection gate error (allow): {}", exc)
+
+        return rejection_ok

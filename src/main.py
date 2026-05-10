@@ -73,6 +73,172 @@ from src.memory.memory_db import MemoryDB
 from src.memory.outcome_analyzer import OutcomeAnalyzer
 from src.memory.mistake_classifier import MistakeClassifier
 
+# ---------------------------------------------------------------------------
+# Phase module imports (Bloomberg build — feature/bloomberg-data-execution)
+# All wrapped so import failures don't crash the bot.
+# ---------------------------------------------------------------------------
+try:
+    from src.storage.db import get_sync_engine as _get_sync_engine
+    _STORAGE_DB_OK = True
+except Exception:  # pragma: no cover
+    _get_sync_engine = None  # type: ignore[assignment]
+    _STORAGE_DB_OK = False
+
+try:
+    from src.research.universe_scanner import UniverseScanner as _UniverseScanner
+except Exception:  # pragma: no cover
+    _UniverseScanner = None  # type: ignore[assignment]
+
+try:
+    from src.research.sector_rotation import SectorRotationAnalyzer as _SectorRotation
+except Exception:  # pragma: no cover
+    _SectorRotation = None  # type: ignore[assignment]
+
+try:
+    from src.research.vix_regime import VIXRegimeClassifier as _VIXRegime
+except Exception:  # pragma: no cover
+    _VIXRegime = None  # type: ignore[assignment]
+
+try:
+    from src.research.macro_overlay import MacroOverlay as _MacroOverlay
+except Exception:  # pragma: no cover
+    _MacroOverlay = None  # type: ignore[assignment]
+
+try:
+    from src.research.flow_regime import FlowRegimeAnalyzer as _FlowRegime
+except Exception:  # pragma: no cover
+    _FlowRegime = None  # type: ignore[assignment]
+
+try:
+    from src.research.corporate_calendar import CorporateCalendar as _CorporateCalendar
+except Exception:  # pragma: no cover
+    _CorporateCalendar = None  # type: ignore[assignment]
+
+try:
+    from src.research.earnings_calendar import EarningsCalendar as _EarningsCalendar
+except Exception:  # pragma: no cover
+    _EarningsCalendar = None  # type: ignore[assignment]
+
+try:
+    from src.research.news_query import NewsQuery as _NewsQuery
+except Exception:  # pragma: no cover
+    _NewsQuery = None  # type: ignore[assignment]
+
+try:
+    from src.research.insider_signals import InsiderSignals as _InsiderSignals
+except Exception:  # pragma: no cover
+    _InsiderSignals = None  # type: ignore[assignment]
+
+try:
+    from src.research.sentiment_classifier import SentimentClassifier as _SentimentClassifier
+except Exception:  # pragma: no cover
+    _SentimentClassifier = None  # type: ignore[assignment]
+
+try:
+    from src.data.depth_feed import DepthFeedHandler as _DepthFeed
+except Exception:  # pragma: no cover
+    _DepthFeed = None  # type: ignore[assignment]
+
+try:
+    from src.data.tick_metrics import TickMetricsAggregator as _TickMetrics
+except Exception:  # pragma: no cover
+    _TickMetrics = None  # type: ignore[assignment]
+
+try:
+    from src.data.options_chain_feed import OptionsChainFeed as _OptionsChainFeed
+except Exception:  # pragma: no cover
+    _OptionsChainFeed = None  # type: ignore[assignment]
+
+try:
+    from src.data.flow_scraper import FlowScraper as _FlowScraper
+except Exception:  # pragma: no cover
+    _FlowScraper = None  # type: ignore[assignment]
+
+try:
+    from src.data.corporate_actions_scraper import CorporateActionsScraper as _CorpActionsScraper
+except Exception:  # pragma: no cover
+    _CorpActionsScraper = None  # type: ignore[assignment]
+
+try:
+    from src.data.earnings_scraper import EarningsScraper as _EarningsScraper
+except Exception:  # pragma: no cover
+    _EarningsScraper = None  # type: ignore[assignment]
+
+try:
+    from src.data.news_rss_scraper import NewsRSSScraper as _NewsRSSScraper
+except Exception:  # pragma: no cover
+    _NewsRSSScraper = None  # type: ignore[assignment]
+
+try:
+    from src.data.block_deals_scraper import BlockDealsScraper as _BlockDealsScraper
+except Exception:  # pragma: no cover
+    _BlockDealsScraper = None  # type: ignore[assignment]
+
+try:
+    from src.data.insider_scraper import InsiderScraper as _InsiderScraper
+except Exception:  # pragma: no cover
+    _InsiderScraper = None  # type: ignore[assignment]
+
+try:
+    from src.indicators.volume_profile import VolumeProfileBuilder as _VolumeProfile
+except Exception:  # pragma: no cover
+    _VolumeProfile = None  # type: ignore[assignment]
+
+try:
+    from src.strategy.confluence_engine import ConfluenceEngine as _ConfluenceEngine
+except Exception:  # pragma: no cover
+    _ConfluenceEngine = None  # type: ignore[assignment]
+
+try:
+    from src.strategy.rejection_filter import RejectionFilter as _RejectionFilter
+except Exception:  # pragma: no cover
+    _RejectionFilter = None  # type: ignore[assignment]
+
+try:
+    from src.strategy.regime_router import RegimeRouter as _RegimeRouter
+except Exception:  # pragma: no cover
+    _RegimeRouter = None  # type: ignore[assignment]
+
+try:
+    from src.risk.kelly_sizer import KellySizer as _KellySizer
+except Exception:  # pragma: no cover
+    _KellySizer = None  # type: ignore[assignment]
+
+try:
+    from src.risk.portfolio_risk import PortfolioRisk as _PortfolioRisk
+except Exception:  # pragma: no cover
+    _PortfolioRisk = None  # type: ignore[assignment]
+
+try:
+    from src.risk.greek_aggregator import GreekAggregator as _GreekAggregator
+except Exception:  # pragma: no cover
+    _GreekAggregator = None  # type: ignore[assignment]
+
+try:
+    from src.execution.smart_router import SmartOrderRouter as _SmartRouter
+except Exception:  # pragma: no cover
+    _SmartRouter = None  # type: ignore[assignment]
+
+try:
+    from src.execution.order_validator import OrderValidator as _OrderValidator
+except Exception:  # pragma: no cover
+    _OrderValidator = None  # type: ignore[assignment]
+
+try:
+    from src.execution.reconciler import PositionReconciler as _Reconciler  # noqa: F401
+except Exception:  # pragma: no cover
+    _Reconciler = None  # type: ignore[assignment]
+
+try:
+    from src.execution.slippage_monitor import SlippageMonitor as _SlippageMonitor
+except Exception:  # pragma: no cover
+    _SlippageMonitor = None  # type: ignore[assignment]
+
+try:
+    from src.storage.archiver import ColdStorageArchiver as _Archiver
+except Exception:  # pragma: no cover
+    _Archiver = None  # type: ignore[assignment]
+
 IST = ZoneInfo("Asia/Kolkata")
 
 
@@ -114,6 +280,42 @@ class TradingBot:
         self._running = False
         self._shutdown_event = threading.Event()
         self._db_run_id: int | None = None
+
+        # ---------------------------------------------------------------------------
+        # Bloomberg-build phase module handles — initialised in startup()
+        # ---------------------------------------------------------------------------
+        self.db_engine: Any = None
+        self.universe_scanner: Any = None
+        self.sector_rotation: Any = None
+        self.vix_regime: Any = None
+        self.macro_overlay: Any = None
+        self.flow_regime: Any = None
+        self.corporate_calendar: Any = None
+        self.earnings_calendar: Any = None
+        self.news_query: Any = None
+        self.insider_signals: Any = None
+        self.sentiment_classifier: Any = None
+        self.depth_feed: Any = None
+        self.tick_metrics: Any = None
+        self.options_chain: Any = None
+        self.flow_scraper: Any = None
+        self.corp_actions_scraper: Any = None
+        self.earnings_scraper: Any = None
+        self.news_scraper: Any = None
+        self.block_deals_scraper: Any = None
+        self.insider_scraper: Any = None
+        self.volume_profile: Any = None
+        self.confluence_engine: Any = None
+        self.rejection_filter: Any = None
+        self.regime_router: Any = None
+        self.kelly_sizer: Any = None
+        self.portfolio_risk: Any = None
+        self.greek_aggregator: Any = None
+        self.smart_router: Any = None
+        self.order_validator: Any = None
+        self.reconciler: Any = None
+        self.slippage_monitor: Any = None
+        self.archiver: Any = None
 
     def startup(self) -> None:
         """Execute startup sequence."""
@@ -234,7 +436,7 @@ class TradingBot:
         )
         self.order_tracker = OrderTracker(
             broker=self.paper_broker,
-            db_url=self.db_url,
+            db_url=self.settings.database_url,
         )
         self.order_manager = OrderManager(
             signal_queue=self.signal_queue,
@@ -244,7 +446,7 @@ class TradingBot:
             risk_manager=self.risk_manager,
             position_manager=self.position_manager,
             strategy_quarantine=self.strategy_quarantine,
-            db_url=self.db_url,
+            db_url=self.settings.database_url,
         )
         logger.info("Order and position managers initialized")
 
@@ -477,6 +679,9 @@ class TradingBot:
         self.order_manager.start()
         logger.info("Order manager started")
 
+        # 10b. Initialize Bloomberg-build phase modules
+        self._init_phase_modules(access_token)
+
         # 11. Configure scheduler
         self.scheduler = get_scheduler()
         self._setup_scheduler()
@@ -653,6 +858,433 @@ class TradingBot:
         logger.info("Trading Bot Startup Complete")
         logger.info("=" * 60)
 
+    # -----------------------------------------------------------------------
+    # Bloomberg-build phase module initialisation
+    # -----------------------------------------------------------------------
+
+    def _init_phase_modules(self, access_token: str) -> None:
+        """Initialise every Bloomberg-build phase module.
+
+        All initialisations are wrapped in try/except so that a single missing
+        dependency does NOT crash the bot.  Each failed module is set to None
+        and a WARNING is emitted.  The bot continues with degraded data depth.
+        """
+        logger.info("Initialising Bloomberg-build phase modules…")
+
+        # ------------------------------------------------------------------ #
+        # Phase 0 — Postgres storage engine
+        # ------------------------------------------------------------------ #
+        try:
+            if _STORAGE_DB_OK and _get_sync_engine is not None:
+                self.db_engine = _get_sync_engine()
+                logger.debug("db_engine: OK")
+        except Exception as exc:
+            logger.warning("db_engine init failed: {}", exc)
+
+        # ------------------------------------------------------------------ #
+        # Helper: historical provider compatible with research modules
+        # ------------------------------------------------------------------ #
+        def _hist_provider(instrument_key: str, interval: str, days: int):
+            try:
+                fetcher = HistoricalDataFetcher(access_token)
+                return fetcher.fetch_candles(instrument_key, interval=interval, days=days)
+            except Exception as exc:
+                logger.warning("historical provider failed for {}: {}", instrument_key, exc)
+                import pandas as _pd
+                return _pd.DataFrame()
+
+        # ------------------------------------------------------------------ #
+        # Phase D — Universe scanner
+        # ------------------------------------------------------------------ #
+        try:
+            if _UniverseScanner is not None:
+                self.universe_scanner = _UniverseScanner(
+                    instrument_manager=self.instrument_manager,
+                    historical_provider=_hist_provider,
+                    db_engine=self.db_engine,
+                )
+                logger.debug("universe_scanner: OK")
+        except Exception as exc:
+            logger.warning("universe_scanner init failed: {}", exc)
+
+        # ------------------------------------------------------------------ #
+        # Phase B.1 — Sector rotation
+        # ------------------------------------------------------------------ #
+        try:
+            if _SectorRotation is not None:
+                self.sector_rotation = _SectorRotation(
+                    instrument_manager=self.instrument_manager,
+                    historical_provider=_hist_provider,
+                    db_engine=self.db_engine,
+                )
+                logger.debug("sector_rotation: OK")
+        except Exception as exc:
+            logger.warning("sector_rotation init failed: {}", exc)
+
+        # ------------------------------------------------------------------ #
+        # Phase B.2 — VIX regime
+        # ------------------------------------------------------------------ #
+        try:
+            if _VIXRegime is not None:
+                self.vix_regime = _VIXRegime(
+                    historical_provider=_hist_provider,
+                    db_engine=self.db_engine,
+                )
+                logger.debug("vix_regime: OK")
+        except Exception as exc:
+            logger.warning("vix_regime init failed: {}", exc)
+
+        # ------------------------------------------------------------------ #
+        # Phase B.3 — Macro overlay
+        # ------------------------------------------------------------------ #
+        try:
+            if _MacroOverlay is not None:
+                self.macro_overlay = _MacroOverlay(
+                    instrument_manager=self.instrument_manager,
+                    historical_provider=_hist_provider,
+                    db_engine=self.db_engine,
+                )
+                logger.debug("macro_overlay: OK")
+        except Exception as exc:
+            logger.warning("macro_overlay init failed: {}", exc)
+
+        # ------------------------------------------------------------------ #
+        # Phase B.4 — Flow regime + flow scraper
+        # ------------------------------------------------------------------ #
+        try:
+            if _FlowRegime is not None:
+                self.flow_regime = _FlowRegime(db_engine=self.db_engine)
+                logger.debug("flow_regime: OK")
+        except Exception as exc:
+            logger.warning("flow_regime init failed: {}", exc)
+
+        try:
+            if _FlowScraper is not None:
+                self.flow_scraper = _FlowScraper(db_engine=self.db_engine)
+                logger.debug("flow_scraper: OK")
+        except Exception as exc:
+            logger.warning("flow_scraper init failed: {}", exc)
+
+        # ------------------------------------------------------------------ #
+        # Phase C.1 — Corporate calendar + scraper
+        # ------------------------------------------------------------------ #
+        try:
+            if _CorporateCalendar is not None:
+                self.corporate_calendar = _CorporateCalendar(db_engine=self.db_engine)
+                logger.debug("corporate_calendar: OK")
+        except Exception as exc:
+            logger.warning("corporate_calendar init failed: {}", exc)
+
+        try:
+            if _CorpActionsScraper is not None:
+                self.corp_actions_scraper = _CorpActionsScraper(db_engine=self.db_engine)
+                logger.debug("corp_actions_scraper: OK")
+        except Exception as exc:
+            logger.warning("corp_actions_scraper init failed: {}", exc)
+
+        # ------------------------------------------------------------------ #
+        # Phase C.2 — Earnings calendar + scraper
+        # ------------------------------------------------------------------ #
+        try:
+            if _EarningsCalendar is not None:
+                self.earnings_calendar = _EarningsCalendar(db_engine=self.db_engine)
+                logger.debug("earnings_calendar: OK")
+        except Exception as exc:
+            logger.warning("earnings_calendar init failed: {}", exc)
+
+        try:
+            if _EarningsScraper is not None:
+                self.earnings_scraper = _EarningsScraper(db_engine=self.db_engine)
+                logger.debug("earnings_scraper: OK")
+        except Exception as exc:
+            logger.warning("earnings_scraper init failed: {}", exc)
+
+        # ------------------------------------------------------------------ #
+        # Phase C.3 — News + sentiment
+        # ------------------------------------------------------------------ #
+        try:
+            if _NewsQuery is not None:
+                self.news_query = _NewsQuery(db_engine=self.db_engine)
+                logger.debug("news_query: OK")
+        except Exception as exc:
+            logger.warning("news_query init failed: {}", exc)
+
+        try:
+            if _NewsRSSScraper is not None:
+                self.news_scraper = _NewsRSSScraper(db_engine=self.db_engine)
+                logger.debug("news_scraper: OK")
+        except Exception as exc:
+            logger.warning("news_scraper init failed: {}", exc)
+
+        try:
+            if _SentimentClassifier is not None:
+                self.sentiment_classifier = _SentimentClassifier(db_engine=self.db_engine)
+                logger.debug("sentiment_classifier: OK")
+        except Exception as exc:
+            logger.warning("sentiment_classifier init failed: {}", exc)
+
+        # ------------------------------------------------------------------ #
+        # Phase C.4 — Block deals + insider
+        # ------------------------------------------------------------------ #
+        try:
+            if _InsiderSignals is not None:
+                self.insider_signals = _InsiderSignals(db_engine=self.db_engine)
+                logger.debug("insider_signals: OK")
+        except Exception as exc:
+            logger.warning("insider_signals init failed: {}", exc)
+
+        try:
+            if _BlockDealsScraper is not None:
+                self.block_deals_scraper = _BlockDealsScraper(db_engine=self.db_engine)
+                logger.debug("block_deals_scraper: OK")
+        except Exception as exc:
+            logger.warning("block_deals_scraper init failed: {}", exc)
+
+        try:
+            if _InsiderScraper is not None:
+                self.insider_scraper = _InsiderScraper(db_engine=self.db_engine)
+                logger.debug("insider_scraper: OK")
+        except Exception as exc:
+            logger.warning("insider_scraper init failed: {}", exc)
+
+        # ------------------------------------------------------------------ #
+        # Phase A.1 — Depth feed
+        # ------------------------------------------------------------------ #
+        try:
+            if _DepthFeed is not None:
+                self.depth_feed = _DepthFeed(db_engine=self.db_engine)
+                logger.debug("depth_feed: OK")
+        except Exception as exc:
+            logger.warning("depth_feed init failed: {}", exc)
+
+        # ------------------------------------------------------------------ #
+        # Phase A.2 — Tick metrics / CVD
+        # ------------------------------------------------------------------ #
+        try:
+            if _TickMetrics is not None:
+                self.tick_metrics = _TickMetrics(db_engine=self.db_engine)
+                logger.debug("tick_metrics: OK")
+        except Exception as exc:
+            logger.warning("tick_metrics init failed: {}", exc)
+
+        # ------------------------------------------------------------------ #
+        # Phase A.3 — Options chain feed
+        # ------------------------------------------------------------------ #
+        try:
+            if _OptionsChainFeed is not None:
+                self.options_chain = _OptionsChainFeed(
+                    access_token=access_token,
+                    db_engine=self.db_engine,
+                )
+                logger.debug("options_chain: OK")
+        except Exception as exc:
+            logger.warning("options_chain init failed: {}", exc)
+
+        # ------------------------------------------------------------------ #
+        # Phase A.4 — Volume profile
+        # ------------------------------------------------------------------ #
+        try:
+            if _VolumeProfile is not None:
+                self.volume_profile = _VolumeProfile(db_engine=self.db_engine)
+                logger.debug("volume_profile: OK")
+        except Exception as exc:
+            logger.warning("volume_profile init failed: {}", exc)
+
+        # ------------------------------------------------------------------ #
+        # Wave 5 — Confluence engine, rejection filter, regime router
+        # ------------------------------------------------------------------ #
+        try:
+            if _ConfluenceEngine is not None:
+                self.confluence_engine = _ConfluenceEngine(db_engine=self.db_engine)
+                logger.debug("confluence_engine: OK")
+        except Exception as exc:
+            logger.warning("confluence_engine init failed: {}", exc)
+
+        try:
+            if _RejectionFilter is not None:
+                self.rejection_filter = _RejectionFilter(db_engine=self.db_engine)
+                logger.debug("rejection_filter: OK")
+        except Exception as exc:
+            logger.warning("rejection_filter init failed: {}", exc)
+
+        try:
+            if _RegimeRouter is not None:
+                self.regime_router = _RegimeRouter(db_engine=self.db_engine)
+                logger.debug("regime_router: OK")
+        except Exception as exc:
+            logger.warning("regime_router init failed: {}", exc)
+
+        # ------------------------------------------------------------------ #
+        # Wave 5 — Kelly sizer
+        # ------------------------------------------------------------------ #
+        try:
+            if _KellySizer is not None:
+                self.kelly_sizer = _KellySizer(db_engine=self.db_engine)
+                logger.debug("kelly_sizer: OK")
+        except Exception as exc:
+            logger.warning("kelly_sizer init failed: {}", exc)
+
+        # ------------------------------------------------------------------ #
+        # Phase F — Portfolio risk + Greek aggregator
+        # ------------------------------------------------------------------ #
+        try:
+            if _PortfolioRisk is not None:
+                self.portfolio_risk = _PortfolioRisk(db_engine=self.db_engine)
+                logger.debug("portfolio_risk: OK")
+        except Exception as exc:
+            logger.warning("portfolio_risk init failed: {}", exc)
+
+        try:
+            if _GreekAggregator is not None:
+                self.greek_aggregator = _GreekAggregator(db_engine=self.db_engine)
+                logger.debug("greek_aggregator: OK")
+        except Exception as exc:
+            logger.warning("greek_aggregator init failed: {}", exc)
+
+        # ------------------------------------------------------------------ #
+        # Phase E — Smart router, order validator, reconciler, slippage monitor
+        # ------------------------------------------------------------------ #
+        try:
+            if _SmartRouter is not None:
+                self.smart_router = _SmartRouter(
+                    broker=self.paper_broker,
+                    db_engine=self.db_engine,
+                )
+                logger.debug("smart_router: OK")
+        except Exception as exc:
+            logger.warning("smart_router init failed: {}", exc)
+
+        try:
+            if _OrderValidator is not None:
+                self.order_validator = _OrderValidator(
+                    instrument_manager=self.instrument_manager,
+                    broker=self.paper_broker,
+                    db_engine=self.db_engine,
+                )
+                logger.debug("order_validator: OK")
+        except Exception as exc:
+            logger.warning("order_validator init failed: {}", exc)
+
+        try:
+            if _Reconciler is not None:
+                self.reconciler = _Reconciler(
+                    broker=self.paper_broker,
+                    db_engine=self.db_engine,
+                )
+                logger.debug("reconciler: OK")
+        except Exception as exc:
+            logger.warning("reconciler init failed: {}", exc)
+
+        try:
+            if _SlippageMonitor is not None:
+                self.slippage_monitor = _SlippageMonitor(db_engine=self.db_engine)
+                logger.debug("slippage_monitor: OK")
+        except Exception as exc:
+            logger.warning("slippage_monitor init failed: {}", exc)
+
+        # ------------------------------------------------------------------ #
+        # Phase 0 — Cold storage archiver
+        # ------------------------------------------------------------------ #
+        try:
+            if _Archiver is not None:
+                self.archiver = _Archiver(db_engine=self.db_engine)
+                logger.debug("archiver: OK")
+        except Exception as exc:
+            logger.warning("archiver init failed: {}", exc)
+
+        # ------------------------------------------------------------------ #
+        # Wire Wave-5 gates into strategy engine
+        # ------------------------------------------------------------------ #
+        if self.strategy_engine is not None:
+            try:
+                self.strategy_engine.set_wave5_modules(
+                    confluence_engine=self.confluence_engine,
+                    rejection_filter=self.rejection_filter,
+                    regime_router=self.regime_router,
+                )
+            except Exception as exc:
+                logger.warning("Failed to wire Wave-5 gates into strategy engine: {}", exc)
+
+        # ------------------------------------------------------------------ #
+        # Expand WebSocket subscriptions to include universe + sector + macro
+        # ------------------------------------------------------------------ #
+        self._expand_websocket_subscriptions()
+
+        # ------------------------------------------------------------------ #
+        # Startup health log
+        # ------------------------------------------------------------------ #
+        logger.info("=" * 70)
+        logger.info("Phase modules initialized:")
+        for _name, _instance in [
+            ("storage_db",          self.db_engine),
+            ("universe_scanner",    self.universe_scanner),
+            ("sector_rotation",     self.sector_rotation),
+            ("vix_regime",          self.vix_regime),
+            ("macro_overlay",       self.macro_overlay),
+            ("flow_regime",         self.flow_regime),
+            ("corporate_calendar",  self.corporate_calendar),
+            ("earnings_calendar",   self.earnings_calendar),
+            ("news_query",          self.news_query),
+            ("insider_signals",     self.insider_signals),
+            ("depth_feed",          self.depth_feed),
+            ("tick_metrics",        self.tick_metrics),
+            ("options_chain",       self.options_chain),
+            ("volume_profile",      self.volume_profile),
+            ("confluence_engine",   self.confluence_engine),
+            ("rejection_filter",    self.rejection_filter),
+            ("regime_router",       self.regime_router),
+            ("kelly_sizer",         self.kelly_sizer),
+            ("portfolio_risk",      self.portfolio_risk),
+            ("greek_aggregator",    self.greek_aggregator),
+            ("smart_router",        self.smart_router),
+            ("order_validator",     self.order_validator),
+            ("reconciler",          self.reconciler),
+            ("slippage_monitor",    self.slippage_monitor),
+        ]:
+            logger.info("  %-22s: %s", _name, "OK" if _instance is not None else "MISSING")
+        logger.info("=" * 70)
+
+    def _expand_websocket_subscriptions(self) -> None:
+        """Expand the WebSocket subscription set to include all Bloomberg-build instruments."""
+        if self.market_feed is None:
+            logger.warning("market_feed not available — skipping subscription expansion")
+            return
+
+        try:
+            index_keys = ["NSE_INDEX|Nifty Bank", "NSE_INDEX|Nifty 50"]
+            vix_keys = ["NSE_INDEX|India VIX"]
+
+            top_10_keys: list[str] = []
+            if self.universe_scanner is not None:
+                try:
+                    top_10_keys = self.universe_scanner.get_instrument_keys(include_indices=False)
+                except Exception as exc:
+                    logger.warning("universe_scanner.get_instrument_keys failed: {}", exc)
+
+            sector_keys: list[str] = []
+            if self.sector_rotation is not None:
+                try:
+                    sector_keys = self.sector_rotation.get_sector_instrument_keys()
+                except Exception as exc:
+                    logger.warning("sector_rotation.get_sector_instrument_keys failed: {}", exc)
+
+            macro_keys: list[str] = []
+            if self.macro_overlay is not None:
+                try:
+                    macro_keys = self.macro_overlay.get_macro_keys()
+                except Exception as exc:
+                    logger.warning("macro_overlay.get_macro_keys failed: {}", exc)
+
+            all_subscriptions = list(set(index_keys + vix_keys + top_10_keys + sector_keys + macro_keys))
+            logger.info(
+                "Expanding WS subscriptions to %d instruments: %s",
+                len(all_subscriptions),
+                all_subscriptions,
+            )
+            self.market_feed.subscribe(all_subscriptions, mode="full")
+        except Exception as exc:
+            logger.warning("WS subscription expansion failed: {}", exc)
+
     def _setup_scheduler(self) -> None:
         """Configure scheduled jobs."""
         if not self.scheduler:
@@ -708,7 +1340,301 @@ class TradingBot:
             job_id="rl_loop",
         )
 
+        # Bloomberg-build phase scheduled jobs
+        self._setup_bloomberg_scheduler_jobs()
+
         self.scheduler.start()
+
+    def _setup_bloomberg_scheduler_jobs(self) -> None:
+        """Register Bloomberg-build phase scheduler jobs.
+
+        All jobs are wrapped in lambdas that guard against None modules so
+        that missing modules simply log a skip rather than raising.
+        """
+        if not self.scheduler:
+            return
+
+        # ------------------------------------------------------------------ #
+        # Pre-market 08:30 — universe scan
+        # ------------------------------------------------------------------ #
+        def _universe_scan() -> None:
+            if self.universe_scanner is None:
+                return
+            try:
+                from datetime import date as _date
+                self.universe_scanner.rank_all(_date.today())
+            except Exception as exc:
+                logger.warning("universe_scan job failed: {}", exc)
+
+        self.scheduler.add_daily_job(
+            func=_universe_scan, hour=8, minute=30, job_id="universe_scan_premarket"
+        )
+
+        # ------------------------------------------------------------------ #
+        # Pre-market 08:35 — regime decision
+        # ------------------------------------------------------------------ #
+        def _regime_decision() -> None:
+            if self.regime_router is None:
+                return
+            try:
+                from datetime import date as _date
+                self.regime_router.evaluate_today(_date.today())
+            except Exception as exc:
+                logger.warning("regime_decision job failed: {}", exc)
+
+        self.scheduler.add_daily_job(
+            func=_regime_decision, hour=8, minute=35, job_id="regime_decision_premarket"
+        )
+
+        # ------------------------------------------------------------------ #
+        # Every 30s — options chain poll
+        # ------------------------------------------------------------------ #
+        def _options_chain_poll() -> None:
+            if self.options_chain is None:
+                return
+            try:
+                import datetime as _datetime
+                # Determine nearest weekly expiries
+                today = _datetime.date.today()
+                # BankNifty: next Wednesday (weekday 2)
+                days_to_wed = (2 - today.weekday()) % 7
+                bn_expiry = (today + _datetime.timedelta(days=days_to_wed)).strftime("%Y-%m-%d")
+                # Nifty: next Thursday (weekday 3)
+                days_to_thu = (3 - today.weekday()) % 7
+                nf_expiry = (today + _datetime.timedelta(days=days_to_thu)).strftime("%Y-%m-%d")
+
+                # Get spot from bar_builder
+                def _get_spot(ik: str) -> int:
+                    if self.bar_builder is None:
+                        return 0
+                    df = self.bar_builder.get_bars(ik, timeframe=1)
+                    if df is None or df.empty:
+                        return 0
+                    return int(df.iloc[-1]["close"])
+
+                polls = [
+                    ("NSE_INDEX|Nifty Bank", "BANKNIFTY", bn_expiry),
+                    ("NSE_INDEX|Nifty 50", "NIFTY", nf_expiry),
+                ]
+                for ik, sym, exp in polls:
+                    spot = _get_spot(ik)
+                    if spot == 0:
+                        logger.debug("options_chain_poll: no spot for {} — skipping", ik)
+                        continue
+                    try:
+                        self.options_chain.snapshot(ik, sym, exp, spot)
+                    except Exception as exc:
+                        logger.debug("options_chain.snapshot failed for {}: {}", ik, exc)
+            except Exception as exc:
+                logger.warning("options_chain_poll job failed: {}", exc)
+
+        self.scheduler.add_interval_job(
+            func=_options_chain_poll, seconds=30, job_id="options_chain_poll"
+        )
+
+        # ------------------------------------------------------------------ #
+        # Every 30s — position reconciler
+        # ------------------------------------------------------------------ #
+        def _reconciler_cycle() -> None:
+            if self.reconciler is None:
+                return
+            try:
+                self.reconciler.run_cycle()
+            except Exception as exc:
+                logger.warning("reconciler_cycle job failed: {}", exc)
+
+        self.scheduler.add_interval_job(
+            func=_reconciler_cycle, seconds=30, job_id="reconciler_30s"
+        )
+
+        # ------------------------------------------------------------------ #
+        # Hourly 09-15 — news RSS scrape
+        # ------------------------------------------------------------------ #
+        def _news_scrape() -> None:
+            if self.news_scraper is None:
+                return
+            try:
+                self.news_scraper.run_all_sources()
+            except Exception as exc:
+                logger.warning("news_scrape job failed: {}", exc)
+
+        for _hr in range(9, 16):
+            self.scheduler.add_daily_job(
+                func=_news_scrape,
+                hour=_hr,
+                minute=0,
+                job_id=f"news_scrape_{_hr:02d}00",
+            )
+
+        # ------------------------------------------------------------------ #
+        # Hourly 09-15 +10min — sentiment classification
+        # ------------------------------------------------------------------ #
+        def _sentiment_classify() -> None:
+            if self.sentiment_classifier is None:
+                return
+            try:
+                self.sentiment_classifier.run_for_unprocessed()
+            except Exception as exc:
+                logger.warning("sentiment_classify job failed: {}", exc)
+
+        for _hr in range(9, 16):
+            self.scheduler.add_daily_job(
+                func=_sentiment_classify,
+                hour=_hr,
+                minute=10,
+                job_id=f"sentiment_classify_{_hr:02d}10",
+            )
+
+        # ------------------------------------------------------------------ #
+        # EOD 16:00 — all EOD scraper jobs
+        # ------------------------------------------------------------------ #
+        def _eod_flow_scrape() -> None:
+            if self.flow_scraper is None:
+                return
+            try:
+                self.flow_scraper.run_daily()
+            except Exception as exc:
+                logger.warning("eod_flow_scrape failed: {}", exc)
+
+        def _eod_corp_actions() -> None:
+            if self.corp_actions_scraper is None or self.universe_scanner is None:
+                return
+            try:
+                constituents = self.universe_scanner.get_constituents()
+                symbols = [c["symbol"] for c in constituents]
+                self.corp_actions_scraper.run_for_universe(symbols)
+            except Exception as exc:
+                logger.warning("eod_corp_actions failed: {}", exc)
+
+        def _eod_earnings() -> None:
+            if self.earnings_scraper is None or self.universe_scanner is None:
+                return
+            try:
+                constituents = self.universe_scanner.get_constituents()
+                symbols = [c["symbol"] for c in constituents]
+                self.earnings_scraper.run_for_universe(symbols)
+            except Exception as exc:
+                logger.warning("eod_earnings failed: {}", exc)
+
+        def _eod_block_deals() -> None:
+            if self.block_deals_scraper is None:
+                return
+            try:
+                self.block_deals_scraper.run_daily()
+            except Exception as exc:
+                logger.warning("eod_block_deals failed: {}", exc)
+
+        def _eod_insider() -> None:
+            if self.insider_scraper is None or self.universe_scanner is None:
+                return
+            try:
+                constituents = self.universe_scanner.get_constituents()
+                symbols = [c["symbol"] for c in constituents]
+                self.insider_scraper.run_for_universe(symbols)
+            except Exception as exc:
+                logger.warning("eod_insider failed: {}", exc)
+
+        def _eod_kelly_perf() -> None:
+            if self.kelly_sizer is None:
+                return
+            try:
+                self.kelly_sizer.update_rolling_perf()
+            except Exception as exc:
+                logger.warning("eod_kelly_perf failed: {}", exc)
+
+        def _eod_flow_regime() -> None:
+            if self.flow_regime is None:
+                return
+            try:
+                from datetime import date as _date
+                self.flow_regime.compute_regime(_date.today())
+            except Exception as exc:
+                logger.warning("eod_flow_regime failed: {}", exc)
+
+        def _eod_macro() -> None:
+            if self.macro_overlay is None:
+                return
+            try:
+                from datetime import date as _date
+                self.macro_overlay.update_daily(_date.today())
+            except Exception as exc:
+                logger.warning("eod_macro failed: {}", exc)
+
+        def _eod_vix() -> None:
+            if self.vix_regime is None:
+                return
+            try:
+                from datetime import date as _date
+                self.vix_regime.compute_daily(_date.today())
+            except Exception as exc:
+                logger.warning("eod_vix failed: {}", exc)
+
+        def _eod_sector() -> None:
+            if self.sector_rotation is None:
+                return
+            try:
+                from datetime import date as _date
+                self.sector_rotation.rank_all(_date.today())
+            except Exception as exc:
+                logger.warning("eod_sector failed: {}", exc)
+
+        for _fn, _jid in [
+            (_eod_flow_scrape, "flow_scrape_eod"),
+            (_eod_corp_actions, "corp_actions_eod"),
+            (_eod_earnings, "earnings_eod"),
+            (_eod_block_deals, "block_deals_eod"),
+            (_eod_insider, "insider_eod"),
+            (_eod_kelly_perf, "kelly_perf_eod"),
+            (_eod_flow_regime, "flow_regime_eod"),
+            (_eod_macro, "macro_eod"),
+            (_eod_vix, "vix_eod"),
+            (_eod_sector, "sector_eod"),
+        ]:
+            self.scheduler.add_daily_job(func=_fn, hour=16, minute=0, job_id=_jid)
+
+        # ------------------------------------------------------------------ #
+        # 16:30 — VaR + portfolio greeks snapshot
+        # ------------------------------------------------------------------ #
+        def _risk_snapshot_eod() -> None:
+            from datetime import date as _date
+            today = _date.today()
+            capital_paisa = self.settings.capital * 100
+            if self.portfolio_risk is not None:
+                try:
+                    self.portfolio_risk.compute_var(today, capital_paisa)
+                except Exception as exc:
+                    logger.warning("portfolio_risk.compute_var failed: {}", exc)
+            if self.greek_aggregator is not None and self.position_manager is not None:
+                try:
+                    open_pos = self.position_manager.get_open_positions()
+                    self.greek_aggregator.snapshot(today, open_pos, capital_paisa)
+                except Exception as exc:
+                    logger.warning("greek_aggregator.snapshot failed: {}", exc)
+
+        self.scheduler.add_daily_job(
+            func=_risk_snapshot_eod, hour=16, minute=30, job_id="risk_snapshot_eod"
+        )
+
+        # ------------------------------------------------------------------ #
+        # 00:15 — cold storage archive (ticks + depth older than 7 days)
+        # ------------------------------------------------------------------ #
+        def _cold_storage_archive() -> None:
+            if self.archiver is None:
+                return
+            try:
+                self.archiver.archive_ticks_older_than(7)
+            except Exception as exc:
+                logger.warning("cold_storage_archive (ticks) failed: {}", exc)
+            try:
+                self.archiver.archive_depth_older_than(7)
+            except Exception as exc:
+                logger.warning("cold_storage_archive (depth) failed: {}", exc)
+
+        self.scheduler.add_daily_job(
+            func=_cold_storage_archive, hour=0, minute=15, job_id="cold_storage_archive"
+        )
+
+        logger.info("Bloomberg-build scheduler jobs registered")
 
     def _scheduled_token_refresh(self) -> None:
         """Scheduled job: refresh access token.
@@ -902,6 +1828,10 @@ class TradingBot:
         Upstox V3 protobuf ticks are decoded into a dict-like structure with
         `feeds[instrument_key]`. Extract instrument_key and last_price (in
         paisa) and forward to PositionManager.on_tick(instrument_key, price).
+
+        Also dispatches to Bloomberg-build phase handlers (depth_feed,
+        tick_metrics, vix_regime intraday) — each wrapped in try/except so
+        failures never interrupt the main tick path.
         """
         if not self.position_manager:
             return
@@ -912,6 +1842,9 @@ class TradingBot:
             for instrument_key, payload in feeds.items():
                 # Try common shapes: {"ltpc": {"ltp": 123.4}} or {"fullFeed": {...}}
                 ltp = None
+                bid_paisa = None
+                ask_paisa = None
+                volume = 0
                 if isinstance(payload, dict):
                     ltpc = payload.get("ltpc") or {}
                     ltp = ltpc.get("ltp")
@@ -919,11 +1852,69 @@ class TradingBot:
                         full = payload.get("fullFeed", {}).get("indexFF") or payload.get("fullFeed", {}).get("marketFF") or {}
                         ltpc = (full or {}).get("ltpc") or {}
                         ltp = ltpc.get("ltp")
+                    # Extract volume + bid/ask for tick_metrics
+                    try:
+                        full_feed = payload.get("fullFeed", {})
+                        market_ff = full_feed.get("marketFF") or full_feed.get("indexFF") or {}
+                        vol_val = market_ff.get("ltpc", {}).get("v") or market_ff.get("v")
+                        if vol_val is not None:
+                            volume = int(vol_val)
+                        # Best bid/ask from depth level 0
+                        depth = market_ff.get("marketOHLC") or market_ff.get("depth") or {}
+                        buy_depth = depth.get("buyDepth", [{}])
+                        sell_depth = depth.get("sellDepth", [{}])
+                        if buy_depth:
+                            bid_price = buy_depth[0].get("price")
+                            if bid_price is not None:
+                                bid_paisa = int(round(float(bid_price) * 100))
+                        if sell_depth:
+                            ask_price = sell_depth[0].get("price")
+                            if ask_price is not None:
+                                ask_paisa = int(round(float(ask_price) * 100))
+                    except Exception:
+                        pass
                 if ltp is None:
                     continue
                 # Convert rupees → paisa (PositionManager expects paisa int)
                 price_paisa = int(round(float(ltp) * 100))
                 self.position_manager.on_tick(instrument_key, price_paisa)
+
+                # ---------------------------------------------------------- #
+                # Phase A.1 — depth feed (raw payload, all instruments)
+                # ---------------------------------------------------------- #
+                if self.depth_feed is not None:
+                    try:
+                        self.depth_feed.on_tick(tick)
+                    except Exception as exc:
+                        logger.debug("depth_feed.on_tick failed: {}", exc)
+
+                # ---------------------------------------------------------- #
+                # Phase A.2 — tick metrics + CVD
+                # ---------------------------------------------------------- #
+                if self.tick_metrics is not None:
+                    try:
+                        now_ts = datetime.now(IST)
+                        self.tick_metrics.on_tick(
+                            instrument_key=instrument_key,
+                            ts=now_ts,
+                            ltp_paisa=price_paisa,
+                            volume=volume,
+                            bid_paisa=bid_paisa,
+                            ask_paisa=ask_paisa,
+                        )
+                    except Exception as exc:
+                        logger.debug("tick_metrics.on_tick failed: {}", exc)
+
+                # ---------------------------------------------------------- #
+                # Phase B.2 — VIX intraday update
+                # ---------------------------------------------------------- #
+                if instrument_key == "NSE_INDEX|India VIX" and self.vix_regime is not None:
+                    try:
+                        now_ts = datetime.now(IST)
+                        self.vix_regime.update_intraday(now_ts, price_paisa / 100.0)
+                    except Exception as exc:
+                        logger.debug("vix_regime.update_intraday failed: {}", exc)
+
         except Exception as exc:
             logger.debug("Tick dispatch error: {}", exc)
 

@@ -6,7 +6,7 @@ list, resamples in-memory to 5m / 15m / 1h, and bulk-inserts into the Postgres
 `bars` table (Phase 0 schema). Idempotent — uses INSERT ON CONFLICT DO NOTHING.
 
 Run once before bot startup so Bloomberg modules (universe_scanner,
-volume_profile, portfolio_risk correlations, Kronos `_get_recent_bars`) have
+volume_profile, portfolio_risk correlations) have
 data immediately instead of waiting 60 days of live ticks.
 
 USAGE

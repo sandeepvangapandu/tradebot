@@ -2006,7 +2006,6 @@ class StrategyEngine:
         rejection_filter: Any = None,
         regime_router: Any = None,
         kelly_sizer: Any = None,
-        kronos_forecaster: Any = None,
         db_engine: Any = None,
     ) -> None:
         """Inject Wave-5 gate modules into the engine.
@@ -2015,89 +2014,21 @@ class StrategyEngine:
         modules are set the engine can call _apply_wave5_gates() before
         forwarding signals.
 
-        NOTE: The live SetEvaluator threads are NOT wired to these gates yet —
-        they run on their own queues.  Gates are available for the synchronous
-        evaluate_bar_sync() path and for external callers.  Full integration
-        into the live emit path is deferred to the next session (see
-        BLOOMBERG_BUILD_HANDOFF.md — CHANGE_LOG "wave5_emit_wiring: DEFERRED").
-
         Args:
             confluence_engine: ConfluenceEngine instance or None.
             rejection_filter: RejectionFilter instance or None.
             regime_router: RegimeRouter instance or None.
             kelly_sizer: KellySizer instance or None (reserved for future use).
-            kronos_forecaster: KronosForecaster instance or None (Phase G shadow mode).
-            db_engine: SQLAlchemy sync engine for Kronos forecast DB queries.
+            db_engine: SQLAlchemy sync engine for DB queries.
         """
         self._wave5_confluence = confluence_engine
         self._wave5_rejection = rejection_filter
         self._wave5_regime = regime_router
-        self._kronos_forecaster = kronos_forecaster
         self._db_engine = db_engine
         gates_ok = sum(
             x is not None for x in (confluence_engine, rejection_filter, regime_router)
         )
         logger.info("Wave-5 gates injected into StrategyEngine: %d/3 modules available", gates_ok)
-        if kronos_forecaster is not None:
-            logger.info("Kronos shadow forecaster wired into StrategyEngine (MODEL_FORECAST dim)")
-
-    def _build_kronos_dimension(self, signal: "Signal") -> Any:
-        """Fetch latest Kronos forecast for signal's instrument and build a DimensionResult.
-
-        Queries the ``kronos_forecasts`` table for the most recent forecast
-        (within the last 10 minutes) for ``signal.instrument_key``.  Returns
-        a MODEL_FORECAST DimensionResult, or None when unavailable.
-
-        Shadow mode — result fed into ConfluenceEngine at weight 0.055 but
-        does NOT directly alter trade decisions (dimension is included, but
-        the engine's existing threshold logic applies as before).
-
-        Args:
-            signal: Candidate Signal object.
-
-        Returns:
-            DimensionResult for MODEL_FORECAST dimension, or None.
-        """
-        if not getattr(self, "_kronos_forecaster", None):
-            return None
-        if not getattr(self, "_db_engine", None):
-            return None
-        try:
-            from sqlalchemy import text
-            from src.strategy.kronos_dimension import kronos_dimension_result
-
-            sql = text("""
-                SELECT predicted_direction, predicted_change_pct, predicted_range_pct,
-                       predicted_close_paisa, current_close_paisa, horizon_bars
-                FROM kronos_forecasts
-                WHERE instrument_key = :ikey
-                  AND ts > NOW() - INTERVAL '10 minutes'
-                ORDER BY ts DESC LIMIT 1
-            """)
-            with self._db_engine.connect() as conn:
-                row = conn.execute(sql, {"ikey": signal.instrument_key}).fetchone()
-
-            signal_type_str = (
-                signal.signal_type.value
-                if hasattr(signal.signal_type, "value")
-                else str(signal.signal_type)
-            )
-
-            if row is None:
-                return kronos_dimension_result(signal_type_str, None)
-
-            forecast_summary = {
-                "predicted_direction": row[0],
-                "predicted_change_pct": float(row[1]) if row[1] is not None else 0.0,
-                "predicted_range_pct": float(row[2]) if row[2] is not None else 0.0,
-            }
-            return kronos_dimension_result(
-                signal_type=signal_type_str,
-                forecast_summary=forecast_summary,
-            )
-        except Exception as exc:
-            logger.warning("kronos dimension fetch failed: {}", exc)
-            return None
 
     def _apply_wave5_gates(
         self,
@@ -2123,12 +2054,8 @@ class StrategyEngine:
         """
         today = datetime.now(IST).date()
 
-        # 0. Kronos MODEL_FORECAST dimension (shadow mode — appended to dimension_results)
         if dimension_results is None:
             dimension_results = []
-        kronos_dim = self._build_kronos_dimension(signal)
-        if kronos_dim is not None:
-            dimension_results = list(dimension_results) + [kronos_dim]
 
         # 1. Regime router — is this strategy_type allowed today?
         regime_ok = True

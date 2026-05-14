@@ -661,61 +661,38 @@ bb72ea4 fix(execution): UpstoxLiveBroker abstract methods
 
 ---
 
-## Phase G — Kronos Foundation Model Shadow Wiring
+## Phase G — Kronos Foundation Model — REMOVED 2026-05-14
 
-**Completed:** 2026-05-13
-**Branch:** `feature/kronos-evaluation`
-**Agent:** KRONOS WIRING AGENT (single-session)
+**Status:** DROPPED.
 
-### What was done
+180d walk-forward backtest (`scripts/kronos_backtest.py`, since deleted) on 12 instruments (Top-10 NSE + Nifty50 + NiftyBank), 5m bars, 3443 predictions:
 
-Phase G wires the Kronos foundation-model forecaster into the running bot in **shadow mode only**. No orders are routed through Kronos predictions. The integration accumulates 4 weeks of directional accuracy data before the G.5 decision gate is applied.
+- Overall direction accuracy: **36.13%** — below 3-class random baseline and below always-DOWN majority baseline (37.67%)
+- UP precision lift +0.25pp (z=+0.18, not sig)
+- DOWN precision lift +1.76pp (z=+1.33, not sig)
+- FLAT precision lift +4.36pp (z=+2.97, sig but not actionable for entries)
+- Close MAE 0.558%, Range MAE 0.431%
 
-### Files touched
+Likely cause: Kronos pretrained on Chinese A-share data — NSE/BSE microstructure out-of-distribution.
 
-| File | Change |
-|---|---|
-| `src/main.py` | Added `kronos_forecaster` + `kronos_validator` attributes to `__init__`; added Phase G init block in `_init_phase_modules`; added `_get_recent_bars` helper method; added `kronos_forecaster` + `db_engine` args to `set_wave5_modules` call; added 2 scheduler jobs (`kronos_shadow_5m`, `kronos_validation_eod`); added both attrs to health log |
-| `src/strategy/engine.py` | Extended `set_wave5_modules` signature with `kronos_forecaster` + `db_engine` kwargs; added `_build_kronos_dimension` helper method; updated `_apply_wave5_gates` to append MODEL_FORECAST DimensionResult |
-| `tests/test_kronos_wiring.py` | NEW — 4 smoke tests for attribute presence, helper None-safety, engine None-safety, and kwarg acceptance |
-| `BLOOMBERG_BUILD_HANDOFF.md` | This section |
+### Removed
 
-### Wiring categories
-
-| Category | Status |
-|---|---|
-| Init in `_init_phase_modules` | DONE |
-| `kronos_forecaster` / `kronos_validator` attribute declarations | DONE |
-| `_get_recent_bars` DB helper | DONE |
-| Scheduler: `kronos_shadow_5m` (every 5 min) | DONE |
-| Scheduler: `kronos_validation_eod` (16:30 IST daily) | DONE |
-| `set_wave5_modules` extended signature | DONE |
-| `_build_kronos_dimension` in StrategyEngine | DONE |
-| MODEL_FORECAST dim appended in `_apply_wave5_gates` | DONE |
-| Confluence weight 0.055 | DONE (via `kronos_dimension.py` default) |
-
-### How to monitor
-
-```bash
-# Check today's Kronos accuracy (run after 16:30 IST)
-python3 -m src.research.run_kronos_validation --report --days 1
-
-# Rolling 7-day accuracy report
-python3 -m src.research.run_kronos_validation --report --days 7
-
-# Check whether model weights have been downloaded
-ls ~/.cache/huggingface/hub/ | grep -i kronos
-```
-
-### Decision gate timeline (G.5)
-
-| Week | Milestone |
-|---|---|
-| Week 1-4 | Shadow run — predictions logged to `kronos_forecasts`, accuracy accumulated in `kronos_accuracy_daily` |
-| End of Week 4 | Run `--report --days 28` to get rolling accuracy |
-| Decision | Hit rate > 55% AND ≥ 3 strategies benefit → raise weight to 0.10+; 50-55% → keep as tiebreaker; < 50% → drop |
-
-**Recommended shadow start date:** First live-market session after this merge.
-**Decision review date:** 4 weeks from shadow start.
+- `src/research/kronos_lib/` (vendored Kronos package)
+- `src/research/kronos_predictor.py`
+- `src/research/kronos_validator.py`
+- `src/research/run_kronos_shadow.py`
+- `src/research/run_kronos_validation.py`
+- `src/strategy/kronos_dimension.py`
+- `tests/test_kronos_wiring.py`
+- `tests/research/test_kronos_validator.py`
+- `tests/research/test_kronos_predictor.py`
+- `tests/strategy/test_kronos_dimension.py`
+- `scripts/kronos_backtest.py`
+- `KRONOS_EVALUATION.md`
+- `MODEL_FORECAST` from `ConfluenceDimension` enum and `DEFAULT_WEIGHTS`
+- `kronos_forecaster` / `kronos_validator` attributes + init + schedulers from `src/main.py`
+- `_build_kronos_dimension` + `kronos_forecaster` kwarg from `src/strategy/engine.py`
+- Backtest CSV retained: `logs/kronos_backtest_1778782706.csv`
+- DB tables `kronos_forecasts` and `kronos_accuracy_daily` left in place — drop manually if disk pressure (not auto-dropped to preserve historical data).
 
 End of handoff.

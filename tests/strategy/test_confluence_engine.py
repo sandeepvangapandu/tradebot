@@ -400,39 +400,3 @@ class TestEdgeCases:
         ]
         outcome = ce.evaluate("S", "K", "BUY", results, signal_id=None)
         assert outcome is not None
-
-
-# ---------------------------------------------------------------------------
-# Phase G.3: MODEL_FORECAST dimension tests
-# ---------------------------------------------------------------------------
-
-class TestModelForecastDimension:
-    def test_default_weights_include_model_forecast(self):
-        """MODEL_FORECAST is present in DEFAULT_WEIGHTS and total still sums to ~1.0."""
-        assert ConfluenceDimension.MODEL_FORECAST in DEFAULT_WEIGHTS
-        total = sum(DEFAULT_WEIGHTS.values())
-        assert total == pytest.approx(1.0, abs=0.001)
-
-    def test_evaluate_with_kronos_dimension_passes_through(self):
-        """A DimensionResult with MODEL_FORECAST dim appears in dimension_breakdown of result."""
-        ce = ConfluenceEngine(threshold=70.0, db_engine=None)
-        results = [
-            DimensionResult(
-                dimension=ConfluenceDimension.MODEL_FORECAST,
-                score=0.85,
-                weight=0.055,
-                matched=["kronos_up_pct=+1.20"],
-                skipped=False,
-            ),
-        ]
-        outcome = ce.evaluate(
-            strategy_name="TestKronos",
-            instrument_key="NSE_INDEX|Nifty Bank",
-            signal_type="BUY_CE",
-            dimension_results=results,
-        )
-        breakdown_dims = [entry["dimension"] for entry in outcome["dimension_breakdown"]]
-        assert "model_forecast" in breakdown_dims
-        # composite should reflect the MODEL_FORECAST score (0.85 * 100 = 85.0)
-        assert outcome["composite_score"] == pytest.approx(85.0, abs=0.01)
-        assert outcome["passed"] is True

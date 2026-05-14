@@ -316,6 +316,9 @@ class TradingBot:
         self.reconciler: Any = None
         self.slippage_monitor: Any = None
         self.archiver: Any = None
+        # Phase G — Kronos foundation model (shadow mode)
+        self.kronos_forecaster: Any = None
+        self.kronos_validator: Any = None
 
     def startup(self) -> None:
         """Execute startup sequence."""
@@ -1215,6 +1218,25 @@ class TradingBot:
             logger.warning("archiver init failed: {}", exc)
 
         # ------------------------------------------------------------------ #
+        # Phase G — Kronos foundation model (shadow mode)
+        # ------------------------------------------------------------------ #
+        try:
+            from src.research.kronos_predictor import KronosForecaster
+            from src.research.kronos_validator import KronosValidator
+            self.kronos_forecaster = KronosForecaster(
+                model_size="small",
+                device="cpu",
+                max_context=512,
+                db_engine=self.db_engine,
+            )
+            self.kronos_validator = KronosValidator(db_engine=self.db_engine)
+            logger.info("Kronos shadow-mode forecaster initialized (lazy-load on first predict)")
+        except Exception as exc:
+            logger.warning("Kronos init failed (will run without shadow forecasts): {}", exc)
+            self.kronos_forecaster = None
+            self.kronos_validator = None
+
+        # ------------------------------------------------------------------ #
         # Wire Wave-5 gates into strategy engine
         # ------------------------------------------------------------------ #
         if self.strategy_engine is not None:
@@ -1223,6 +1245,9 @@ class TradingBot:
                     confluence_engine=self.confluence_engine,
                     rejection_filter=self.rejection_filter,
                     regime_router=self.regime_router,
+                    kelly_sizer=self.kelly_sizer,
+                    kronos_forecaster=self.kronos_forecaster,
+                    db_engine=self.db_engine,
                 )
             except Exception as exc:
                 logger.warning("Failed to wire Wave-5 gates into strategy engine: {}", exc)
@@ -1260,6 +1285,8 @@ class TradingBot:
             ("greek_aggregator",    self.greek_aggregator),
             ("smart_router",        self.smart_router),
             ("order_validator",     self.order_validator),
+            ("kronos_forecaster",   self.kronos_forecaster),
+            ("kronos_validator",    self.kronos_validator),
             ("reconciler",          self.reconciler),
             ("slippage_monitor",    self.slippage_monitor),
         ]:
@@ -1407,6 +1434,28 @@ class TradingBot:
         self.scheduler.add_daily_job(
             func=_regime_decision, hour=8, minute=35, job_id="regime_decision_premarket"
         )
+
+        # ------------------------------------------------------------------ #
+        # Phase G — Kronos shadow forecasts (every 5 min) + EOD validation
+        # ------------------------------------------------------------------ #
+        if self.kronos_forecaster is not None:
+            try:
+                self.scheduler.add_interval_job(
+                    func=self._kronos_shadow_tick,
+                    seconds=300,
+                    job_id="kronos_shadow_5m",
+                )
+            except Exception as exc:
+                logger.warning("kronos_shadow_5m schedule failed: {}", exc)
+        if self.kronos_validator is not None:
+            try:
+                self.scheduler.add_daily_job(
+                    func=self._kronos_validation_eod,
+                    hour=16, minute=30,
+                    job_id="kronos_validation_eod",
+                )
+            except Exception as exc:
+                logger.warning("kronos_validation_eod schedule failed: {}", exc)
 
         # ------------------------------------------------------------------ #
         # Every 30s — options chain poll
@@ -1843,6 +1892,62 @@ class TradingBot:
             self.rl_loop.execute_daily_optimization(strategy_dir)
         except Exception as exc:
             logger.error("Failed to run RL Loop: {}", exc)
+
+    def _get_recent_bars(self, instrument_key: str, timeframe: str = "5m", count: int = 400) -> Any:
+        """Pull last N bars for instrument_key from bars table. Returns DataFrame indexed by ts or None."""
+        if self.db_engine is None:
+            return None
+        try:
+            import pandas as _pd
+            from sqlalchemy import text as _text
+            sql = _text("""
+                SELECT ts, open, high, low, close, volume
+                FROM bars
+                WHERE instrument_key = :ikey AND timeframe = :tf
+                ORDER BY ts DESC
+                LIMIT :n
+            """)
+            with self.db_engine.connect() as conn:
+                df = _pd.read_sql(sql, conn, params={"ikey": instrument_key, "tf": timeframe, "n": count})
+            if df.empty:
+                return None
+            df = df.sort_values("ts").set_index("ts")
+            if "amount" not in df.columns:
+                df["amount"] = df["close"] * df["volume"]
+            return df
+        except Exception as exc:
+            logger.warning("_get_recent_bars failed for {}: {}", instrument_key, exc)
+            return None
+
+    def _kronos_shadow_tick(self) -> None:
+        """Scheduled job: run Kronos forecasts for universe + indices, persist."""
+        if self.kronos_forecaster is None or self.universe_scanner is None:
+            return
+        try:
+            symbols = self.universe_scanner.get_instrument_keys(include_indices=True)
+            for ikey in symbols:
+                bars = self._get_recent_bars(ikey, timeframe="5m", count=400)
+                if bars is None or len(bars) < 100:
+                    continue
+                self.kronos_forecaster.predict_summary(
+                    instrument_key=ikey,
+                    bars=bars,
+                    timeframe="5m",
+                    horizon=12,
+                    persist=True,
+                )
+        except Exception as exc:
+            logger.warning("_kronos_shadow_tick failed: {}", exc)
+
+    def _kronos_validation_eod(self) -> None:
+        """Scheduled job: compute Kronos accuracy for today, persist."""
+        if self.kronos_validator is None:
+            return
+        try:
+            from datetime import date as _date
+            self.kronos_validator.compute_daily(_date.today())
+        except Exception as exc:
+            logger.warning("_kronos_validation_eod failed: {}", exc)
 
     def _on_market_tick(self, tick: Any) -> None:
         """Callback for market tick updates.

@@ -659,4 +659,63 @@ bb72ea4 fix(execution): UpstoxLiveBroker abstract methods
 2a3dc11 feat(storage): Phase 0 — Postgres + Supabase foundation
 ```
 
+---
+
+## Phase G — Kronos Foundation Model Shadow Wiring
+
+**Completed:** 2026-05-13
+**Branch:** `feature/kronos-evaluation`
+**Agent:** KRONOS WIRING AGENT (single-session)
+
+### What was done
+
+Phase G wires the Kronos foundation-model forecaster into the running bot in **shadow mode only**. No orders are routed through Kronos predictions. The integration accumulates 4 weeks of directional accuracy data before the G.5 decision gate is applied.
+
+### Files touched
+
+| File | Change |
+|---|---|
+| `src/main.py` | Added `kronos_forecaster` + `kronos_validator` attributes to `__init__`; added Phase G init block in `_init_phase_modules`; added `_get_recent_bars` helper method; added `kronos_forecaster` + `db_engine` args to `set_wave5_modules` call; added 2 scheduler jobs (`kronos_shadow_5m`, `kronos_validation_eod`); added both attrs to health log |
+| `src/strategy/engine.py` | Extended `set_wave5_modules` signature with `kronos_forecaster` + `db_engine` kwargs; added `_build_kronos_dimension` helper method; updated `_apply_wave5_gates` to append MODEL_FORECAST DimensionResult |
+| `tests/test_kronos_wiring.py` | NEW — 4 smoke tests for attribute presence, helper None-safety, engine None-safety, and kwarg acceptance |
+| `BLOOMBERG_BUILD_HANDOFF.md` | This section |
+
+### Wiring categories
+
+| Category | Status |
+|---|---|
+| Init in `_init_phase_modules` | DONE |
+| `kronos_forecaster` / `kronos_validator` attribute declarations | DONE |
+| `_get_recent_bars` DB helper | DONE |
+| Scheduler: `kronos_shadow_5m` (every 5 min) | DONE |
+| Scheduler: `kronos_validation_eod` (16:30 IST daily) | DONE |
+| `set_wave5_modules` extended signature | DONE |
+| `_build_kronos_dimension` in StrategyEngine | DONE |
+| MODEL_FORECAST dim appended in `_apply_wave5_gates` | DONE |
+| Confluence weight 0.055 | DONE (via `kronos_dimension.py` default) |
+
+### How to monitor
+
+```bash
+# Check today's Kronos accuracy (run after 16:30 IST)
+python3 -m src.research.run_kronos_validation --report --days 1
+
+# Rolling 7-day accuracy report
+python3 -m src.research.run_kronos_validation --report --days 7
+
+# Check whether model weights have been downloaded
+ls ~/.cache/huggingface/hub/ | grep -i kronos
+```
+
+### Decision gate timeline (G.5)
+
+| Week | Milestone |
+|---|---|
+| Week 1-4 | Shadow run — predictions logged to `kronos_forecasts`, accuracy accumulated in `kronos_accuracy_daily` |
+| End of Week 4 | Run `--report --days 28` to get rolling accuracy |
+| Decision | Hit rate > 55% AND ≥ 3 strategies benefit → raise weight to 0.10+; 50-55% → keep as tiebreaker; < 50% → drop |
+
+**Recommended shadow start date:** First live-market session after this merge.
+**Decision review date:** 4 weeks from shadow start.
+
 End of handoff.

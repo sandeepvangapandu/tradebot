@@ -31,12 +31,35 @@ IST = ZoneInfo("Asia/Kolkata")
 MARKET_OPEN = dt_time(9, 15)
 MARKET_CLOSE = dt_time(15, 30)
 
+# Setup logging to both stdout and file
+def setup_logging():
+    """Setup logging for the runner."""
+    import logging
+    log_dir = Path(__file__).parent / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    
+    logging.basicConfig(
+        level=logging.INFO,
+        format='[%(asctime)s] %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler(log_dir / "runner.log")
+        ]
+    )
+    return logging.getLogger(__name__)
+
+logger = setup_logging()
+
 
 class BotRunner:
     def __init__(self):
         self.bot_process = None
         self.running = True
         self._setup_signal_handlers()
+        self.script_dir = Path(__file__).parent
+        self.db_path = self.script_dir / "data" / "trading_bot.db"
+        self._eod_sent_today = None  # Track if EOD was sent today
     
     def _setup_signal_handlers(self):
         """Handle shutdown signals gracefully."""
@@ -45,7 +68,7 @@ class BotRunner:
     
     def _signal_handler(self, signum, frame):
         """Handle shutdown signals."""
-        print(f"\n[Runner] Received signal {signum}, shutting down...")
+        logger.info(f"Received signal {signum}, shutting down...")
         self.running = False
         self._stop_bot()
     
@@ -93,23 +116,27 @@ class BotRunner:
     
     def _start_bot(self):
         """Start the trading bot process."""
-        print(f"\n[{datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S IST')}] Starting trading bot...")
+        logger.info("=" * 60)
+        logger.info("Starting trading bot...")
+        logger.info(f"Database: {self.db_path}")
         
         # Run the bot with Python 3
         self.bot_process = subprocess.Popen(
             [sys.executable, "-m", "src.main"],
-            cwd=Path(__file__).parent,
+            cwd=self.script_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True
+            text=True,
+            env={**os.environ, "PYTHONPATH": str(self.script_dir)}
         )
         
-        print(f"[Runner] Bot started with PID {self.bot_process.pid}")
+        logger.info(f"Bot started with PID {self.bot_process.pid}")
     
     def _stop_bot(self):
         """Stop the trading bot process gracefully."""
         if self.bot_process and self.bot_process.poll() is None:
-            print(f"\n[{datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S IST')}] Stopping trading bot...")
+            logger.info("=" * 60)
+            logger.info("Stopping trading bot...")
             
             # Send SIGTERM first for graceful shutdown
             self.bot_process.terminate()
@@ -117,130 +144,131 @@ class BotRunner:
             # Wait up to 30 seconds for graceful shutdown
             try:
                 self.bot_process.wait(timeout=30)
-                print("[Runner] Bot stopped gracefully")
+                logger.info("Bot stopped gracefully")
             except subprocess.TimeoutExpired:
                 # Force kill if it doesn't stop
-                print("[Runner] Force killing bot...")
+                logger.warning("Force killing bot...")
                 self.bot_process.kill()
                 self.bot_process.wait()
-                print("[Runner] Bot killed")
+                logger.info("Bot killed")
             
             self.bot_process = None
     
     def _get_today_summary(self) -> dict:
         """Query database for today's trading summary."""
-        db_path = Path(__file__).parent / "data" / "trading_bot.db"
         summary = {
+            "date": datetime.now(IST).strftime('%Y-%m-%d'),
             "trades": 0,
-            "realized_pnl": 0.0,
-            "unrealized_pnl": 0.0,
+            "realized_pnl_paisa": 0,
+            "unrealized_pnl_paisa": 0,
+            "wins": 0,
+            "losses": 0,
             "open_positions": 0,
         }
         
-        if not db_path.exists():
+        if not self.db_path.exists():
+            logger.warning(f"Database not found: {self.db_path}")
             return summary
         
         try:
-            conn = sqlite3.connect(str(db_path))
+            conn = sqlite3.connect(str(self.db_path))
             cursor = conn.cursor()
             
             # Get today's date in IST
             today = datetime.now(IST).strftime('%Y-%m-%d')
             
-            # Count today's trades
+            # Get daily P&L for today
             cursor.execute(
-                f"SELECT COUNT(*) FROM trades WHERE date(timestamp) = '{today}'"
-            )
-            summary["trades"] = cursor.fetchone()[0] or 0
-
-            # Get daily P&L
-            cursor.execute(
-                "SELECT realized_pnl, unrealized_pnl FROM daily_pnl ORDER BY date DESC LIMIT 1"
+                "SELECT realized_pnl, unrealized_pnl, trades_count, win_count FROM daily_pnl WHERE date = ?",
+                (today,)
             )
             row = cursor.fetchone()
             if row:
-                summary["realized_pnl"] = row[0] or 0.0
-                summary["unrealized_pnl"] = row[1] or 0.0
+                summary["realized_pnl_paisa"] = row[0] or 0
+                summary["unrealized_pnl_paisa"] = row[1] or 0
+                summary["trades"] = row[2] or 0
+                summary["wins"] = row[3] or 0
+                summary["losses"] = summary["trades"] - summary["wins"]
             
             # Count open positions
-            cursor.execute("SELECT COUNT(*) FROM positions WHERE status = 'OPEN'")
+            cursor.execute("SELECT COUNT(*) FROM positions WHERE status = 'open'")
             summary["open_positions"] = cursor.fetchone()[0] or 0
             
             conn.close()
+            logger.info(f"Retrieved summary for {today}: {summary}")
         except Exception as e:
-            print(f"[Runner] Error querying database: {e}")
+            logger.error(f"Error querying database: {e}")
         
         return summary
     
     def _send_eod_summary(self):
-        """Send end-of-day summary via SMS."""
-        print(f"\n[{datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S IST')}] Sending EOD summary...")
+        """Send end-of-day summary via email/SMS and save to file."""
+        now = datetime.now(IST)
+        today_str = now.strftime('%Y-%m-%d')
+        
+        # Check if we already sent EOD for today
+        if self._eod_sent_today == today_str:
+            logger.info("EOD summary already sent today, skipping")
+            return
+        
+        logger.info("=" * 60)
+        logger.info("Generating EOD summary...")
         
         # Get today's summary from database
         summary = self._get_today_summary()
-        today = datetime.now(IST).strftime('%Y-%m-%d')
         
-        # Format P&L with sign (convert paisa to rupees)
-        pnl = summary["realized_pnl"] / 100
-        pnl_str = f"+₹{pnl:.2f}" if pnl >= 0 else f"-₹{abs(pnl):.2f}"
+        # Convert paisa to rupees
+        realized_pnl_rupees = summary["realized_pnl_paisa"] / 100
+        unrealized_pnl_rupees = summary["unrealized_pnl_paisa"] / 100
         
-        # Create concise SMS (under 400 chars)
-        sms_message = (
-            f"📊 Trading Bot EOD\n"
-            f"Date: {today}\n"
-            f"Trades: {summary['trades']}\n"
-            f"P&L: {pnl_str}\n"
-            f"Open Pos: {summary['open_positions']}\n"
-            f"Status: Market Closed"
-        )
+        # Format P&L with sign
+        pnl_sign = "+" if realized_pnl_rupees >= 0 else ""
+        pnl_emoji = "🟢" if realized_pnl_rupees >= 0 else "🔴"
         
-        print(f"[Runner] EOD Summary:\n{sms_message}")
+        # Create summary text
+        summary_text = f"""📊 Trading Bot EOD Summary
+{'='*40}
+Date: {summary['date']}
+Time: {now.strftime('%H:%M:%S IST')}
+
+📈 Trades: {summary['trades']}
+   Wins: {summary['wins']} | Losses: {summary['losses']}
+   Win Rate: {(summary['wins']/summary['trades']*100):.1f}%""" if summary['trades'] > 0 else """📊 Trading Bot EOD Summary
+{'='*40}
+Date: {summary['date']}
+Time: {now.strftime('%H:%M:%S IST')}
+
+📈 Trades: 0"""
+
+        summary_text += f"""
+💰 Realized P&L: {pnl_emoji} ₹{pnl_sign}{realized_pnl_rupees:,.2f}
+📊 Open Positions: {summary['open_positions']}
+
+---
+Database: {self.db_path}
+Logs: {self.script_dir / 'logs'}
+"""
         
-        # Send SMS via Zo API
-        zo_token = os.environ.get("ZO_CLIENT_IDENTITY_TOKEN")
-        if zo_token:
-            try:
-                import requests
-                response = requests.post(
-                    "https://api.zo.computer/zo/ask",
-                    headers={
-                        "authorization": zo_token,
-                        "content-type": "application/json"
-                    },
-                    json={
-                        "input": f"Send an SMS to the user with this exact message:\n\n{sms_message}",
-                        "model_name": "zo:fast"
-                    },
-                    timeout=30
-                )
-                if response.status_code == 200:
-                    print("[Runner] EOD summary SMS request sent")
-                else:
-                    print(f"[Runner] Failed to send SMS: {response.status_code}")
-            except Exception as e:
-                print(f"[Runner] Error sending SMS: {e}")
-        else:
-            print("[Runner] ZO_CLIENT_IDENTITY_TOKEN not set, skipping SMS")
-        
-        # Also save to file for reference
-        summary_file = Path(__file__).parent / "logs" / "eod_summary.txt"
+        # Save to file
+        summary_file = self.script_dir / "logs" / "eod_summary.txt"
         summary_file.parent.mkdir(parents=True, exist_ok=True)
         with open(summary_file, 'w') as f:
-            f.write(f"📊 Trading Bot EOD Summary\n{'='*40}\n")
-            f.write(f"Date: {today}\nTime: {datetime.now(IST).strftime('%H:%M:%S IST')}\n\n")
-            f.write(f"📈 Trades: {summary['trades']}\n")
-            f.write(f"💰 Realized P&L: {pnl_str}\n")
-            f.write(f"📊 Open Positions: {summary['open_positions']}\n")
-            f.write(f"\n---\nDatabase: {Path(__file__).parent}/data/trading_bot.db\n")
-            f.write(f"Logs: {Path(__file__).parent}/logs/trading_bot.log\n")
+            f.write(summary_text)
+        
+        logger.info(f"EOD Summary saved to {summary_file}")
+        logger.info(summary_text)
+        
+        # Mark as sent for today
+        self._eod_sent_today = today_str
     
     def run(self):
         """Main runner loop."""
-        print("=" * 60)
-        print("Trading Bot Runner Started")
-        print(f"Current time: {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S IST')}")
-        print(f"Market hours: {MARKET_OPEN.strftime('%H:%M')} - {MARKET_CLOSE.strftime('%H:%M')} IST")
-        print("=" * 60)
+        logger.info("=" * 60)
+        logger.info("Trading Bot Runner Started")
+        logger.info(f"Current time: {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S IST')}")
+        logger.info(f"Market hours: {MARKET_OPEN.strftime('%H:%M')} - {MARKET_CLOSE.strftime('%H:%M')} IST")
+        logger.info(f"Database: {self.db_path}")
+        logger.info("=" * 60)
         
         while self.running:
             now = datetime.now(IST)
@@ -267,8 +295,7 @@ class BotRunner:
                 hours = int(seconds_to_open // 3600)
                 minutes = int((seconds_to_open % 3600) // 60)
                 
-                print(f"\n[{now.strftime('%Y-%m-%d %H:%M:%S IST')}] Market closed")
-                print(f"[Runner] Next market open in {hours}h {minutes}m")
+                logger.info(f"Market closed. Next open in {hours}h {minutes}m")
                 
                 # Sleep until market opens (check every 5 minutes)
                 sleep_time = min(seconds_to_open, 300)
@@ -276,7 +303,7 @@ class BotRunner:
         
         # Final cleanup
         self._stop_bot()
-        print("\n[Runner] Shutdown complete")
+        logger.info("Shutdown complete")
 
 
 def main():
@@ -284,9 +311,9 @@ def main():
     try:
         runner.run()
     except KeyboardInterrupt:
-        print("\n[Runner] Interrupted by user")
+        logger.info("Interrupted by user")
     except Exception as e:
-        print(f"\n[Runner] Fatal error: {e}")
+        logger.error(f"Fatal error: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

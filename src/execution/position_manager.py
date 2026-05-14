@@ -1771,7 +1771,20 @@ class PositionManager:
                 if self._trade_logger:
                     try:
                         self._trade_logger.close_position(position.instrument_key, "closed")
-                        
+
+                        # Attribute fees (brokerage + STT + GST + exchange + SEBI)
+                        # by summing charges from the broker's per-fill history
+                        # for this instrument since position entry.
+                        fees_paisa = 0
+                        try:
+                            if hasattr(self._broker, "sum_fees_for_instrument"):
+                                fees_paisa = int(self._broker.sum_fees_for_instrument(
+                                    position.instrument_key,
+                                    since=position.entry_time,
+                                ))
+                        except Exception as fe:
+                            logger.warning(f"Fee attribution failed for {position.instrument_key}: {fe}")
+
                         # Add a TradeRecord
                         self._trade_logger.log_trade({
                             "strategy": position.strategy_id,
@@ -1781,7 +1794,7 @@ class PositionManager:
                             "exit_price": blended_price or exit_price,
                             "quantity": position.original_quantity,
                             "realized_pnl": total_pnl,
-                            "fees": 0,
+                            "fees": fees_paisa,
                             "entry_time": position.entry_time,
                             "exit_time": position.exit_time,
                             "holding_duration_seconds": int((position.exit_time - position.entry_time).total_seconds()),

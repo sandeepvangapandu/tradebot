@@ -127,16 +127,20 @@ class PaperBroker(BaseBroker):
     def _get_ltp(self, instrument_key: str) -> int:
         """Get last traded price for an instrument.
 
-        In a real implementation, this would fetch from market data feed.
-        For simulation, we use cached LTP or return a default.
+        Returns 0 if no tick has been received yet. Callers MUST handle
+        the zero case — never substitute a fabricated default. The
+        previous version returned a hardcoded ₹100 default which caused
+        catastrophic fills (e.g. selling an ATM straddle for ₹95 that
+        was actually worth ₹500+) the moment a strategy fired before
+        first tick arrived.
 
         Args:
             instrument_key: The instrument identifier
 
         Returns:
-            LTP in paisa
+            LTP in paisa, or 0 if no tick received yet.
         """
-        return self._ltp_cache.get(instrument_key, 10000)  # Default 100 INR
+        return self._ltp_cache.get(instrument_key, 0)
 
     def get_ltp(self, instrument_key: str) -> int:
         """Get last traded price for an instrument (public method).
@@ -283,6 +287,25 @@ class PaperBroker(BaseBroker):
         with self._lock:
             order_id = f"PAPER_{uuid.uuid4().hex[:12].upper()}"
             timestamp = datetime.now(IST)
+
+            # Reject MARKET orders that arrive before the first tick for
+            # this instrument — fill price would be 0/fake and produce
+            # nonsensical entry levels (see _get_ltp docstring).
+            if order.order_type == OrderType.MARKET and self._get_ltp(order.instrument_key) <= 0:
+                logger.warning(
+                    "Rejecting MARKET order — no LTP yet for {} (waiting for first tick)",
+                    order.instrument_key,
+                )
+                return OrderResponse(
+                    order_id=order_id,
+                    status=OrderStatus.REJECTED,
+                    instrument_key=order.instrument_key,
+                    side=order.side,
+                    quantity=order.quantity,
+                    filled_quantity=0,
+                    message="No LTP available — first tick not yet received",
+                    timestamp=timestamp,
+                )
 
             # Calculate fill price
             fill_price = self._calculate_fill_price(
@@ -569,6 +592,33 @@ class PaperBroker(BaseBroker):
         """
         with self._lock:
             return self._trade_history.copy()
+
+    def sum_fees_for_instrument(self, instrument_key: str, since: Optional[datetime] = None) -> int:
+        """Sum total fees (brokerage + STT + GST + ...) for an instrument.
+
+        Used by PositionManager to attribute fees to closed-trade rows.
+
+        Args:
+            instrument_key: The instrument identifier.
+            since: Optional cutoff — only include fills at-or-after this time.
+
+        Returns:
+            Total fees in paisa across all fills matching the filter.
+        """
+        with self._lock:
+            total = 0
+            for rec in self._trade_history:
+                if rec.get("instrument_key") != instrument_key:
+                    continue
+                if since is not None:
+                    try:
+                        ts = datetime.fromisoformat(rec["timestamp"])
+                        if ts < since:
+                            continue
+                    except Exception:
+                        pass
+                total += int(rec.get("charges", {}).get("total", 0) or 0)
+            return total
 
     def get_portfolio_value(self) -> int:
         """Get total portfolio value including positions.

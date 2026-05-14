@@ -461,10 +461,21 @@ class TradingBot:
         )
         logger.info("Order and position managers initialized")
 
+        # 6b. Initialize Postgres engine early so BarBuilder + Bloomberg modules share it.
+        # This must run before BarBuilder so closed bars are persisted from the first tick.
+        try:
+            if _get_sync_engine is not None:
+                self.db_engine = _get_sync_engine()
+                logger.info("Postgres engine initialized for cross-module use")
+        except Exception as exc:
+            logger.warning("Postgres engine init failed (modules will degrade): {}", exc)
+            self.db_engine = None
+
         # 7. Start BarBuilder
         self.bar_builder = BarBuilder(
             tick_queue=self.tick_queue,
             bar_close_event=self.bar_close_event,
+            db_engine=getattr(self, "db_engine", None),
         )
         self.bar_builder.start()
         logger.info("BarBuilder started")
@@ -898,10 +909,13 @@ class TradingBot:
 
         # ------------------------------------------------------------------ #
         # Phase 0 — Postgres storage engine
+        # db_engine is initialised early in startup() so BarBuilder can use it.
+        # Here we just confirm it is available (already a singleton via lru_cache).
         # ------------------------------------------------------------------ #
         try:
             if _STORAGE_DB_OK and _get_sync_engine is not None:
-                self.db_engine = _get_sync_engine()
+                if self.db_engine is None:
+                    self.db_engine = _get_sync_engine()
                 logger.debug("db_engine: OK")
         except Exception as exc:
             logger.warning("db_engine init failed: {}", exc)

@@ -1039,9 +1039,11 @@ class OrderManager:
                         if resp.status == OrderStatus.COMPLETE and self._position_manager:
                             try:
                                 fill_price = resp.average_price or leg_order.price or 0
+                                leg_side = OrderSide(leg_order.side) if isinstance(leg_order.side, str) else leg_order.side
+                                leg_product_type = ProductType(leg_order.product_type) if isinstance(leg_order.product_type, str) else leg_order.product_type
                                 self._position_manager.add_position(
                                     instrument_key=leg_order.instrument_key,
-                                    side=leg_order.side,
+                                    side=leg_side,
                                     quantity=resp.filled_quantity or leg_order.quantity,
                                     entry_price=fill_price,
                                     strategy_id=signal.strategy_name,
@@ -1050,7 +1052,7 @@ class OrderManager:
                                     # Nullify them for option combo legs to avoid instant SL hits.
                                     stop_loss_price=None,
                                     target_price=None,
-                                    product_type=leg_order.product_type,
+                                    product_type=leg_product_type,
                                 )
                                 self._order_logger.info(
                                     f"POSITION_CREATED | {leg_order.instrument_key} | {side_str} "

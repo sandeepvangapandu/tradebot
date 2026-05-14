@@ -21,7 +21,7 @@ Momentum-Based Trailing Stop (C2):
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, time, timedelta
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -686,6 +686,7 @@ class PositionManager:
         config: Optional[PositionConfig] = None,
         on_position_close: Optional[Callable[[ManagedPosition], None]] = None,
         partial_profit_manager: Optional[PartialProfitManager] = None,
+        trade_logger: Optional[Any] = None,
     ):
         """Initialize the PositionManager.
 
@@ -695,12 +696,14 @@ class PositionManager:
             config: Position management configuration
             on_position_close: Optional callback when position closes
             partial_profit_manager: Optional 4-tier partial profit manager
+            trade_logger: Optional TradeLogger for database persistence
         """
         self._broker = broker
         self._risk_manager = risk_manager
         self._config = config or PositionConfig()
         self._on_position_close = on_position_close
         self._partial_profit_manager = partial_profit_manager
+        self._trade_logger = trade_logger
         self._backtest_time: Optional[datetime] = None  # Set by harness for bar-accurate timestamps
         self._lock = threading.Lock()
         self._positions: dict[str, ManagedPosition] = {}
@@ -875,6 +878,21 @@ class PositionManager:
                 f"SL: {stop_loss_price/100:.2f} | Target: {target_price/100:.2f} | "
                 f"ATR: {entry_atr} | VolRegime: {volatility_regime}"
             )
+
+            # Persist to database
+            if self._trade_logger:
+                try:
+                    self._trade_logger.log_position({
+                        "strategy": position.strategy_id,
+                        "instrument_key": position.instrument_key,
+                        "side": position.side.value,
+                        "entry_price": position.entry_price,
+                        "quantity": position.quantity,
+                        "status": "open",
+                        "opened_at": position.entry_time,
+                    })
+                except Exception as e:
+                    logger.error(f"Failed to log position to database: {e}")
 
         # Sync with risk manager after releasing lock
         self._sync_risk_manager()
@@ -1748,6 +1766,28 @@ class PositionManager:
                     f"Final P&L: {remaining_pnl/100:.2f} | Total P&L: {total_pnl/100:.2f} | "
                     f"Partial exits: {len(position.partial_exits)}"
                 )
+
+                # Persist to database
+                if self._trade_logger:
+                    try:
+                        self._trade_logger.close_position(position.instrument_key, "closed")
+                        
+                        # Add a TradeRecord
+                        self._trade_logger.log_trade({
+                            "strategy": position.strategy_id,
+                            "instrument_key": position.instrument_key,
+                            "side": position.side.value,
+                            "entry_price": position.entry_price,
+                            "exit_price": blended_price or exit_price,
+                            "quantity": position.original_quantity,
+                            "realized_pnl": total_pnl,
+                            "fees": 0,
+                            "entry_time": position.entry_time,
+                            "exit_time": position.exit_time,
+                            "holding_duration_seconds": int((position.exit_time - position.entry_time).total_seconds()),
+                        })
+                    except Exception as e:
+                        logger.error(f"Failed to log trade to database: {e}")
 
                 # Sync with risk manager after position close
                 self._sync_risk_manager()

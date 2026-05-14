@@ -152,6 +152,45 @@ class TradeLogger:
                 session.expunge(pos)
             return positions
 
+    def log_position(self, position_data: dict) -> PositionRecord:
+        """Persist a new open position record.
+
+        Args:
+            position_data: Dictionary whose keys match ``PositionRecord`` columns.
+        """
+        with self._session_factory() as session:
+            record = PositionRecord(**position_data)
+            session.add(record)
+            session.flush()
+            logger.info(
+                "POSITION | Logged new open position id={} {} {} {} qty={} price={}p",
+                record.id,
+                record.strategy,
+                record.side,
+                record.instrument_key,
+                record.quantity,
+                record.entry_price,
+            )
+            return record
+
+    def close_position(self, instrument_key: str, status: str = "closed") -> None:
+        """Mark a position as closed.
+
+        Args:
+            instrument_key: The instrument key of the position.
+            status: New status, defaults to "closed".
+        """
+        with self._session_factory() as session:
+            record = (
+                session.query(PositionRecord)
+                .filter(PositionRecord.instrument_key == instrument_key, PositionRecord.status == "open")
+                .first()
+            )
+            if record:
+                record.status = status
+                record.closed_at = datetime.now(timezone.utc)
+                logger.info("POSITION | Marked position closed for {}", instrument_key)
+
     # ------------------------------------------------------------------
     # Daily P&L
     # ------------------------------------------------------------------

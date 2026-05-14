@@ -1721,27 +1721,66 @@ class TradingBot:
                 logger.error("Scheduled square-off failed: {}", exc)
 
     def _scheduled_daily_summary(self) -> None:
-        """Scheduled job: log daily P&L summary."""
+        """Scheduled job: log daily P&L summary.
+
+        Realized P&L comes from the `trades` table (rows are written on
+        position close). Unrealized P&L comes from currently-open
+        positions in PaperBroker. The previous version summed P&L over
+        paper_broker.get_positions(), but that returns only OPEN
+        positions, so realized came back zero on every close.
+        """
         logger.info("[SCHEDULER] Logging daily P&L summary")
-        if self.trade_log and self.paper_broker:
-            try:
-                # Check if today is a trading day
-                if not is_trading_day(datetime.now(IST).date()):
-                    logger.info("Today is not a trading day, skipping daily summary")
-                    return
-                positions = self.paper_broker.get_positions()
-                realized_pnl = sum(p.realized_pnl for p in positions)
-                unrealized_pnl = sum(p.unrealized_pnl for p in positions)
-                wins = sum(1 for p in positions if p.realized_pnl > 0)
-                self.trade_log.log_daily_summary(
-                    date=datetime.now(IST).date(),
-                    realized=int(realized_pnl),
-                    unrealized=int(unrealized_pnl),
-                    trades=len(positions),
-                    wins=wins,
+        if not (self.trade_log and self.paper_broker):
+            return
+        try:
+            today = datetime.now(IST).date()
+            if not is_trading_day(today):
+                logger.info("Today is not a trading day, skipping daily summary")
+                return
+
+            # Realized + trade count + wins — from `trades` table.
+            # Use func.date() (SQLite's date()) since cast(... as Date) is
+            # a no-op on SQLite's textual storage.
+            from sqlalchemy import func
+            from src.persistence.database import get_session as _get_session
+            from src.persistence.models import TradeRecord
+            today_iso = today.isoformat()
+            with _get_session() as session:
+                day_filter = func.date(TradeRecord.exit_time) == today_iso
+                agg = (
+                    session.query(
+                        func.coalesce(func.sum(TradeRecord.realized_pnl), 0),
+                        func.count(TradeRecord.id),
+                    )
+                    .filter(day_filter)
+                    .one()
                 )
-            except Exception as exc:
-                logger.error("Scheduled daily summary failed: {}", exc)
+                wins = (
+                    session.query(func.count(TradeRecord.id))
+                    .filter(day_filter, TradeRecord.realized_pnl > 0)
+                    .scalar()
+                ) or 0
+                realized_pnl = int(agg[0] or 0)
+                trade_count = int(agg[1] or 0)
+                wins = int(wins)
+
+            # Unrealized — from current open positions
+            open_positions = self.paper_broker.get_positions()
+            unrealized_pnl = int(sum(getattr(p, "unrealized_pnl", 0) for p in open_positions))
+
+            self.trade_log.log_daily_summary(
+                date=today,
+                realized=realized_pnl,
+                unrealized=unrealized_pnl,
+                trades=trade_count,
+                wins=wins,
+            )
+            logger.info(
+                "Daily summary written: trades={} realized={} unrealized={} wins={}",
+                trade_count, realized_pnl, unrealized_pnl, wins,
+            )
+        except Exception as exc:
+            logger.error("Scheduled daily summary failed: {}", exc)
 
     def _scheduled_ai_playbook(self) -> None:
         """Scheduled job: Generate the Daily AI Playbook at 9:00 AM.
@@ -2082,23 +2121,12 @@ class TradingBot:
             except Exception as exc:
                 logger.debug("Live broker disconnect error (ignored): {}", exc)
 
-        # 9. Log final summary
-        if self.trade_log and self.paper_broker:
-            logger.info("Logging final P&L summary...")
-            try:
-                positions = self.paper_broker.get_positions()
-                realized_pnl = sum(p.realized_pnl for p in positions)
-                unrealized_pnl = sum(p.unrealized_pnl for p in positions)
-                wins = sum(1 for p in positions if p.realized_pnl > 0)
-                self.trade_log.log_daily_summary(
-                    date=datetime.now(IST).date(),
-                    realized=int(realized_pnl),
-                    unrealized=int(unrealized_pnl),
-                    trades=len(positions),
-                    wins=wins,
-                )
-            except Exception as exc:
-                logger.warning("Final summary logging failed: {}", exc)
+        # 9. Log final summary — reuse the same trades-table path as the
+        # scheduled 15:30 job so values are consistent.
+        try:
+            self._scheduled_daily_summary()
+        except Exception as exc:
+            logger.warning("Final summary logging failed: {}", exc)
 
         # Record bot run end in Postgres storage layer
         if self._db_run_id is not None:

@@ -180,6 +180,10 @@ class TradeLogger:
             instrument_key: The instrument key of the position.
             status: New status, defaults to "closed".
         """
+        from zoneinfo import ZoneInfo
+        # opened_at is recorded in IST-naive (matches PositionManager._now()).
+        # Use the same convention for closed_at so timeline ordering is sane.
+        ist_now = datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None)
         with self._session_factory() as session:
             record = (
                 session.query(PositionRecord)
@@ -188,7 +192,7 @@ class TradeLogger:
             )
             if record:
                 record.status = status
-                record.closed_at = datetime.now(timezone.utc)
+                record.closed_at = ist_now
                 logger.info("POSITION | Marked position closed for {}", instrument_key)
 
     # ------------------------------------------------------------------

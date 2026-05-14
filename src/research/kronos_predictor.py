@@ -119,11 +119,17 @@ class KronosForecaster:
         else:
             future_ts = pd.RangeIndex(len(bars), len(bars) + horizon)
 
-        # Kronos predictor expects the historical df + future timestamp series
+        # Kronos predictor expects pd.Series with .dt accessor (not DatetimeIndex)
+        x_ts = pd.Series(bars.index) if isinstance(bars.index, pd.DatetimeIndex) else None
+        if isinstance(future_ts, pd.DatetimeIndex):
+            y_ts = pd.Series(future_ts)
+        else:
+            y_ts = pd.Series(list(future_ts))
+
         forecast = self._predictor.predict(
             df=bars,
-            x_timestamp=bars.index if isinstance(bars.index, pd.DatetimeIndex) else None,
-            y_timestamp=future_ts,
+            x_timestamp=x_ts,
+            y_timestamp=y_ts,
             pred_len=horizon,
             T=temperature, top_p=top_p, sample_count=sample_count,
         )

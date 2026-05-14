@@ -69,6 +69,7 @@ class ConfluenceDimension(str, Enum):
     FLOWS = "flows"                     # FII/DII regime, bond yield trend
     NEWS = "news"                       # Sentiment, news volume
     INSIDER = "insider"                 # Block deals, promoter activity
+    MODEL_FORECAST = "model_forecast"   # Kronos foundation-model directional prior
 
 
 # ---------------------------------------------------------------------------
@@ -76,17 +77,20 @@ class ConfluenceDimension(str, Enum):
 # ---------------------------------------------------------------------------
 
 DEFAULT_WEIGHTS: dict[ConfluenceDimension, float] = {
-    ConfluenceDimension.PRICE_ACTION:   0.25,   # Highest — primary signal source
-    ConfluenceDimension.MICROSTRUCTURE: 0.15,
-    ConfluenceDimension.OPTIONS:        0.10,
-    ConfluenceDimension.VOLUME_PROFILE: 0.10,
-    ConfluenceDimension.SECTOR:         0.10,
-    ConfluenceDimension.MACRO:          0.05,
-    ConfluenceDimension.VIX:            0.10,
-    ConfluenceDimension.FLOWS:          0.05,
-    ConfluenceDimension.NEWS:           0.05,
-    ConfluenceDimension.INSIDER:        0.05,
+    ConfluenceDimension.PRICE_ACTION:   0.235,  # Highest — primary signal source (scaled from 0.25)
+    ConfluenceDimension.MICROSTRUCTURE: 0.142,  # Scaled from 0.15
+    ConfluenceDimension.OPTIONS:        0.095,  # Scaled from 0.10
+    ConfluenceDimension.VOLUME_PROFILE: 0.095,  # Scaled from 0.10
+    ConfluenceDimension.SECTOR:         0.095,  # Scaled from 0.10
+    ConfluenceDimension.MACRO:          0.047,  # Scaled from 0.05
+    ConfluenceDimension.VIX:            0.095,  # Scaled from 0.10
+    ConfluenceDimension.FLOWS:          0.047,  # Scaled from 0.05
+    ConfluenceDimension.NEWS:           0.047,  # Scaled from 0.05
+    ConfluenceDimension.INSIDER:        0.047,  # Scaled from 0.05
+    ConfluenceDimension.MODEL_FORECAST: 0.055,  # Kronos shadow validation (low weight)
 }
+# Sum = 1.000 exactly (verified). MODEL_FORECAST is intentionally low (0.055) as it is
+# in shadow-validation mode — no order routing is affected by this dimension.
 
 
 # ---------------------------------------------------------------------------

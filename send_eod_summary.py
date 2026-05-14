@@ -30,29 +30,27 @@ def get_eod_summary():
         
         today = date.today().isoformat()
         
-        # Get today's trades (if table exists)
+        # Get today's closed trades (count by exit_time)
         try:
             cursor.execute("""
-                SELECT COUNT(*) FROM trades 
-                WHERE date(timestamp) = ?
+                SELECT COUNT(*) FROM trades
+                WHERE date(exit_time) = ?
             """, (today,))
-            trade_count = cursor.fetchone()[0]
-        except:
+            trade_count = cursor.fetchone()[0] or 0
+        except Exception:
             trade_count = 0
-        
-        # Get today's P&L (if available)
+
+        # Get today's P&L from daily_pnl table (one row per day)
         try:
             cursor.execute("""
-                SELECT 
-                    SUM(realized_pnl) as realized,
-                    SUM(unrealized_pnl) as unrealized
-                FROM positions
-                WHERE date(updated_at) = ?
+                SELECT realized_pnl, unrealized_pnl
+                FROM daily_pnl
+                WHERE date = ?
             """, (today,))
             result = cursor.fetchone()
-            realized_pnl = result[0] or 0
-            unrealized_pnl = result[1] or 0
-        except:
+            realized_pnl = (result[0] if result else 0) or 0
+            unrealized_pnl = (result[1] if result else 0) or 0
+        except Exception:
             realized_pnl = 0
             unrealized_pnl = 0
         

@@ -107,8 +107,9 @@
   "params": {
     "orb_minutes": 15,
     "require_vwap_confluence": true,
-    "require_volume_confirmation": true,
+    "require_volume_confirmation": false,
     "avoid_expiry_day": true,
-    "strategy_type": "breakout"
+    "strategy_type": "breakout",
+    "use_enhanced_filters": false
   }
 }

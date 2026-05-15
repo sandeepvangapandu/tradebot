@@ -67,6 +67,7 @@
     "entry_window_end": "11:30:00",
     "emergency_exit_move_pct": 2.0,
     "require_confluence": false,
-    "strategy_type": "theta_positive"
+    "strategy_type": "theta_positive",
+    "use_enhanced_filters": false
   }
 }

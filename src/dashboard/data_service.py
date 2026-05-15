@@ -410,13 +410,128 @@ class DashboardDataService:
         return self._paisa_to_rupees(result or 0)
 
     def get_today_pnl(self) -> float:
-        """Get today's P&L.
+        """Get today's P&L sourced from the trades table.
+
+        Reads SUM(realized_pnl) over today's closed trades. This is more
+        accurate than the daily_pnl row, which is only written at 15:30
+        IST by the scheduled job.
 
         Returns:
             Today's P&L in rupees.
         """
-        today = datetime.now(IST).date()
-        today_pnl = (
-            self.session.query(DailyPnL).filter(DailyPnL.date == today).first()
+        today_iso = datetime.now(IST).date().isoformat()
+        result = (
+            self.session.query(func.sum(TradeRecord.realized_pnl))
+            .filter(func.date(TradeRecord.exit_time) == today_iso)
+            .scalar()
         )
-        return self._paisa_to_rupees(today_pnl.total_pnl) if today_pnl else 0.0
+        return self._paisa_to_rupees(result or 0)
+
+    def get_today_fees(self) -> float:
+        """Sum of fees attributed to today's closed trades."""
+        today_iso = datetime.now(IST).date().isoformat()
+        result = (
+            self.session.query(func.sum(TradeRecord.fees))
+            .filter(func.date(TradeRecord.exit_time) == today_iso)
+            .scalar()
+        )
+        return self._paisa_to_rupees(result or 0)
+
+    def get_today_trade_count(self) -> tuple[int, int]:
+        """Return (total trades today, win count today)."""
+        today_iso = datetime.now(IST).date().isoformat()
+        day_filter = func.date(TradeRecord.exit_time) == today_iso
+        total = self.session.query(func.count(TradeRecord.id)).filter(day_filter).scalar() or 0
+        wins = (
+            self.session.query(func.count(TradeRecord.id))
+            .filter(day_filter, TradeRecord.realized_pnl > 0)
+            .scalar()
+        ) or 0
+        return int(total), int(wins)
+
+    def get_equity_curve(self, days: int = 30) -> pd.DataFrame:
+        """Build an equity curve over the last N days from trades.
+
+        Returns a DataFrame indexed by date with columns:
+            realized_pnl   — sum of realized P&L for trades closed on that date
+            cumulative     — running total
+            drawdown_pct   — current drawdown from running peak (negative %)
+        """
+        end_date = datetime.now(IST).date()
+        start_date = end_date - timedelta(days=days)
+        start_dt = datetime.combine(start_date, datetime.min.time())
+
+        rows = (
+            self.session.query(
+                func.date(TradeRecord.exit_time).label("d"),
+                func.sum(TradeRecord.realized_pnl).label("pnl"),
+            )
+            .filter(TradeRecord.exit_time >= start_dt)
+            .group_by(func.date(TradeRecord.exit_time))
+            .order_by(func.date(TradeRecord.exit_time).asc())
+            .all()
+        )
+        if not rows:
+            return pd.DataFrame(columns=["realized_pnl", "cumulative", "drawdown_pct"])
+
+        df = pd.DataFrame(
+            {
+                "date": [pd.to_datetime(r.d) for r in rows],
+                "realized_pnl": [self._paisa_to_rupees(int(r.pnl or 0)) for r in rows],
+            }
+        ).set_index("date").sort_index()
+        df["cumulative"] = df["realized_pnl"].cumsum()
+        running_peak = df["cumulative"].cummax().clip(lower=1e-9)
+        df["drawdown_pct"] = ((df["cumulative"] - running_peak) / running_peak.abs()) * 100.0
+        return df
+
+    def get_recent_trades(self, limit: int = 25) -> pd.DataFrame:
+        """Most recent N closed trades, newest first."""
+        trades = (
+            self.session.query(TradeRecord)
+            .order_by(TradeRecord.exit_time.desc())
+            .limit(limit)
+            .all()
+        )
+        if not trades:
+            return pd.DataFrame()
+        return pd.DataFrame(
+            {
+                "exit_time": [t.exit_time for t in trades],
+                "strategy": [t.strategy for t in trades],
+                "instrument": [t.instrument_key for t in trades],
+                "side": [t.side for t in trades],
+                "qty": [t.quantity for t in trades],
+                "entry": [self._paisa_to_rupees(t.entry_price) for t in trades],
+                "exit": [self._paisa_to_rupees(t.exit_price) for t in trades],
+                "pnl": [self._paisa_to_rupees(t.realized_pnl) for t in trades],
+                "fees": [self._paisa_to_rupees(t.fees) for t in trades],
+                "duration_min": [t.holding_duration_seconds / 60.0 for t in trades],
+            }
+        )
+
+    def get_token_state(self) -> dict:
+        """Return cached Upstox token status: {expires_at, hours_left, valid}.
+
+        Reads data/token_cache.json directly so the dashboard avoids the
+        token refresh side-effects of TokenManager.get_valid_token().
+        """
+        import json
+        from pathlib import Path
+
+        path = Path("data/token_cache.json")
+        if not path.exists():
+            return {"valid": False, "expires_at": None, "hours_left": 0.0}
+        try:
+            data = json.loads(path.read_text())
+            expires_at = datetime.fromisoformat(data["expires_at"])
+            now = datetime.now(IST)
+            hours_left = (expires_at - now).total_seconds() / 3600.0
+            return {
+                "valid": hours_left > 0,
+                "expires_at": expires_at,
+                "hours_left": max(0.0, hours_left),
+            }
+        except Exception as exc:
+            logger.warning("token state read failed: {}", exc)
+            return {"valid": False, "expires_at": None, "hours_left": 0.0}

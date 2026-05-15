@@ -8,7 +8,7 @@
     "segment": "NSE_FO"
   },
   "trading_hours": {
-    "start_time": "09:30:00",
+    "start_time": "10:00:00",
     "end_time": "14:00:00",
     "timezone": "Asia/Kolkata",
     "days": [0, 1, 2, 3, 4]
@@ -38,19 +38,19 @@
     }
   ],
   "exit_rules": {
-    "stop_loss_pct": 60.0,
-    "target_pct": 60.0,
+    "stop_loss_pct": 35.0,
+    "target_pct": 40.0,
     "time_based_exit": "14:00:00",
-    "max_holding_minutes": 270,
+    "max_holding_minutes": 240,
     "trailing_stop_loss": {
-      "enabled": false,
-      "activation_pct": 30.0,
-      "trail_pct": 15.0
+      "enabled": true,
+      "activation_pct": 20.0,
+      "trail_pct": 10.0
     }
   },
   "position_sizing": {
     "method": "fixed_quantity",
-    "quantity": 5
+    "quantity": 2
   },
   "risk_management": {
     "max_open_positions": 1,
@@ -63,7 +63,7 @@
     "min_iv": 10,
     "max_iv": 60,
     "max_adx": 50,
-    "entry_window_start": "09:30:00",
+    "entry_window_start": "10:00:00",
     "entry_window_end": "11:30:00",
     "emergency_exit_move_pct": 2.0,
     "require_confluence": false,

@@ -114,12 +114,62 @@ class BotRunner:
         
         return 0
     
+    def _kill_stale_procs(self):
+        """Kill any pre-existing python -m src.main procs for this user.
+
+        Prevents the bot-restart cascade that caused 11 starts in 84 minutes
+        on 2026-05-15. Without this, two bot instances fight for the same
+        Upstox WebSocket session and Upstox 403s the new one.
+        """
+        try:
+            import signal as _sig
+            out = subprocess.check_output(["pgrep", "-f", "src.main"], text=True).strip()
+            pids = [int(p) for p in out.splitlines() if p.strip().isdigit()]
+            own_pid = os.getpid()
+            for pid in pids:
+                if pid == own_pid:
+                    continue
+                try:
+                    os.kill(pid, _sig.SIGTERM)
+                    logger.warning(f"Killed stale src.main PID {pid}")
+                except ProcessLookupError:
+                    pass
+            if pids:
+                time.sleep(2)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass  # No stale procs or pgrep unavailable
+        except Exception as exc:
+            logger.debug(f"Stale-proc cleanup error (ignored): {exc}")
+
     def _start_bot(self):
-        """Start the trading bot process."""
+        """Start the trading bot process.
+
+        Hardened 2026-05-15:
+        - Kill stale src.main procs first (avoids Upstox session conflicts).
+        - Track restart history; halt after 5 restarts in 10 min to prevent
+          all-day restart cascades.
+        """
+        # Restart cascade guard
+        now = time.time()
+        if not hasattr(self, "_recent_starts"):
+            self._recent_starts: list[float] = []
+        self._recent_starts = [t for t in self._recent_starts if now - t < 600]
+        if len(self._recent_starts) >= 5:
+            logger.critical(
+                "Restart cascade detected: %d restarts in 10 min. Halting. "
+                "Manual recovery: kill runner, investigate logs.",
+                len(self._recent_starts),
+            )
+            self.running = False
+            return
+        self._recent_starts.append(now)
+
+        self._kill_stale_procs()
+
         logger.info("=" * 60)
         logger.info("Starting trading bot...")
         logger.info(f"Database: {self.db_path}")
-        
+
         # Run the bot with Python 3
         self.bot_process = subprocess.Popen(
             [sys.executable, "-m", "src.main"],
@@ -129,7 +179,12 @@ class BotRunner:
             text=True,
             env={**os.environ, "PYTHONPATH": str(self.script_dir)}
         )
-        
+
+        # Boot grace: ignore exit / health checks for 180s after spawn.
+        # Covers slow startup (instrument master download + WebSocket
+        # handshake + initial bar seeding).
+        self._boot_grace_until = time.time() + 180
+
         logger.info(f"Bot started with PID {self.bot_process.pid}")
     
     def _stop_bot(self):

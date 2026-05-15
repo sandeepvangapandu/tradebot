@@ -14,7 +14,7 @@ All timestamps use IST (``Asia/Kolkata``).
 from __future__ import annotations
 
 import threading
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Protocol
 from zoneinfo import ZoneInfo
 
@@ -54,17 +54,26 @@ class CircuitBreaker:
         self,
         max_consecutive_losses: int = 3,
         pause_minutes: int = 30,
+        per_strategy_daily_loss_cap_pct: float = 0.02,
+        capital_paisa: int = 0,
     ) -> None:
         self._lock = threading.Lock()
 
         # Configuration
         self.max_consecutive_losses: int = max_consecutive_losses
         self.pause_minutes: int = pause_minutes
+        self.per_strategy_daily_loss_cap_pct: float = per_strategy_daily_loss_cap_pct
+        self.capital_paisa: int = capital_paisa
 
         # Mutable state — protected by ``_lock``
         self.consecutive_losses: int = 0
         self.halted: bool = False
         self.halt_until: datetime | None = None
+
+        # Per-strategy P&L tracking (resets daily): {strategy_id: total_pnl_paisa}
+        self._strategy_pnl_today: dict[str, int] = {}
+        self._strategy_quarantined: set[str] = set()
+        self._pnl_date: date | None = None
 
         logger.info(
             "CircuitBreaker initialised | max_consecutive_losses={} | pause_minutes={}",
@@ -145,6 +154,75 @@ class CircuitBreaker:
             self._recent_losses.clear()
 
         logger.debug("Win recorded | consecutive_losses reset to 0")
+
+    # ------------------------------------------------------------------
+    # Per-strategy daily loss cap (Tier 2.6 — 2026-05-15)
+    # ------------------------------------------------------------------
+
+    def _roll_daily_pnl_if_new_day(self) -> None:
+        """Reset per-strategy P&L tracking at the start of each trading day."""
+        today = self._now().date()
+        if self._pnl_date != today:
+            if self._pnl_date is not None:
+                logger.info(
+                    "Per-strategy daily P&L roll-over | yesterday={} | reset {} strategies",
+                    self._pnl_date,
+                    len(self._strategy_pnl_today),
+                )
+            self._strategy_pnl_today.clear()
+            self._strategy_quarantined.clear()
+            self._pnl_date = today
+
+    def record_strategy_pnl(self, strategy_id: str, pnl_paisa: int) -> None:
+        """Accumulate P&L for a strategy and quarantine it if it breaches the daily cap.
+
+        Called by PositionManager._close_position on every trade close. When
+        a strategy's cumulative loss for the day exceeds
+        ``capital_paisa * per_strategy_daily_loss_cap_pct``, the strategy is
+        quarantined for the rest of the session — its signals will be
+        rejected by OrderManager.
+
+        Args:
+            strategy_id: The strategy identifier (Signal.strategy_name).
+            pnl_paisa: Realized P&L of the closed trade in paisa (negative for loss).
+        """
+        if not strategy_id:
+            return
+        with self._lock:
+            self._roll_daily_pnl_if_new_day()
+            prev = self._strategy_pnl_today.get(strategy_id, 0)
+            new = prev + int(pnl_paisa)
+            self._strategy_pnl_today[strategy_id] = new
+
+            if strategy_id in self._strategy_quarantined:
+                return  # Already quarantined; just keep the running sum
+
+            if self.capital_paisa <= 0:
+                return  # No cap configured
+
+            cap = int(self.capital_paisa * self.per_strategy_daily_loss_cap_pct)
+            if new <= -cap:
+                self._strategy_quarantined.add(strategy_id)
+                logger.critical(
+                    "STRATEGY QUARANTINED | {} | day_pnl={} paisa (-{:.2f}%) >= cap -{}",
+                    strategy_id,
+                    new,
+                    abs(new) / max(1, self.capital_paisa) * 100,
+                    cap,
+                )
+
+    def is_strategy_quarantined(self, strategy_id: str) -> bool:
+        """Check whether a strategy has been disabled for the day.
+
+        Args:
+            strategy_id: The strategy identifier.
+
+        Returns:
+            True if the strategy hit its per-strategy daily loss cap.
+        """
+        with self._lock:
+            self._roll_daily_pnl_if_new_day()
+            return strategy_id in self._strategy_quarantined
 
     # ------------------------------------------------------------------
     # Halt management

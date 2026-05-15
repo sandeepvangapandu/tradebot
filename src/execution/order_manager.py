@@ -637,6 +637,18 @@ class OrderManager:
                             f"Strategy quarantine check failed for {signal.strategy_name}: {e}"
                         )
 
+                # Step 2b: Per-strategy daily-loss cap check (Tier 2.6)
+                try:
+                    cb = getattr(self._risk_manager, "circuit_breaker", None) if self._risk_manager else None
+                    if cb and hasattr(cb, "is_strategy_quarantined") and cb.is_strategy_quarantined(signal.strategy_name):
+                        self._order_logger.warning(
+                            f"STRATEGY_DAILY_CAP | {signal.signal_id} | {signal.strategy_name} | "
+                            f"daily loss cap breached — quarantined for the session"
+                        )
+                        return None
+                except Exception as e:
+                    logger.debug(f"daily-cap check failed: {e}")
+
                 # Step 3: AI Research Analysis (if enabled)
                 if self._research_enabled and self._trade_analyzer:
                     research_report = self._trade_analyzer.analyze(signal)
@@ -1025,7 +1037,50 @@ class OrderManager:
                     if not responses:
                         logger.error(f"Combo order placement failed entirely for {signal.signal_id}")
                         return None
-                    
+
+                    # ATOMICITY GUARD — if any leg failed to fill (status != COMPLETE),
+                    # immediately close the legs that DID fill. Otherwise the bot
+                    # would carry a naked option leg (no straddle hedge) with no
+                    # position-manager protection against the unhedged side.
+                    filled_legs = [
+                        (i, r) for i, r in enumerate(responses)
+                        if r.status == OrderStatus.COMPLETE
+                    ]
+                    failed_legs = [
+                        (i, r) for i, r in enumerate(responses)
+                        if r.status != OrderStatus.COMPLETE
+                    ]
+                    if failed_legs and filled_legs:
+                        self._order_logger.warning(
+                            f"COMBO_PARTIAL_FILL | {signal.signal_id} | "
+                            f"{len(filled_legs)} filled, {len(failed_legs)} failed — "
+                            f"unwinding filled legs to avoid naked exposure"
+                        )
+                        for idx, fr in filled_legs:
+                            leg_order = combo_order.legs[idx]
+                            # Reverse the side to close the position
+                            opposite = OrderSide.SELL if leg_order.side == OrderSide.BUY else OrderSide.BUY
+                            reverse_order = Order(
+                                instrument_key=leg_order.instrument_key,
+                                side=opposite,
+                                order_type=OrderType.MARKET,
+                                quantity=fr.filled_quantity or leg_order.quantity,
+                                product_type=leg_order.product_type,
+                                strategy_id=signal.strategy_name,
+                            )
+                            try:
+                                close_resp = self._broker.place_order(reverse_order)
+                                self._order_logger.info(
+                                    f"COMBO_UNWIND | {close_resp.order_id} | {close_resp.status} | "
+                                    f"{opposite.value} {reverse_order.quantity} {leg_order.instrument_key} | "
+                                    f"Signal: {signal.signal_id}"
+                                )
+                            except Exception as exc:
+                                logger.error(
+                                    f"COMBO_UNWIND_FAILED for {leg_order.instrument_key}: {exc}"
+                                )
+                        return None  # Abort signal — no position registered
+
                     for i, resp in enumerate(responses):
                         leg_order = combo_order.legs[i]
                         self._log_order_to_db(leg_order, resp, signal, research_report)

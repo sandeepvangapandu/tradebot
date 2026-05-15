@@ -1871,6 +1871,14 @@ class PositionManager:
 
                 # Wire CircuitBreaker (Scheme 4)
                 if getattr(self, "_risk_manager", None) and getattr(self._risk_manager, "circuit_breaker", None):
+                    # Per-strategy daily-loss cap (Tier 2.6)
+                    try:
+                        if hasattr(self._risk_manager.circuit_breaker, "record_strategy_pnl"):
+                            self._risk_manager.circuit_breaker.record_strategy_pnl(
+                                position.strategy_id, int(total_pnl)
+                            )
+                    except Exception as exc:
+                        logger.debug(f"record_strategy_pnl failed: {exc}")
                     if total_pnl < 0:
                         trade_details = {
                             "direction": "BUY" if position.side.value == "BUY" else "SELL",

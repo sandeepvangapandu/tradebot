@@ -414,6 +414,8 @@ class TradingBot:
         self.circuit_breaker = CircuitBreaker(
             max_consecutive_losses=self.settings.consecutive_loss_pause,
             pause_minutes=self.settings.pause_minutes,
+            per_strategy_daily_loss_cap_pct=0.02,  # 2% of capital per strategy/day
+            capital_paisa=self.settings.capital,
         )
         self.circuit_breaker.set_on_halt_callback(self._run_detox_analysis)
         self.strategy_quarantine = StrategyQuarantine()

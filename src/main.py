@@ -1279,7 +1279,7 @@ class TradingBot:
             ("reconciler",          self.reconciler),
             ("slippage_monitor",    self.slippage_monitor),
         ]:
-            logger.info("  %-22s: %s", _name, "OK" if _instance is not None else "MISSING")
+            logger.info("  {:22s}: {}", _name, "OK" if _instance is not None else "MISSING")
         logger.info("=" * 70)
 
     def _expand_websocket_subscriptions(self) -> None:
@@ -1428,20 +1428,9 @@ class TradingBot:
         # Every 30s — options chain poll
         # ------------------------------------------------------------------ #
         def _options_chain_poll() -> None:
-            if self.options_chain is None:
+            if self.options_chain is None or self.instrument_manager is None:
                 return
             try:
-                import datetime as _datetime
-                # Determine nearest weekly expiries
-                today = _datetime.date.today()
-                # BankNifty: next Wednesday (weekday 2)
-                days_to_wed = (2 - today.weekday()) % 7
-                bn_expiry = (today + _datetime.timedelta(days=days_to_wed)).strftime("%Y-%m-%d")
-                # Nifty: next Thursday (weekday 3)
-                days_to_thu = (3 - today.weekday()) % 7
-                nf_expiry = (today + _datetime.timedelta(days=days_to_thu)).strftime("%Y-%m-%d")
-
-                # Get spot from bar_builder
                 def _get_spot(ik: str) -> int:
                     if self.bar_builder is None:
                         return 0
@@ -1450,17 +1439,26 @@ class TradingBot:
                         return 0
                     return int(df.iloc[-1]["close"])
 
+                # Use instrument-master derived expiries so we always hit a
+                # valid contract. The hand-rolled "next Wed/Thu" calc broke
+                # in 2024 when NSE removed BANKNIFTY weekly expiry — bot
+                # then polled non-existent chains every 30s.
                 polls = [
-                    ("NSE_INDEX|Nifty Bank", "BANKNIFTY", bn_expiry),
-                    ("NSE_INDEX|Nifty 50", "NIFTY", nf_expiry),
+                    ("NSE_INDEX|Nifty Bank", "BANKNIFTY"),
+                    ("NSE_INDEX|Nifty 50",   "NIFTY"),
                 ]
-                for ik, sym, exp in polls:
+                for ik, sym in polls:
+                    expiry = self.instrument_manager.get_weekly_expiry(sym)
+                    if not expiry:
+                        logger.debug("options_chain_poll: no expiry found for {} — skipping", sym)
+                        continue
                     spot = _get_spot(ik)
                     if spot == 0:
                         logger.debug("options_chain_poll: no spot for {} — skipping", ik)
                         continue
+                    exp_str = expiry if isinstance(expiry, str) else expiry.strftime("%Y-%m-%d")
                     try:
-                        self.options_chain.snapshot(ik, sym, exp, spot)
+                        self.options_chain.snapshot(ik, sym, exp_str, spot)
                     except Exception as exc:
                         logger.debug("options_chain.snapshot failed for {}: {}", ik, exc)
             except Exception as exc:

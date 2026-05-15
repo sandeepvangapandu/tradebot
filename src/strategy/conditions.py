@@ -1182,14 +1182,10 @@ class ConditionEvaluator:
         # Falls back to parameter-supplied value when insufficient data.
         if name_lower == "atm_iv":
             df = engine.get_data()
-            # Try BSM-based IV if options pricing module is available
-            try:
-                from src.research.options_pricing import implied_volatility as _iv_calc
-                iv_from_params = parameters.get("current_iv")
-                if iv_from_params is not None:
-                    return pd.Series([float(iv_from_params)] * len(df), index=df.index)
-            except ImportError:
-                pass
+            # Use IV from parameters if explicitly provided
+            iv_from_params = parameters.get("current_iv")
+            if iv_from_params is not None:
+                return pd.Series([float(iv_from_params)] * len(df), index=df.index)
 
             # Synthesize IV from ATR ratio (works in backtests without real IV)
             try:

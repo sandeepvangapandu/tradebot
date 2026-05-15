@@ -1,7 +1,7 @@
 # Trading Bot Improvement Plan
 
 Generated: 2026-04-26. Updated: 2026-04-30.
-Source: STRATEGY_ANALYSIS_REPORT.md + code audit + live debugging session.
+Source: prior STRATEGY_ANALYSIS_REPORT (deleted in 2026-05-15 cleanup) + code audit + live debugging session.
 
 Status legend: ✅ done | 🟡 partial | ⏸ deferred | ❌ not started
 

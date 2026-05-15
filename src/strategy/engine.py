@@ -706,6 +706,23 @@ class SetEvaluator(threading.Thread):
         if not conditions_met:
             return False
 
+        # News-event blackout (Tier 3.9) — skip entry on RBI/Fed/budget days
+        # when strategy declares news_blackout: true in its params block.
+        # Designed for short-premium strategies (straddles/strangles) that
+        # blow up on policy-day vol expansion.
+        if self._config.params.get("news_blackout") and EventCalendarAnalyzer is not None:
+            try:
+                ev = EventCalendarAnalyzer()
+                is_event, reason = ev.is_high_risk_event_day()
+                if is_event:
+                    logger.info(
+                        "[{}] NEWS_BLACKOUT: skipping entry — {}",
+                        self._config.name,
+                        reason,
+                    )
+                    return False
+            except Exception as exc:
+                logger.debug("news_blackout check failed: {}", exc)
 
         # Evaluate enhanced filters if enabled
         if self._use_enhanced_filters:

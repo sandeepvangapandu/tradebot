@@ -197,6 +197,29 @@ class EventCalendarAnalyzer:
         """
         return check_date in self.holidays
 
+    def is_high_risk_event_day(self, check_date: Optional[date] = None) -> tuple[bool, Optional[str]]:
+        """Return (is_event_day, reason) — used by strategies for news blackout.
+
+        Flags RBI MPC days, US Fed meeting days, and Indian budget days.
+        Short-premium strategies (straddles, strangles) should avoid entries
+        on these days because vol typically expands and intraday gaps blow
+        through stop-losses.
+
+        Args:
+            check_date: Date to check (defaults to today IST).
+
+        Returns:
+            Tuple of (is_event_day, reason). Reason is None when False.
+        """
+        d = check_date or datetime.now(IST).date()
+        if d in self.rbi_dates:
+            return True, "RBI MPC policy day"
+        if d in self.fed_dates:
+            return True, "US Fed meeting"
+        if d in self.budget_days:
+            return True, "Indian Union Budget"
+        return False, None
+
     def is_weekly_expiry(
         self,
         check_date: date,

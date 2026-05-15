@@ -68,6 +68,7 @@
     "emergency_exit_move_pct": 2.0,
     "require_confluence": false,
     "strategy_type": "theta_positive",
-    "use_enhanced_filters": false
+    "use_enhanced_filters": false,
+    "news_blackout": true
   }
 }

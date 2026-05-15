@@ -140,7 +140,10 @@ class RiskManager:
 
         The total loss is ``realized_pnl + unrealized_pnl``.  Because
         losses are negative, the check triggers when the absolute loss
-        exceeds :attr:`max_daily_loss`.
+        exceeds :attr:`max_daily_loss`. On breach, this also triggers
+        the hard kill switch on the circuit breaker (Tier 3.8 patch) so
+        all open positions are exited and pending orders cancelled —
+        not just new orders blocked.
 
         Returns:
             :class:`RiskCheckResult`
@@ -153,7 +156,16 @@ class RiskManager:
                 f"Daily loss limit breached: current P&L {total_pnl} paisa "
                 f"exceeds max allowed loss of -{self.max_daily_loss} paisa"
             )
-            logger.warning(reason)
+            logger.critical(reason)
+            # Hard kill switch — trip circuit breaker so existing
+            # positions get exited too, not just future orders blocked.
+            try:
+                cb = getattr(self, "circuit_breaker", None)
+                if cb and hasattr(cb, "kill_switch") and not getattr(cb, "halted", False):
+                    logger.critical("HARD KILL — daily loss limit breached, activating kill switch")
+                    cb.kill_switch()
+            except Exception as exc:
+                logger.error(f"Could not auto-trip kill_switch: {exc}")
             return RiskCheckResult(approved=False, reason=reason)
 
         return RiskCheckResult(approved=True)

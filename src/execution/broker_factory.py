@@ -68,18 +68,53 @@ def _create_live_broker(
 
     Reads ACTIVE_BROKER env var to select between 'dhan' (default) and 'upstox'.
     """
-    # Safety check — MUST be first
+    # Safety check — MUST be first.
+    # Tier 3.10 patch (2026-05-15) — three gates required:
+    #   1. TRADING_MODE=live
+    #   2. LIVE_TRADING_CONFIRMED=true
+    #   3. LIVE_MAX_CAPITAL_PAISA set AND <= configured capital
+    # Gate 3 ensures a typo on settings.capital can't accidentally route
+    # the full ₹1cr through live broker — operator must explicitly opt-in
+    # to a deployment ceiling.
     if require_confirmation:
         live_confirmed = os.getenv("LIVE_TRADING_CONFIRMED", "false").lower()
         if live_confirmed != "true":
             raise RuntimeError(
-                "LIVE TRADING SAFETY CHECK FAILED!\n\n"
+                "LIVE TRADING SAFETY CHECK FAILED — missing LIVE_TRADING_CONFIRMED.\n\n"
                 "To enable live trading, you must:\n"
                 "1. Set TRADING_MODE=live in your environment\n"
                 "2. Set LIVE_TRADING_CONFIRMED=true\n"
-                "3. Verify your API credentials are correct\n\n"
+                "3. Set LIVE_MAX_CAPITAL_PAISA to an explicit deployment cap\n"
+                "4. Verify your API credentials are correct\n\n"
                 "Paper trading is strongly recommended for testing."
             )
+
+        live_max = os.getenv("LIVE_MAX_CAPITAL_PAISA", "").strip()
+        if not live_max:
+            raise RuntimeError(
+                "LIVE TRADING SAFETY CHECK FAILED — missing LIVE_MAX_CAPITAL_PAISA.\n"
+                "Set LIVE_MAX_CAPITAL_PAISA=<int> to an explicit per-session "
+                "deployment cap (in paisa). Required even if TRADING_MODE=live "
+                "and LIVE_TRADING_CONFIRMED=true. Prevents accidental full-capital "
+                "exposure from a typo on settings.capital."
+            )
+        try:
+            live_max_int = int(live_max)
+        except ValueError:
+            raise RuntimeError(f"LIVE_MAX_CAPITAL_PAISA must be an integer paisa value, got: {live_max}")
+
+        configured_cap = int(config.get("capital", 0) or 0)
+        if configured_cap > 0 and live_max_int > configured_cap:
+            raise RuntimeError(
+                f"LIVE TRADING SAFETY CHECK FAILED — LIVE_MAX_CAPITAL_PAISA ({live_max_int}) "
+                f"exceeds settings.capital ({configured_cap}). The deployment cap must "
+                f"be <= configured capital."
+            )
+        logger.critical(
+            "LIVE MODE confirmed — TRADING_MODE=live, LIVE_TRADING_CONFIRMED=true, "
+            "LIVE_MAX_CAPITAL_PAISA=%d (cap <= settings.capital)",
+            live_max_int,
+        )
 
     logger.warning("🚨 CREATING LIVE BROKER - REAL ORDERS WILL BE PLACED!")
 

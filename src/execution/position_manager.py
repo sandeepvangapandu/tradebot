@@ -196,6 +196,16 @@ class ManagedPosition:
     option_theta: Optional[float] = None  # Daily theta decay
     option_premium_at_entry: Optional[int] = None  # Premium at entry (paisa)
 
+    # Underlying-move emergency exit (wired 2026-05-15)
+    # When the *underlying index* moves more than emergency_exit_move_pct from
+    # underlying_entry_price, PositionManager closes this option position
+    # regardless of the option's own SL/target. Used by short straddles to
+    # cap tail risk on directional moves that would otherwise blow through
+    # the per-leg SL.
+    underlying_instrument_key: Optional[str] = None
+    underlying_entry_price: Optional[int] = None  # in paisa
+    emergency_exit_move_pct: Optional[float] = None  # e.g. 2.0 = 2%
+
     # Partial profit booking tracking
     partial_exits: list[PartialExitRecord] = field(default_factory=list)
     partial_booking_done: bool = False
@@ -753,6 +763,9 @@ class PositionManager:
         option_dte: Optional[int] = None,
         option_theta: Optional[float] = None,
         option_premium_at_entry: Optional[int] = None,
+        underlying_instrument_key: Optional[str] = None,
+        underlying_entry_price: Optional[int] = None,
+        emergency_exit_move_pct: Optional[float] = None,
     ) -> ManagedPosition:
         """Add a new position to track.
 
@@ -843,6 +856,9 @@ class PositionManager:
                 option_dte=option_dte,
                 option_theta=option_theta,
                 option_premium_at_entry=option_premium_at_entry,
+                underlying_instrument_key=underlying_instrument_key,
+                underlying_entry_price=underlying_entry_price,
+                emergency_exit_move_pct=emergency_exit_move_pct,
                 original_quantity=quantity,
                 remaining_quantity=quantity,
             )
@@ -1059,6 +1075,54 @@ class PositionManager:
                             f"{old_sl/100:.2f} -> {position.stop_loss_price/100:.2f} "
                             f"(momentum={position.current_momentum:.2f})"
                         )
+
+    def on_underlying_tick(self, underlying_key: str, underlying_price: int) -> list[ManagedPosition]:
+        """Check emergency-exit on all option positions tracking this underlying.
+
+        Each option position may carry an `emergency_exit_move_pct` and the
+        underlying price at entry. When the live underlying price moves
+        more than that pct away (in either direction), the option leg is
+        force-closed regardless of its own SL/target. Used by short
+        straddles to cap tail risk on directional underlying moves.
+
+        Args:
+            underlying_key: Index instrument_key that just ticked (e.g.
+                "NSE_INDEX|Nifty Bank").
+            underlying_price: Current underlying price in paisa.
+
+        Returns:
+            List of option positions that were force-closed.
+        """
+        closed: list[ManagedPosition] = []
+        to_close: list[tuple[ManagedPosition, int, str]] = []
+        with self._lock:
+            for position in list(self._positions.values()):
+                if position.is_closed:
+                    continue
+                if not position.is_option:
+                    continue
+                if position.underlying_instrument_key != underlying_key:
+                    continue
+                if not position.underlying_entry_price or not position.emergency_exit_move_pct:
+                    continue
+                move_pct = abs(underlying_price - position.underlying_entry_price) / position.underlying_entry_price * 100.0
+                if move_pct >= position.emergency_exit_move_pct:
+                    logger.warning(
+                        "EMERGENCY_EXIT | {} | {} moved {:.2f}% (>= {:.2f}%) — force closing option {}",
+                        position.position_id,
+                        underlying_key,
+                        move_pct,
+                        position.emergency_exit_move_pct,
+                        position.instrument_key,
+                    )
+                    # Use the option's last known price as exit reference
+                    exit_px = position.current_price or position.entry_price
+                    to_close.append((position, exit_px, "EMERGENCY_UNDERLYING_MOVE"))
+
+        for position, exit_px, reason in to_close:
+            if self._close_position(position, exit_px, reason):
+                closed.append(position)
+        return closed
 
     def on_tick(self, instrument_key: str, price: int) -> list[ManagedPosition]:
         """Process a price tick and check exit conditions.

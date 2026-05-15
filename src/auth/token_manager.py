@@ -121,6 +121,10 @@ class TokenManager:
     def refresh_token(self) -> str:
         """Force a fresh authentication regardless of cache state.
 
+        On failure, fires an alert to Telegram (best-effort, swallows
+        any notification error) so the user is notified out-of-band
+        before discovering it via EOD report.
+
         Returns:
             A newly obtained Upstox access token.
 
@@ -128,9 +132,44 @@ class TokenManager:
             AuthenticationError: If auto-login fails.
         """
         logger.info("Refreshing token via auto-login")
-        token = auto_login()
-        self._save_cache(token)
-        return token
+        try:
+            token = auto_login()
+            self._save_cache(token)
+            return token
+        except Exception as exc:
+            logger.error("Token refresh FAILED: {}", exc)
+            self._alert_auth_failure(str(exc))
+            raise
+
+    @staticmethod
+    def _alert_auth_failure(reason: str) -> None:
+        """Best-effort Telegram alert for auth failures.
+
+        Imports lazily to avoid a hard dependency on the notifications
+        layer (TokenManager must work in CLI scripts that don't init
+        Telegram).
+        """
+        try:
+            import asyncio
+            from src.notifications.telegram_bot import TelegramBot
+
+            bot = TelegramBot()
+            if not getattr(bot, "_bot_token", None):
+                return  # No telegram configured
+            coro = bot.send_error_alert(
+                f"Upstox token refresh failed: {reason[:200]}.\n"
+                f"Run `python3 -m src.auth.manual_login` to recover."
+            )
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.ensure_future(coro)
+                else:
+                    loop.run_until_complete(coro)
+            except RuntimeError:
+                asyncio.run(coro)
+        except Exception as exc:
+            logger.debug("Telegram auth alert suppressed: {}", exc)
 
     def _calculate_expiry(self) -> datetime:
         """Calculate the token expiry timestamp.

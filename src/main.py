@@ -1980,6 +1980,14 @@ class TradingBot:
                 price_paisa = int(round(float(ltp) * 100))
                 self.position_manager.on_tick(instrument_key, price_paisa)
 
+                # When the underlying index ticks, check emergency-exit on any
+                # option positions tracking it (e.g. short straddle legs).
+                if instrument_key.startswith("NSE_INDEX|"):
+                    try:
+                        self.position_manager.on_underlying_tick(instrument_key, price_paisa)
+                    except Exception as exc:
+                        logger.debug("on_underlying_tick failed: {}", exc)
+
                 # ---------------------------------------------------------- #
                 # Phase A.1 — depth feed (raw payload, all instruments)
                 # ---------------------------------------------------------- #

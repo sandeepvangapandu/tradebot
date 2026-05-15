@@ -894,6 +894,15 @@ class SetEvaluator(threading.Thread):
                 und = self._config.underlying
                 metadata["underlying"] = und.model_dump() if hasattr(und, "model_dump") else und
 
+            # Emergency-exit on underlying move (used by short straddles to
+            # cap tail risk on directional moves that would otherwise blow
+            # through the per-leg SL). PositionManager will apply this on
+            # option positions via on_underlying_tick.
+            emergency_pct = self._config.params.get("emergency_exit_move_pct")
+            if emergency_pct:
+                metadata["emergency_exit_move_pct"] = float(emergency_pct)
+                metadata["underlying_entry_price"] = current_price
+
             signal = Signal(
                 strategy_name=self._config.name,
                 set_name=self._entry_set.name,

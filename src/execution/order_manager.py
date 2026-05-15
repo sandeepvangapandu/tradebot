@@ -1041,6 +1041,13 @@ class OrderManager:
                                 fill_price = resp.average_price or leg_order.price or 0
                                 leg_side = OrderSide(leg_order.side) if isinstance(leg_order.side, str) else leg_order.side
                                 leg_product_type = ProductType(leg_order.product_type) if isinstance(leg_order.product_type, str) else leg_order.product_type
+
+                                # Emergency-exit metadata from signal (used by
+                                # short-straddle strategies to cap tail risk).
+                                meta = getattr(signal, "metadata", None) or {}
+                                emergency_pct = meta.get("emergency_exit_move_pct")
+                                underlying_entry = meta.get("underlying_entry_price")
+                                underlying_key = signal.instrument_key  # index that produced the signal
                                 self._position_manager.add_position(
                                     instrument_key=leg_order.instrument_key,
                                     side=leg_side,
@@ -1053,6 +1060,10 @@ class OrderManager:
                                     stop_loss_price=None,
                                     target_price=None,
                                     product_type=leg_product_type,
+                                    is_option=True,
+                                    underlying_instrument_key=underlying_key,
+                                    underlying_entry_price=int(underlying_entry) if underlying_entry else None,
+                                    emergency_exit_move_pct=float(emergency_pct) if emergency_pct else None,
                                 )
                                 self._order_logger.info(
                                     f"POSITION_CREATED | {leg_order.instrument_key} | {side_str} "

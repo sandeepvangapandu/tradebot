@@ -39,7 +39,7 @@ pandas>=2.0.0
 # Used by src/strategy/indicators.py and src/indicators/divergence.py
 # NOTE: May need to install from GitHub if PyPI version is unavailable:
 #   pip install git+https://github.com/twopirllc/pandas-ta.git
-pandas-ta>=0.3.14b
+git+https://github.com/twopirllc/pandas-ta.git@development
 
 # Numerical operations for indicator math, array manipulation
 numpy>=1.24.0

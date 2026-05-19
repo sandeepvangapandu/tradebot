@@ -15,9 +15,9 @@ dist/
 build/
 *.egg
 
-# Data and logs
-data/
-logs/
+# Data and logs (root-level only, not src/data/)
+/data/
+/logs/
 *.db
 .agent/
 .claude/

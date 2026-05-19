@@ -13,11 +13,7 @@
 # Docs: https://upstox.com/developer/api-documentation/
 upstox-python-sdk>=2.19.0
 
-# Automated TOTP-based login (generates 2FA codes from secret key)
-# Used by src/auth/auto_login.py for daily token refresh without manual OTP
-upstox-totp>=1.0.8
-
-# TOTP code generation (dependency of upstox-totp, listed explicitly)
+# TOTP code generation for Upstox 2FA
 pyotp>=2.9.0
 
 # Protobuf decoder for Upstox WebSocket binary market data frames

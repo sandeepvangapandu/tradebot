@@ -9,8 +9,9 @@ from dataclasses import dataclass
 from typing import Optional
 from zoneinfo import ZoneInfo
 
+import numpy as np
 import pandas as pd
-import pandas_ta as ta
+import ta as ta_lib
 from loguru import logger
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -173,7 +174,7 @@ class IndicatorEngine:
             raise ValueError("No data loaded")
         return self._cached(
             ("ema", period),
-            lambda: ta.ema(self._df["close"], length=period),
+            lambda: ta_lib.trend.EMAIndicator(self._df["close"], window=period).ema_indicator(),
         )
 
     def sma(self, period: int = 20) -> pd.Series:
@@ -189,7 +190,7 @@ class IndicatorEngine:
             raise ValueError("No data loaded")
         return self._cached(
             ("sma", period),
-            lambda: ta.sma(self._df["close"], length=period),
+            lambda: ta_lib.trend.SMAIndicator(self._df["close"], window=period).sma_indicator(),
         )
 
     def rsi(self, period: int = 14) -> pd.Series:
@@ -205,7 +206,7 @@ class IndicatorEngine:
             raise ValueError("No data loaded")
         return self._cached(
             ("rsi", period),
-            lambda: ta.rsi(self._df["close"], length=period),
+            lambda: ta_lib.momentum.RSIIndicator(self._df["close"], window=period).rsi(),
         )
 
     def macd(
@@ -226,18 +227,13 @@ class IndicatorEngine:
             raise ValueError("No data loaded")
 
         def _compute():
-            macd_result = ta.macd(
-                self._df["close"], fast=fast, slow=slow, signal=signal
+            indicator = ta_lib.trend.MACD(
+                self._df["close"], window_slow=slow, window_fast=fast, window_sign=signal
             )
-            if macd_result is None:
-                raise ValueError("MACD calculation failed")
-            macd_col = f"MACD_{fast}_{slow}_{signal}"
-            signal_col = f"MACDs_{fast}_{slow}_{signal}"
-            hist_col = f"MACDh_{fast}_{slow}_{signal}"
             return {
-                "macd": macd_result[macd_col],
-                "signal": macd_result[signal_col],
-                "histogram": macd_result[hist_col],
+                "macd": indicator.macd(),
+                "signal": indicator.macd_signal(),
+                "histogram": indicator.macd_diff(),
             }
 
         return self._cached(("macd", fast, slow, signal), _compute)
@@ -259,17 +255,11 @@ class IndicatorEngine:
             raise ValueError("No data loaded")
 
         def _compute():
-            bbands_result = ta.bbands(self._df["close"], length=period, std=std)
-            if bbands_result is None:
-                raise ValueError("Bollinger Bands calculation failed")
-            std_str = str(std).replace(".", "_")
-            lower_col = f"BBL_{period}_{std_str}"
-            middle_col = f"BBM_{period}_{std_str}"
-            upper_col = f"BBU_{period}_{std_str}"
+            bb = ta_lib.volatility.BollingerBands(self._df["close"], window=period, window_dev=std)
             return {
-                "lower": bbands_result[lower_col],
-                "middle": bbands_result[middle_col],
-                "upper": bbands_result[upper_col],
+                "lower": bb.bollinger_lband(),
+                "middle": bb.bollinger_mavg(),
+                "upper": bb.bollinger_hband(),
             }
 
         return self._cached(("bbands", period, std), _compute)
@@ -287,12 +277,9 @@ class IndicatorEngine:
             raise ValueError("No data loaded")
         return self._cached(
             ("atr", period),
-            lambda: ta.atr(
-                self._df["high"],
-                self._df["low"],
-                self._df["close"],
-                length=period,
-            ),
+            lambda: ta_lib.volatility.AverageTrueRange(
+                self._df["high"], self._df["low"], self._df["close"], window=period
+            ).average_true_range(),
         )
 
     def supertrend(
@@ -315,26 +302,10 @@ class IndicatorEngine:
             raise ValueError("No data loaded")
 
         def _compute():
-            st_result = ta.supertrend(
-                self._df["high"],
-                self._df["low"],
-                self._df["close"],
-                length=period,
-                multiplier=multiplier,
+            return self._compute_supertrend(
+                self._df["high"], self._df["low"], self._df["close"],
+                period=period, multiplier=multiplier,
             )
-            if st_result is None:
-                raise ValueError("SuperTrend calculation failed")
-            mult_str = str(multiplier)
-            supert_col = f"SUPERT_{period}_{mult_str}"
-            direction_col = f"SUPERTd_{period}_{mult_str}"
-            long_col = f"SUPERTl_{period}_{mult_str}"
-            short_col = f"SUPERTs_{period}_{mult_str}"
-            return {
-                "supertrend": st_result[supert_col],
-                "direction": st_result[direction_col],
-                "long": st_result[long_col],
-                "short": st_result[short_col],
-            }
 
         return self._cached(("supertrend", period, multiplier), _compute)
 
@@ -523,19 +494,9 @@ class IndicatorEngine:
         if self._df is None:
             raise ValueError("No data loaded")
 
-        result = ta.adx(
-            self._df["high"],
-            self._df["low"],
-            self._df["close"],
-            length=period,
-        )
-
-        if result is None:
-            raise ValueError("ADX calculation failed")
-
-        # pandas-ta returns DataFrame with ADX, DMP, DMN columns
-        adx_col = f"ADX_{period}"
-        return result[adx_col]
+        return ta_lib.trend.ADXIndicator(
+            self._df["high"], self._df["low"], self._df["close"], window=period
+        ).adx()
 
     def obv(self) -> pd.Series:
         """Calculate On-Balance Volume (OBV).
@@ -549,8 +510,9 @@ class IndicatorEngine:
         if self._df is None:
             raise ValueError("No data loaded")
 
-        result = ta.obv(self._df["close"], self._df["volume"])
-        return result
+        return ta_lib.volume.OnBalanceVolumeIndicator(
+            self._df["close"], self._df["volume"]
+        ).on_balance_volume()
 
     def volume_sma(self, period: int = 20) -> pd.Series:
         """Calculate Volume Simple Moving Average.
@@ -564,8 +526,54 @@ class IndicatorEngine:
         if self._df is None:
             raise ValueError("No data loaded")
 
-        result = ta.sma(self._df["volume"], length=period)
-        return result
+        return ta_lib.trend.SMAIndicator(self._df["volume"], window=period).sma_indicator()
+
+    @staticmethod
+    def _compute_supertrend(
+        high: pd.Series, low: pd.Series, close: pd.Series,
+        period: int = 7, multiplier: float = 3.0,
+    ) -> dict[str, pd.Series]:
+        atr = ta_lib.volatility.AverageTrueRange(high, low, close, window=period).average_true_range()
+        hl2 = (high + low) / 2
+        basic_upper = (hl2 + multiplier * atr).values
+        basic_lower = (hl2 - multiplier * atr).values
+        close_arr = close.values
+        n = len(close)
+
+        final_upper = np.full(n, np.nan)
+        final_lower = np.full(n, np.nan)
+        supertrend = np.full(n, np.nan)
+        direction = np.zeros(n, dtype=int)
+
+        for i in range(n):
+            if np.isnan(basic_upper[i]) or np.isnan(basic_lower[i]):
+                continue
+            if i == 0 or np.isnan(final_upper[i - 1]):
+                final_upper[i] = basic_upper[i]
+                final_lower[i] = basic_lower[i]
+                supertrend[i] = basic_lower[i]
+                direction[i] = 1
+                continue
+            final_upper[i] = basic_upper[i] if (basic_upper[i] < final_upper[i - 1] or close_arr[i - 1] > final_upper[i - 1]) else final_upper[i - 1]
+            final_lower[i] = basic_lower[i] if (basic_lower[i] > final_lower[i - 1] or close_arr[i - 1] < final_lower[i - 1]) else final_lower[i - 1]
+            if np.isnan(supertrend[i - 1]):
+                supertrend[i] = final_lower[i]
+                direction[i] = 1
+            elif supertrend[i - 1] == final_upper[i - 1]:
+                direction[i] = 1 if close_arr[i] > final_upper[i] else -1
+                supertrend[i] = final_lower[i] if direction[i] == 1 else final_upper[i]
+            else:
+                direction[i] = -1 if close_arr[i] < final_lower[i] else 1
+                supertrend[i] = final_upper[i] if direction[i] == -1 else final_lower[i]
+
+        st_s = pd.Series(supertrend, index=close.index)
+        dir_s = pd.Series(direction, index=close.index)
+        return {
+            "supertrend": st_s,
+            "direction": dir_s,
+            "long": (dir_s == 1) & (dir_s.shift(1) == -1),
+            "short": (dir_s == -1) & (dir_s.shift(1) == 1),
+        }
 
     def calculate_cpr(self, daily_df: pd.DataFrame) -> dict[str, float]:
         """Calculate Central Pivot Range (CPR) from daily OHLC data.

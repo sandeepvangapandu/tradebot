@@ -13,7 +13,7 @@ from typing import Literal, Optional
 
 import numpy as np
 import pandas as pd
-import pandas_ta as ta
+import ta as ta_lib
 from loguru import logger
 
 
@@ -168,7 +168,7 @@ def detect_rsi_divergence(
 
     # Calculate RSI
     try:
-        rsi = ta.rsi(df["close"], length=rsi_length)
+        rsi = ta_lib.momentum.RSIIndicator(df["close"], window=rsi_length).rsi()
         if rsi is None or rsi.isna().all():
             logger.warning("RSI calculation failed or returned all NaN")
             return DivergenceResult()
@@ -331,7 +331,7 @@ def detect_hidden_divergence(
 
     # Calculate RSI
     try:
-        rsi = ta.rsi(df["close"], length=rsi_length)
+        rsi = ta_lib.momentum.RSIIndicator(df["close"], window=rsi_length).rsi()
         if rsi is None or rsi.isna().all():
             return DivergenceResult()
     except Exception:

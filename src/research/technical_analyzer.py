@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 import pandas as pd
-import pandas_ta as ta
+import ta as ta_lib
 from loguru import logger
 
 from src.research.models import (
@@ -92,10 +92,10 @@ class TechnicalAnalyzer:
         Returns:
             Series with ADX values.
         """
-        adx_result = ta.adx(df["high"], df["low"], df["close"], length=period)
-        if adx_result is None:
+        try:
+            return ta_lib.trend.ADXIndicator(df["high"], df["low"], df["close"], window=period).adx()
+        except Exception:
             return pd.Series(index=df.index, data=0.0)
-        return adx_result[f"ADX_{period}"]
 
     def _determine_trend(
         self,
@@ -349,18 +349,16 @@ class TechnicalAnalyzer:
 
         # Stochastic Analysis
         try:
-            stoch_result = ta.stoch(df["high"], df["low"], df["close"], k=14, d=3)
-            if stoch_result is not None:
-                momentum_data.stochastic_k = stoch_result["STOCHk_14_3_3"].iloc[-1]
-                momentum_data.stochastic_d = stoch_result["STOCHd_14_3_3"].iloc[-1]
+            stoch = ta_lib.momentum.StochasticOscillator(df["high"], df["low"], df["close"], window=14, smooth_window=3)
+            momentum_data.stochastic_k = stoch.stoch().iloc[-1]
+            momentum_data.stochastic_d = stoch.stoch_signal().iloc[-1]
         except Exception:
             pass
 
         # Rate of Change
         try:
-            roc_series = ta.roc(df["close"], length=10)
-            if roc_series is not None:
-                momentum_data.roc_10 = roc_series.iloc[-1]
+            roc_series = ta_lib.momentum.ROCIndicator(df["close"], window=10).roc()
+            momentum_data.roc_10 = roc_series.iloc[-1]
         except Exception:
             pass
 

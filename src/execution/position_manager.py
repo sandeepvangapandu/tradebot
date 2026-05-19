@@ -431,11 +431,10 @@ class MomentumTrailingStop:
             return 0.0
 
         try:
-            import pandas_ta as ta
+            import ta as ta_lib
 
-            # Calculate EMA
-            ema = ta.ema(data["close"], length=ema_period)
-            atr = ta.atr(data["high"], data["low"], data["close"], length=14)
+            ema = ta_lib.trend.EMAIndicator(data["close"], window=ema_period).ema_indicator()
+            atr = ta_lib.volatility.AverageTrueRange(data["high"], data["low"], data["close"], window=14).average_true_range()
 
             if ema is None or atr is None or atr.iloc[-1] == 0:
                 return 0.0

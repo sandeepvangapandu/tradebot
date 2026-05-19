@@ -16,6 +16,9 @@ upstox-python-sdk>=2.19.0
 # TOTP code generation for Upstox 2FA
 pyotp>=2.9.0
 
+# Technical indicators (replaces pandas-ta which was removed from PyPI)
+ta>=0.11.0
+
 # Protobuf decoder for Upstox WebSocket binary market data frames
 protobuf>=4.25.0
 
@@ -33,7 +36,7 @@ requests>=2.32.3
 # Data & Technical Analysis
 # -----------------------------------------------------------------------------
 # DataFrame operations for OHLCV data, indicator computation, backtesting
-pandas>=2.0.0
+pandas>=2.0.0,<3.0.0
 
 # 130+ technical indicators (EMA, RSI, MACD, Supertrend, VWAP, BBands, ADX, etc.)
 # Used by src/strategy/indicators.py and src/indicators/divergence.py

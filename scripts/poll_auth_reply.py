@@ -30,8 +30,9 @@ from loguru import logger
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 TOKEN_CACHE = Path(__file__).parent.parent / "token_cache.json"
-POLL_INTERVAL = 30        # seconds between inbox checks
-MAX_WAIT_SECONDS = 90 * 60  # 90 minutes timeout
+POLL_INTERVAL = 30          # seconds between inbox checks
+RETRY_AFTER_SECONDS = 90 * 60  # resend auth email after 90 min no reply
+HARD_STOP_SECONDS = 10 * 3600  # give up entirely after 10 hours
 
 
 def _find_callback_url(text: str) -> str | None:
@@ -136,18 +137,44 @@ def poll_inbox() -> bool:
     return False
 
 
+def send_auth_email() -> None:
+    """Send the Upstox auth URL email (imported inline to avoid circular dep)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "send_auth_email",
+        Path(__file__).parent / "send_auth_email.py",
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    url = mod.build_auth_url()
+    mod.send_email(url)
+
+
 def main() -> None:
-    logger.info("Polling inbox for Upstox auth reply (max {} min)...", MAX_WAIT_SECONDS // 60)
-    elapsed = 0
-    while elapsed < MAX_WAIT_SECONDS:
+    logger.info("Polling inbox for Upstox auth reply (hard stop {}h)...", HARD_STOP_SECONDS // 3600)
+    total_elapsed = 0
+    cycle_elapsed = 0
+
+    while total_elapsed < HARD_STOP_SECONDS:
         if poll_inbox():
             logger.info("Token exchanged successfully. Bot can start.")
             sys.exit(0)
-        time.sleep(POLL_INTERVAL)
-        elapsed += POLL_INTERVAL
-        logger.info("Waiting for reply... {}m elapsed", elapsed // 60)
 
-    logger.error("Timed out waiting for auth reply after {} min.", MAX_WAIT_SECONDS // 60)
+        time.sleep(POLL_INTERVAL)
+        total_elapsed += POLL_INTERVAL
+        cycle_elapsed += POLL_INTERVAL
+
+        if cycle_elapsed >= RETRY_AFTER_SECONDS:
+            logger.warning("No reply in 90 min — sending new auth email and resetting timer.")
+            try:
+                send_auth_email()
+            except Exception as exc:
+                logger.error("Failed to resend auth email: {}", exc)
+            cycle_elapsed = 0
+        else:
+            logger.info("Waiting for reply... {}m this cycle, {}m total", cycle_elapsed // 60, total_elapsed // 60)
+
+    logger.error("Hard stop after {}h — no auth reply received.", HARD_STOP_SECONDS // 3600)
     sys.exit(1)
 
 

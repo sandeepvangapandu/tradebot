@@ -618,6 +618,8 @@ class PositionReconciler:
 
     def _create_run(self, n_local: int, n_broker: int) -> int:
         """Insert a new reconciliation_runs row and return its cycle_id."""
+        if self._engine is None:
+            return 0
         from sqlalchemy import text
         with self._engine.begin() as conn:
             row = conn.execute(

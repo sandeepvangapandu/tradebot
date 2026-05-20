@@ -21,6 +21,10 @@ from datetime import date, datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).parent.parent / ".env")
 from zoneinfo import ZoneInfo
 
 IST = ZoneInfo("Asia/Kolkata")

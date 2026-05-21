@@ -538,16 +538,21 @@ class BacktestHarness:
         # StrategyConfig.active is a computed alias for .enabled; set .enabled directly.
         if self._strategy_only:
             all_names = set(self._strategy_engine._strategies.keys())
-            if self._strategy_only not in all_names:
+            # Case-insensitive match so caller can use either form
+            matched = next(
+                (n for n in all_names if n.lower() == self._strategy_only.lower()),
+                None,
+            )
+            if matched is None:
                 logger.warning(f"Strategy '{self._strategy_only}' not found in loaded strategies")
             else:
                 filtered = 0
                 for name, cfg in self._strategy_engine._strategies.items():
-                    if name != self._strategy_only and cfg.enabled:
+                    if name != matched and cfg.enabled:
                         cfg.enabled = False
                         filtered += 1
                 logger.info(
-                    f"Strategy-only mode: kept '{self._strategy_only}', "
+                    f"Strategy-only mode: kept '{matched}', "
                     f"disabled {filtered} others"
                 )
 

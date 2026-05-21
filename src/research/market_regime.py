@@ -19,6 +19,11 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 from loguru import logger
 
+try:
+    import pandas_ta  # noqa: F401 — registers df.ta accessor
+except ImportError:
+    pandas_ta = None  # type: ignore[assignment]
+
 # Add parent directory to path for imports
 sys.path.insert(0, "/Users/sandeepvangapandu/Downloads/Trading")
 

@@ -70,7 +70,7 @@
         {
           "indicator": "ATR",
           "comparison": "<",
-          "value": 1500,
+          "value": 200000,
           "timeframe": "5min",
           "parameters": {
             "period": 14
@@ -115,7 +115,7 @@
         {
           "indicator": "ATR",
           "comparison": "<",
-          "value": 1500,
+          "value": 200000,
           "timeframe": "5min",
           "parameters": {
             "period": 14
@@ -141,7 +141,7 @@
   "params": {
     "cpr_narrow_threshold": 0.4,
     "vwap_lookback": "day",
-    "atr_threshold": 1500,
+    "atr_threshold": 200000,
     "strategy_type": "mean_reversion",
     "use_enhanced_filters": false
   }

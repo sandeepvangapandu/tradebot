@@ -534,6 +534,33 @@ class BacktestHarness:
         n = self._strategy_engine.load_strategies()
         logger.info(f"Loaded {n} strategies for backtest")
 
+        # In straddle/options proxy mode, disable directional strategies (CE/PE buys)
+        # because the synthetic premium model is not valid for directional option legs.
+        if self._straddle_proxy or self._options_proxy:
+            _DIRECTIONAL_SIGNALS = {"CE", "PE", "BUY", "SELL_FUTURE"}
+            disabled_dir = []
+            for name, cfg in self._strategy_engine._strategies.items():
+                if not cfg.enabled:
+                    continue
+                def _sig(es: object) -> str:
+                    return (getattr(es, "signal", None) or (es.get("signal", "") if isinstance(es, dict) else "")).upper()
+                has_directional = any(
+                    _sig(es) in _DIRECTIONAL_SIGNALS
+                    for es in (cfg.entry_sets or [])
+                )
+                is_straddle = any(
+                    _sig(es) in ("STRADDLE", "STRANGLE")
+                    for es in (cfg.entry_sets or [])
+                )
+                if has_directional and not is_straddle:
+                    cfg.enabled = False
+                    disabled_dir.append(name)
+            if disabled_dir:
+                logger.warning(
+                    "Proxy mode: disabled directional strategies (invalid with synthetic premium): {}",
+                    disabled_dir,
+                )
+
         # Apply strategy-only filter if requested.
         # StrategyConfig.active is a computed alias for .enabled; set .enabled directly.
         if self._strategy_only:

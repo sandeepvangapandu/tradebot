@@ -534,18 +534,22 @@ class BacktestHarness:
         n = self._strategy_engine.load_strategies()
         logger.info(f"Loaded {n} strategies for backtest")
 
-        # Apply strategy-only filter if requested
+        # Apply strategy-only filter if requested.
+        # StrategyConfig.active is a computed alias for .enabled; set .enabled directly.
         if self._strategy_only:
-            # Disable all strategies except the named one
-            filtered = 0
-            for name, config in self._strategy_engine._strategies.items():
-                if name != self._strategy_only:
-                    config.active = False
-                    filtered += 1
-            if self._strategy_only not in self._strategy_engine._strategies:
+            all_names = set(self._strategy_engine._strategies.keys())
+            if self._strategy_only not in all_names:
                 logger.warning(f"Strategy '{self._strategy_only}' not found in loaded strategies")
             else:
-                logger.info(f"Strategy-only mode: disabled {filtered} strategies, kept '{self._strategy_only}'")
+                filtered = 0
+                for name, cfg in self._strategy_engine._strategies.items():
+                    if name != self._strategy_only and cfg.enabled:
+                        cfg.enabled = False
+                        filtered += 1
+                logger.info(
+                    f"Strategy-only mode: kept '{self._strategy_only}', "
+                    f"disabled {filtered} others"
+                )
 
     # ------------------------------------------------------------------
     # Main loop

@@ -242,6 +242,105 @@ def max_oi_strike_near_spot(
 
 
 # ---------------------------------------------------------------------------
+# PCR signal alignment gate
+# ---------------------------------------------------------------------------
+
+
+def check_pcr_alignment(
+    signal_type: str,
+    pcr_ratio: float | None,
+) -> tuple[bool, str]:
+    """Check whether the current PCR supports the intended signal direction.
+
+    This is a *fast-path* gate that works from a pre-computed ``pcr_ratio``
+    (e.g. ``data['pcr_ratio']`` from
+    ``OptionsAnalyzer.analyze_open_interest()``).  It does **not** hit the
+    database; the caller is responsible for fetching the ratio.
+
+    Decision rules
+    --------------
+    CE / BUY signals (bullish):
+      - PCR > 1.0  → pass (more puts open than calls; contrarian bullish
+                            signal — put writers are betting the market holds).
+      - PCR < 0.7  → pass (extreme call-heavy positioning signals exhaustion
+                            of the bullish move, but also potential reversal
+                            back up — classic oversold bounce setup).
+      - 0.7 ≤ PCR ≤ 1.0 → reject (ambiguous / mildly bearish positioning
+                                    contradicts a CE buy).
+
+    PE / SELL signals (bearish):
+      - PCR < 1.0  → pass (more calls than puts; call writers dominating
+                            means bearish bias is well-supported).
+      - PCR > 1.3  → pass (extreme put-heavy positioning can signal market
+                            complacency — good backdrop for premium sellers
+                            or put-side momentum trades).
+      - 1.0 ≤ PCR ≤ 1.3 → reject (ambiguous / mildly bullish contradicts
+                                    a PE buy or short-side trade).
+
+    SELL (straddle / delta-neutral) signals:
+      - Always passes — a straddle-sell profits from vol crush regardless of
+        directional PCR positioning.  The gate is directional by design.
+
+    Missing / zero data:
+      - Returns ``(True, "PCR unavailable — skipping gate")`` so this gate
+        never blocks a signal when the data pipeline is down.
+
+    Args:
+        signal_type: One of ``"BUY"``, ``"BUY_CE"``, ``"CE"``, ``"BUY_PE"``,
+            ``"PE"``, ``"SELL"``, ``"STRADDLE"``.  Case-insensitive.
+        pcr_ratio: Put-Call Ratio (total_put_oi / total_call_oi).  Pass
+            ``None`` or ``0`` when data is unavailable.
+
+    Returns:
+        Tuple of ``(passed: bool, reason: str)``.
+    """
+    import math  # local import — already available but keeps function portable
+
+    # Graceful pass-through when data is missing or degenerate.
+    if pcr_ratio is None or pcr_ratio == 0:
+        return True, "PCR unavailable — skipping gate"
+
+    try:
+        ratio = float(pcr_ratio)
+    except (TypeError, ValueError):
+        return True, "PCR unavailable — skipping gate"
+
+    if math.isnan(ratio) or math.isinf(ratio) or ratio < 0:
+        return True, "PCR unavailable — skipping gate"
+
+    sig = signal_type.upper() if signal_type else ""
+
+    # Straddle / pure-sell signals are direction-agnostic.
+    if sig in ("SELL", "STRADDLE", "SELL_CE", "SELL_PE"):
+        return True, f"PCR {ratio:.2f} — straddle/sell signal, gate not applied"
+
+    # CE / BUY side (bullish directional).
+    if sig in ("CE", "BUY_CE", "BUY"):
+        if ratio > 1.0:
+            return True, f"PCR {ratio:.2f} > 1.0 — put-heavy positioning supports CE/BUY"
+        if ratio < 0.7:
+            return True, f"PCR {ratio:.2f} < 0.7 — extreme call skew; reversal setup supports CE/BUY"
+        return (
+            False,
+            f"PCR {ratio:.2f} in 0.70–1.00 — call-heavy to neutral, contradicts CE/BUY signal",
+        )
+
+    # PE / short side (bearish directional).
+    if sig in ("PE", "BUY_PE"):
+        if ratio < 1.0:
+            return True, f"PCR {ratio:.2f} < 1.0 — call-heavy positioning supports PE/SELL"
+        if ratio > 1.3:
+            return True, f"PCR {ratio:.2f} > 1.3 — extreme put skew; complacency supports PE trade"
+        return (
+            False,
+            f"PCR {ratio:.2f} in 1.00–1.30 — put-heavy to neutral, contradicts PE/SELL signal",
+        )
+
+    # Unknown signal type — pass through rather than block.
+    return True, f"PCR gate: unrecognised signal_type '{signal_type}' — skipping gate"
+
+
+# ---------------------------------------------------------------------------
 # Call writers dominance
 # ---------------------------------------------------------------------------
 

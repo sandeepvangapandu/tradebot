@@ -178,6 +178,9 @@ class SetEvaluator(threading.Thread):
         self._evaluator = ConditionEvaluator()
         self._last_signal_time: Optional[datetime] = None
         self._signals_generated_today: int = 0
+        # Per-bar dedup: prevents same entry-set firing >1 signal per candle bar.
+        # Key = entry_set name, value = bar open timestamp of last signal.
+        self._last_signal_bar: dict[str, Optional[datetime]] = {}
 
         # Resolve EntrySet.signal (str) → SignalType enum once at init.
         # EntrySet.signal is a plain string like "CE", "PE", "BUY", "SELL",
@@ -766,11 +769,20 @@ class SetEvaluator(threading.Thread):
         else:
             filter_metadata = {}
 
+        # Per-bar dedup: skip if we already fired this entry-set in the current bar.
+        entry_name = self._entry_set.name
+        current_bar_time = bars[symbol].index[-1] if hasattr(bars[symbol], 'index') else datetime.now(IST)
+        last_bar = self._last_signal_bar.get(entry_name)
+        if last_bar is not None and last_bar == current_bar_time:
+            logger.debug(f"[{self._config.name}/{entry_name}] Dedup: already fired this bar ({current_bar_time})")
+            return False
+
         # Generate signal
         signal = self._generate_signal(symbol, bars[symbol], filter_metadata)
         if signal:
             self._signal_queue.put(signal)
             self._last_signal_time = datetime.now(IST)
+            self._last_signal_bar[entry_name] = current_bar_time
             self._signals_generated_today += 1
             logger.info(
                 f"Generated signal: {signal.signal_type.value} {signal.instrument_key} "
@@ -2150,4 +2162,33 @@ class StrategyEngine:
             except Exception as exc:
                 logger.debug("Wave-5 rejection gate error (allow): {}", exc)
 
-        return rejection_ok
+        if not rejection_ok:
+            return False
+
+        # 4. PCR gate — only for options strategies where an underlying key is known.
+        # CE signals need non-elevated PCR (bearish overcrowding blocks buys).
+        # PE / short-straddle signals need non-elevated bearish bias either.
+        # Graceful degrade: on any error, allow the signal through.
+        try:
+            underlying_key: str | None = getattr(signal, "underlying_key", None)
+            sig_val: str = signal.signal_type.value if signal.signal_type else ""
+            if underlying_key and sig_val:
+                from src.strategy.conditions_options import pcr_above, pcr_below
+                if sig_val in ("CE", "BUY"):
+                    if pcr_above(underlying_key, threshold=1.3):
+                        logger.info(
+                            "PCR gate blocked %s CE/BUY: PCR > 1.3 for %s",
+                            signal.strategy_name, underlying_key,
+                        )
+                        return False
+                elif sig_val in ("PE", "SELL"):
+                    if pcr_below(underlying_key, threshold=0.7):
+                        logger.info(
+                            "PCR gate blocked %s PE/SELL: PCR < 0.7 for %s",
+                            signal.strategy_name, underlying_key,
+                        )
+                        return False
+        except Exception as _pcr_exc:
+            logger.debug("PCR gate error (allow): {}", _pcr_exc)
+
+        return True

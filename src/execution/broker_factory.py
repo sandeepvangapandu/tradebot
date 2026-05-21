@@ -66,7 +66,7 @@ def _create_live_broker(
 ) -> BaseBroker:
     """Create a live trading broker instance.
 
-    Reads ACTIVE_BROKER env var to select between 'dhan' (default) and 'upstox'.
+    Reads ACTIVE_BROKER env var to select between 'upstox' (default) and 'dhan'.
     """
     # Safety check — MUST be first.
     # Tier 3.10 patch (2026-05-15) — three gates required:
@@ -118,7 +118,7 @@ def _create_live_broker(
 
     logger.warning("🚨 CREATING LIVE BROKER - REAL ORDERS WILL BE PLACED!")
 
-    active_broker = os.getenv("ACTIVE_BROKER", "dhan").lower()
+    active_broker = os.getenv("ACTIVE_BROKER", "upstox").lower()
 
     if active_broker == "dhan":
         return _create_dhan_broker(config)

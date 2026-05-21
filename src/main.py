@@ -145,6 +145,17 @@ except Exception:  # pragma: no cover
     _TickMetrics = None  # type: ignore[assignment]
 
 try:
+    from src.data.micro_features import MicroFeatureEngine as _MicroFeatureEngine
+except Exception:  # pragma: no cover
+    _MicroFeatureEngine = None  # type: ignore[assignment]
+
+try:
+    from src.execution.rl_exit_agent import RLExitAgent as _RLExitAgent, build_rl_exit_agent as _build_rl_exit_agent
+except Exception:  # pragma: no cover
+    _RLExitAgent = None  # type: ignore[assignment]
+    _build_rl_exit_agent = None  # type: ignore[assignment]
+
+try:
     from src.data.options_chain_feed import OptionsChainFeed as _OptionsChainFeed
 except Exception:  # pragma: no cover
     _OptionsChainFeed = None  # type: ignore[assignment]
@@ -297,6 +308,8 @@ class TradingBot:
         self.sentiment_classifier: Any = None
         self.depth_feed: Any = None
         self.tick_metrics: Any = None
+        self.micro_feature_engine: Any = None
+        self.rl_exit_agent: Any = None
         self.options_chain: Any = None
         self.flow_scraper: Any = None
         self.corp_actions_scraper: Any = None
@@ -1104,6 +1117,32 @@ class TradingBot:
                 logger.debug("tick_metrics: OK")
         except Exception as exc:
             logger.warning("tick_metrics init failed: {}", exc)
+
+        # ------------------------------------------------------------------ #
+        # Phase A.2b — Micro feature engine (tick-level microstructure)
+        # ------------------------------------------------------------------ #
+        try:
+            if _MicroFeatureEngine is not None:
+                self.micro_feature_engine = _MicroFeatureEngine(buffer_size=50)
+                logger.debug("micro_feature_engine: OK")
+        except Exception as exc:
+            logger.warning("micro_feature_engine init failed: {}", exc)
+
+        # ------------------------------------------------------------------ #
+        # Phase A.2c — RL exit agent
+        # ------------------------------------------------------------------ #
+        try:
+            if _build_rl_exit_agent is not None:
+                self.rl_exit_agent = _build_rl_exit_agent(
+                    db_path=self.settings.database_url.replace("sqlite:///", ""),
+                    checkpoint_path="models/rl_exit_agent.pkl",
+                    warm_start=True,
+                )
+                logger.debug("rl_exit_agent: OK (episodes={})", self.rl_exit_agent.episode_count)
+                if self.position_manager is not None:
+                    self.position_manager.set_rl_exit_agent(self.rl_exit_agent)
+        except Exception as exc:
+            logger.warning("rl_exit_agent init failed: {}", exc)
 
         # ------------------------------------------------------------------ #
         # Phase A.3 — Options chain feed
@@ -2015,6 +2054,15 @@ class TradingBot:
                         )
                     except Exception as exc:
                         logger.debug("tick_metrics.on_tick failed: {}", exc)
+
+                # ---------------------------------------------------------- #
+                # Phase A.2d — Micro feature engine tick ingestion
+                # ---------------------------------------------------------- #
+                if self.micro_feature_engine is not None:
+                    try:
+                        self.micro_feature_engine.on_tick(instrument_key, tick)
+                    except Exception as exc:
+                        logger.debug("micro_feature_engine.on_tick failed: {}", exc)
 
                 # ---------------------------------------------------------- #
                 # Phase B.2 — VIX intraday update

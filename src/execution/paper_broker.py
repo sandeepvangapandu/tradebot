@@ -111,6 +111,7 @@ class PaperBroker(BaseBroker):
 
         # Market data cache for LTP
         self._ltp_cache: dict[str, int] = {}
+        self._ltp_timestamp: dict[str, Any] = {}
 
         logger.info(f"PaperBroker initialized with capital: {self._paisa_to_rupees(initial_capital):.2f} INR")
 
@@ -127,40 +128,40 @@ class PaperBroker(BaseBroker):
     def _get_ltp(self, instrument_key: str) -> int:
         """Get last traded price for an instrument.
 
-        Returns 0 if no tick has been received yet. Callers MUST handle
-        the zero case — never substitute a fabricated default. The
-        previous version returned a hardcoded ₹100 default which caused
-        catastrophic fills (e.g. selling an ATM straddle for ₹95 that
-        was actually worth ₹500+) the moment a strategy fired before
-        first tick arrived.
-
-        Args:
-            instrument_key: The instrument identifier
+        Returns 0 if no tick has been received yet OR if the last tick is
+        stale (older than 60 seconds). Stale LTP caused the May-14 disaster
+        where a ₹95 cached price was used to fill a ₹815 option.
 
         Returns:
-            LTP in paisa, or 0 if no tick received yet.
+            LTP in paisa, or 0 if no tick received / tick is stale.
         """
-        return self._ltp_cache.get(instrument_key, 0)
+        price = self._ltp_cache.get(instrument_key, 0)
+        if price <= 0:
+            return 0
+        ts = self._ltp_timestamp.get(instrument_key)
+        if ts is None:
+            return 0
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        age_secs = (datetime.now(ZoneInfo("Asia/Kolkata")) - ts).total_seconds()
+        if age_secs > 60:
+            logger.warning(
+                "Stale LTP for {} ({}s old) — rejecting fill to prevent catastrophic price",
+                instrument_key, int(age_secs),
+            )
+            return 0
+        return price
 
     def get_ltp(self, instrument_key: str) -> int:
-        """Get last traded price for an instrument (public method).
-
-        Args:
-            instrument_key: The instrument identifier
-
-        Returns:
-            LTP in paisa
-        """
+        """Get last traded price for an instrument (public method)."""
         return self._get_ltp(instrument_key)
 
     def update_ltp(self, instrument_key: str, price: int) -> None:
-        """Update LTP for an instrument (called by market data feed).
-
-        Args:
-            instrument_key: The instrument identifier
-            price: Current price in paisa
-        """
+        """Update LTP + timestamp for an instrument (called by market data feed)."""
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
         self._ltp_cache[instrument_key] = price
+        self._ltp_timestamp[instrument_key] = datetime.now(ZoneInfo("Asia/Kolkata"))
 
     def _calculate_fill_price(self, instrument_key: str, side: OrderSide, order_type: OrderType, limit_price: Optional[int] = None) -> int:
         """Calculate simulated fill price with slippage.

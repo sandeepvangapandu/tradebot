@@ -415,6 +415,8 @@ def check_entry_conditions(
     max_atr: int = 2000,
     entry_window_start: time = time(9, 30),
     entry_window_end: time = time(10, 0),
+    open_iv: float | None = None,
+    iv_spike_threshold_pct: float = 15.0,
 ) -> tuple[bool, list[str]]:
     """Check if all entry conditions are met for straddle sell.
 
@@ -462,6 +464,15 @@ def check_entry_conditions(
         failures.append(f"IV too low: {atm_iv:.1f}% < {min_iv}%")
     if atm_iv > max_iv:
         failures.append(f"IV too high: {atm_iv:.1f}% > {max_iv}%")
+
+    # IV spike gate: if IV jumped >15% from open, market is gapping — skip.
+    if open_iv is not None and open_iv > 0:
+        iv_change_pct = ((atm_iv - open_iv) / open_iv) * 100
+        if iv_change_pct > iv_spike_threshold_pct:
+            failures.append(
+                f"IV spike detected: {open_iv:.1f}% → {atm_iv:.1f}% "
+                f"(+{iv_change_pct:.1f}% > {iv_spike_threshold_pct}% threshold)"
+            )
 
     # Check ADX (trend strength)
     if adx > max_adx:

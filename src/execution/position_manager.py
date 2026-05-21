@@ -696,6 +696,7 @@ class PositionManager:
         on_position_close: Optional[Callable[[ManagedPosition], None]] = None,
         partial_profit_manager: Optional[PartialProfitManager] = None,
         trade_logger: Optional[Any] = None,
+        rl_exit_agent: Optional[Any] = None,
     ):
         """Initialize the PositionManager.
 
@@ -706,6 +707,7 @@ class PositionManager:
             on_position_close: Optional callback when position closes
             partial_profit_manager: Optional 4-tier partial profit manager
             trade_logger: Optional TradeLogger for database persistence
+            rl_exit_agent: Optional RLExitAgent for learned exit decisions.
         """
         self._broker = broker
         self._risk_manager = risk_manager
@@ -713,6 +715,7 @@ class PositionManager:
         self._on_position_close = on_position_close
         self._partial_profit_manager = partial_profit_manager
         self._trade_logger = trade_logger
+        self._rl_exit_agent = rl_exit_agent
         self._backtest_time: Optional[datetime] = None  # Set by harness for bar-accurate timestamps
         self._lock = threading.Lock()
         self._positions: dict[str, ManagedPosition] = {}
@@ -733,6 +736,10 @@ class PositionManager:
         self._price_history_max_bars = 50  # Keep last 50 bars for momentum calc
 
         logger.info("PositionManager initialized with smart exit logic")
+
+    def set_rl_exit_agent(self, agent: Any) -> None:
+        """Attach a trained RLExitAgent after construction."""
+        self._rl_exit_agent = agent
 
     def set_backtest_time(self, t: datetime) -> None:
         """Set simulated time for backtest mode (overrides datetime.now)."""
@@ -1231,13 +1238,50 @@ class PositionManager:
                 position_to_close = position
                 reason = "TIER_4_TRAILING_STOP"
             else:
-                # Check other exit conditions
-                exit_reason = self._check_exit_conditions(position, price)
-                if exit_reason:
-                    position_to_close = position
-                    reason = exit_reason
-                else:
-                    return closed_positions
+                # RL exit agent: consult if trained; overrides rule-based hold.
+                rl_exit_triggered = False
+                if self._rl_exit_agent is not None and self._rl_exit_agent.is_trained:
+                    try:
+                        entry_px = position.entry_price or 1
+                        pnl_pct = (position.unrealized_pnl or 0) / entry_px
+                        sl_dist = abs((position.stop_loss_price or entry_px) - price) / max(entry_px, 1)
+                        tgt_dist = abs((position.target_price or entry_px) - price) / max(entry_px, 1)
+                        trailing_on = 1.0 if position.trailing_sl_activated else 0.0
+                        peak_gain = max(0.0, pnl_pct)
+                        rl_state = {
+                            "pnl_pct": float(pnl_pct),
+                            "bars_held_norm": 0.5,
+                            "momentum": 0.0,
+                            "vol_regime": 1.0,
+                            "dist_to_sl": float(sl_dist),
+                            "dist_to_target": float(tgt_dist),
+                            "trailing_active": trailing_on,
+                            "peak_gain_norm": float(peak_gain),
+                        }
+                        rl_action = self._rl_exit_agent.get_action(rl_state)
+                        if rl_action == "EXIT":
+                            rl_exit_triggered = True
+                            position_to_close = position
+                            reason = "RL_EXIT"
+                        elif rl_action == "TIGHTEN_SL" and position.stop_loss_price is not None:
+                            # Tighten SL by 30% toward current price
+                            if position.side.value == "BUY":
+                                new_sl = position.stop_loss_price + int((price - position.stop_loss_price) * 0.3)
+                                position.stop_loss_price = max(position.stop_loss_price, new_sl)
+                            else:
+                                new_sl = position.stop_loss_price - int((position.stop_loss_price - price) * 0.3)
+                                position.stop_loss_price = min(position.stop_loss_price, new_sl)
+                    except Exception as _rl_exc:
+                        logger.debug("rl_exit_agent.get_action failed: {}", _rl_exc)
+
+                if not rl_exit_triggered:
+                    # Check other exit conditions
+                    exit_reason = self._check_exit_conditions(position, price)
+                    if exit_reason:
+                        position_to_close = position
+                        reason = exit_reason
+                    else:
+                        return closed_positions
 
         # Close position outside of lock
         if self._close_position(position_to_close, price, reason):

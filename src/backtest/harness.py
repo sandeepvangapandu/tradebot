@@ -660,17 +660,23 @@ class BacktestHarness:
                         )
                     except Exception:
                         trade_fees = 0
+                    _entry_dt = pos.entry_time
+                    _exit_dt  = pos.exit_time
+                    _dur_s = int((_exit_dt - _entry_dt).total_seconds()) if (_entry_dt and _exit_dt) else 0
                     results.trades.append({
                         "instrument_key": pos.instrument_key,
                         "strategy_id": pos.strategy_id,
                         "side": pos.side.value,
                         "entry_price": pos.entry_price,
                         "exit_price": pos.blended_exit_price or pos.entry_price,
+                        "stop_loss_price": pos.stop_loss_price,
+                        "target_price": pos.target_price,
                         "quantity": pos.quantity,
                         "net_pnl": pos.total_realized_pnl,
                         "fees": trade_fees,
-                        "entry_time": str(pos.entry_time),
-                        "exit_time": str(pos.exit_time) if pos.exit_time else None,
+                        "entry_time": str(_entry_dt),
+                        "exit_time": str(_exit_dt) if _exit_dt else None,
+                        "duration_seconds": _dur_s,
                         "exit_reason": getattr(pos, "exit_reason", "unknown"),
                     })
             except Exception as exc:
@@ -760,17 +766,21 @@ class BacktestHarness:
                     )
                 except Exception:
                     trade_fees = 0
+                _e = pos.entry_time; _x = pos.exit_time
                 results.trades.append({
                     "instrument_key": pos.instrument_key,
                     "strategy_id": pos.strategy_id,
                     "side": pos.side.value,
                     "entry_price": pos.entry_price,
                     "exit_price": pos.blended_exit_price or pos.entry_price,
+                    "stop_loss_price": pos.stop_loss_price,
+                    "target_price": pos.target_price,
                     "quantity": pos.quantity,
                     "net_pnl": pos.total_realized_pnl,
                     "fees": trade_fees,
-                    "entry_time": str(pos.entry_time),
-                    "exit_time": str(pos.exit_time) if pos.exit_time else None,
+                    "entry_time": str(_e),
+                    "exit_time": str(_x) if _x else None,
+                    "duration_seconds": int((_x - _e).total_seconds()) if (_e and _x) else 0,
                     "exit_reason": "backtest_end",
                 })
         except Exception as exc:

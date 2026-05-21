@@ -389,7 +389,7 @@ class BacktestHarness:
             max_open_positions=settings.max_open_positions,
             max_position_size_pct=settings.max_position_size_pct,
             max_capital_deployment_pct=settings.max_capital_deployment_pct,
-            max_trades_per_day=1 if (self._options_proxy or self._straddle_proxy) else 3,  # 1 straddle per day
+            max_trades_per_day=settings.max_trades_per_day if hasattr(settings, "max_trades_per_day") else 5,
         )
         self._circuit_breaker = CircuitBreaker(
             max_consecutive_losses=settings.consecutive_loss_pause,

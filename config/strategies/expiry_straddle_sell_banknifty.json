@@ -1,6 +1,6 @@
 {
   "name": "Expiry_Straddle_Sell_BankNifty",
-  "description": "Sell ATM straddle daily for theta decay - aggressive 10L capital deployment",
+  "description": "Sell ATM straddle on BankNifty weekly expiry day (Wednesday) for maximum theta decay",
   "enabled": true,
   "underlying": {
     "instrument_key": "NSE_INDEX|Nifty Bank",
@@ -11,7 +11,7 @@
     "start_time": "10:00:00",
     "end_time": "14:00:00",
     "timezone": "Asia/Kolkata",
-    "days": [0, 1, 2, 3, 4]
+    "days": [2]
   },
   "instrument_selection": {
     "type": "options",

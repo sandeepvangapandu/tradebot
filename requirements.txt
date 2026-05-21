@@ -36,8 +36,11 @@ requests>=2.32.3
 pandas>=2.0.0,<3.0.0
 
 # Technical indicators (EMA, RSI, MACD, Supertrend, VWAP, BBands, ADX, etc.)
-# pandas-ta was removed from PyPI; using `ta` library instead
 ta>=0.11.0
+
+# pandas-ta: DataFrame extension for .ta accessor (used by MarketRegimeDetector ADX)
+# Available on PyPI as 0.4.71b0 — install with: pip install pandas_ta
+pandas_ta>=0.3.14b
 
 # Numerical operations for indicator math, array manipulation
 numpy>=1.24.0

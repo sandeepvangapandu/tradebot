@@ -883,6 +883,21 @@ class OrderManager:
                 else:
                     logger.debug("Entry optimizer not available, skipping optimization")
 
+                # Step 6.5: Score-tiered lot sizing
+                # Overrides fixed config quantity with 1/2/3 lots based on
+                # research conviction. Runs after research + Kelly so it has
+                # the final score but before lot-size rounding.
+                research_score_raw = (signal.metadata or {}).get("research_score", 0.0)
+                if research_score_raw and research_score_raw > 0:
+                    _tier_lot_size = self._get_lot_size(instrument_key)
+                    _per_lot = max(_tier_lot_size, 1)
+                    _n_lots = self._score_to_n_lots(research_score_raw / 100.0)
+                    signal.quantity = _n_lots * _per_lot
+                    logger.info(
+                        "SCORE_TIERED_LOTS | %s | score=%.0f → %d lots (%d units)",
+                        signal.signal_id, research_score_raw, _n_lots, signal.quantity,
+                    )
+
                 # Step 7: Validate quantity against lot size
                 lot_size = self._get_lot_size(instrument_key)
                 if lot_size > 1:
@@ -1576,6 +1591,21 @@ class OrderManager:
         except BrokerError as e:
             logger.exception(f"Failed to get positions during exit_all_positions: {e}")
             return []
+
+    @staticmethod
+    def _score_to_n_lots(score_01: float) -> int:
+        """Map research score [0, 1] to lot count.
+
+        Thresholds:
+            >= 0.85 → 3 lots (high conviction)
+            >= 0.70 → 2 lots (normal)
+            < 0.70  → 1 lot  (marginal)
+        """
+        if score_01 >= 0.85:
+            return 3
+        elif score_01 >= 0.70:
+            return 2
+        return 1
 
     def _calculate_research_size_multiplier(self, research_score: float) -> float:
         """Calculate position size multiplier based on dynamic research settings.

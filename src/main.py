@@ -2021,6 +2021,15 @@ class TradingBot:
                 price_paisa = int(round(float(ltp) * 100))
                 self.position_manager.on_tick(instrument_key, price_paisa)
 
+                # Feed live quote into paper broker so fills use actual bid/ask
+                if self.paper_broker is not None:
+                    try:
+                        self.paper_broker.update_quote(
+                            instrument_key, price_paisa, bid_paisa, ask_paisa
+                        )
+                    except Exception:
+                        pass
+
                 # When the underlying index ticks, check emergency-exit on any
                 # option positions tracking it (e.g. short straddle legs).
                 if instrument_key.startswith("NSE_INDEX|"):

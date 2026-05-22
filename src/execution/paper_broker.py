@@ -109,9 +109,11 @@ class PaperBroker(BaseBroker):
         self._positions: dict[str, Position] = {}  # key: instrument_key|product_type
         self._trade_history: list[dict] = []
 
-        # Market data cache for LTP
+        # Market data cache for LTP + Level-1 bid/ask
         self._ltp_cache: dict[str, int] = {}
         self._ltp_timestamp: dict[str, Any] = {}
+        self._bid_cache: dict[str, int] = {}  # best bid in paisa
+        self._ask_cache: dict[str, int] = {}  # best ask in paisa
 
         logger.info(f"PaperBroker initialized with capital: {self._paisa_to_rupees(initial_capital):.2f} INR")
 
@@ -163,6 +165,20 @@ class PaperBroker(BaseBroker):
         self._ltp_cache[instrument_key] = price
         self._ltp_timestamp[instrument_key] = datetime.now(ZoneInfo("Asia/Kolkata"))
 
+    def update_quote(
+        self,
+        instrument_key: str,
+        price: int,
+        bid: int | None = None,
+        ask: int | None = None,
+    ) -> None:
+        """Update LTP + bid/ask from live tick. Use for accurate paper fills."""
+        self.update_ltp(instrument_key, price)
+        if bid and bid > 0:
+            self._bid_cache[instrument_key] = bid
+        if ask and ask > 0:
+            self._ask_cache[instrument_key] = ask
+
     def _calculate_fill_price(self, instrument_key: str, side: OrderSide, order_type: OrderType, limit_price: Optional[int] = None) -> int:
         """Calculate simulated fill price with slippage.
 
@@ -178,19 +194,20 @@ class PaperBroker(BaseBroker):
         ltp = self._get_ltp(instrument_key)
 
         if order_type == OrderType.LIMIT and limit_price is not None:
-            # For limit orders, fill at limit price (or better)
             base_price = limit_price
+        elif side == OrderSide.BUY:
+            # Prefer ask price for buys (more realistic than LTP + slippage)
+            base_price = self._ask_cache.get(instrument_key, 0) or ltp
         else:
-            base_price = ltp
+            # Prefer bid price for sells (more realistic than LTP - slippage)
+            base_price = self._bid_cache.get(instrument_key, 0) or ltp
 
-        # Apply slippage (unfavorable direction)
+        # Apply slippage (unfavorable direction) on top of bid/ask
         slippage = int(base_price * self._slippage_pct)
 
         if side == OrderSide.BUY:
-            # Buy at higher price (worse for buyer)
             fill_price = base_price + slippage
         else:
-            # Sell at lower price (worse for seller)
             fill_price = base_price - slippage
 
         return fill_price

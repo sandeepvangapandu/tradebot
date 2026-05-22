@@ -1,8 +1,8 @@
 {
   "name": "MACD_Crossover_BankNifty",
   "version": "5.0.0",
-  "description": "MACD crossover with VWAP and RSI — BankNifty ATM options with trailing SL",
-  "enabled": false,
+  "description": "MACD crossover with VWAP and RSI \u2014 BankNifty ATM options with trailing SL",
+  "enabled": true,
   "underlying": {
     "instrument_key": "NSE_INDEX|Nifty Bank",
     "symbol": "BANKNIFTY",
@@ -26,19 +26,27 @@
           "indicator": "MACD",
           "comparison": "crosses_above",
           "against": "MACD_Signal",
-          "parameters": { "fast": 12, "slow": 26, "signal": 9 }
+          "parameters": {
+            "fast": 12,
+            "slow": 26,
+            "signal": 9
+          }
         },
         {
           "indicator": "RSI",
           "comparison": ">",
           "value": 50,
-          "parameters": { "period": 14 }
+          "parameters": {
+            "period": 14
+          }
         },
         {
           "indicator": "RSI",
           "comparison": "<",
           "value": 70,
-          "parameters": { "period": 14 }
+          "parameters": {
+            "period": 14
+          }
         },
         {
           "indicator": "Spot_Price",
@@ -57,19 +65,27 @@
           "indicator": "MACD",
           "comparison": "crosses_below",
           "against": "MACD_Signal",
-          "parameters": { "fast": 12, "slow": 26, "signal": 9 }
+          "parameters": {
+            "fast": 12,
+            "slow": 26,
+            "signal": 9
+          }
         },
         {
           "indicator": "RSI",
           "comparison": "<",
           "value": 55,
-          "parameters": { "period": 14 }
+          "parameters": {
+            "period": 14
+          }
         },
         {
           "indicator": "RSI",
           "comparison": ">",
           "value": 30,
-          "parameters": { "period": 14 }
+          "parameters": {
+            "period": 14
+          }
         },
         {
           "indicator": "Spot_Price",

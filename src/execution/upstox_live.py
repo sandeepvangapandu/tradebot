@@ -613,7 +613,7 @@ class UpstoxLiveBroker(BaseBroker):
             BrokerError: If fetching positions fails.
         """
         try:
-            response = self._api_call_with_retry(self._portfolio_api.get_positions)
+            response = self._api_call_with_retry(self._portfolio_api.get_positions, "2.0")
             positions = []
 
             for pos_data in response.data or []:
@@ -672,7 +672,7 @@ class UpstoxLiveBroker(BaseBroker):
             BrokerError: If fetching holdings fails.
         """
         try:
-            response = self._api_call_with_retry(self._portfolio_api.get_holdings)
+            response = self._api_call_with_retry(self._portfolio_api.get_holdings, "2.0")
             holdings = []
 
             for holding in response.data or []:
@@ -759,7 +759,7 @@ class UpstoxLiveBroker(BaseBroker):
             BrokerError: If fetching funds fails.
         """
         try:
-            response = self._api_call_with_retry(self._user_api.get_user_funds_margin)
+            response = self._api_call_with_retry(self._user_api.get_user_fund_margin, "2.0")
 
             # Get equity segment data (default)
             segment_data = None

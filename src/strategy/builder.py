@@ -393,6 +393,13 @@ class StrategyConfig(BaseModel):
         description="Risk management overrides: {max_open_positions, avoid_overnight, ...}",
     )
 
+    # Segment filter: limits which instrument segments this strategy applies to.
+    # E.g. "NSE_EQ", "NSE_FO", "NSE_INDEX", or "*" / None for no restriction.
+    segment: Optional[str] = Field(
+        default=None,
+        description="Restrict strategy to instruments whose key starts with this segment prefix",
+    )
+
     # Additional params
     params: dict[str, Any] = Field(default_factory=dict)
 

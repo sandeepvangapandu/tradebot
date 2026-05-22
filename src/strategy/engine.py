@@ -1690,12 +1690,29 @@ class StrategyEngine:
                         )
                         continue
 
-            # Instrument key
-            instrument_key: Optional[str] = None
-            if strategy.underlying and isinstance(strategy.underlying, dict):
-                instrument_key = strategy.underlying.get("instrument_key")
-            if not instrument_key or instrument_key not in bars:
+            # Instrument key — segment-based routing.
+            # The backtest harness always passes a single-instrument bars dict,
+            # so `next(iter(bars))` is the actual instrument being evaluated.
+            actual_key: Optional[str] = next(iter(bars)) if bars else None
+            if actual_key is None:
                 continue
+
+            seg = getattr(strategy, "segment", None)
+            if seg and seg != "*":
+                # Strict segment match: only evaluate if the bar's instrument
+                # key belongs to the requested segment.
+                seg_prefix = seg.rstrip("|") + "|"
+                if not actual_key.startswith(seg_prefix):
+                    continue
+                instrument_key = actual_key
+            else:
+                # No segment restriction — try configured underlying first,
+                # then fall back to the actual instrument (legacy behaviour).
+                instrument_key = None
+                if strategy.underlying and isinstance(strategy.underlying, dict):
+                    instrument_key = strategy.underlying.get("instrument_key")
+                if not instrument_key or instrument_key not in bars:
+                    instrument_key = actual_key
 
             if len(bars[instrument_key]) < 2:
                 continue

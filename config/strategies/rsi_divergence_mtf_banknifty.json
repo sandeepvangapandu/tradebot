@@ -1,7 +1,7 @@
 {
   "name": "RSI_Divergence_MTF_BankNifty",
   "description": "RSI divergence with multi-timeframe confirmation for reversals",
-  "enabled": false,
+  "enabled": true,
   "underlying": {
     "instrument_key": "NSE_INDEX|Nifty Bank",
     "symbol": "BANKNIFTY",

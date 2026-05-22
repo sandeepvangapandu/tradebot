@@ -1,7 +1,7 @@
 {
   "name": "Gap_Fade_BankNifty",
   "description": "Fade small gaps (<0.5%) expecting mean reversion to previous close",
-  "enabled": false,
+  "enabled": true,
   "underlying": {
     "instrument_key": "NSE_INDEX|Nifty Bank",
     "symbol": "BANKNIFTY",

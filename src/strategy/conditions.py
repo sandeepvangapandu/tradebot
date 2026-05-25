@@ -11,6 +11,7 @@ The Condition model uses the JSON-native format:
     - parameters: dict  (indicator params like {"fast": 12, "slow": 26})
 """
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, time, timedelta
 from enum import Enum
@@ -883,28 +884,29 @@ class ConditionEvaluator:
                 parameters.get("length", parameters.get("period", 14))
             )
 
-        # EMA with optional period suffix (e.g. EMA_9, EMA_21)
+        # EMA with optional period suffix (e.g. EMA_9, EMA9, EMA_21, EMA21)
         if name_lower.startswith("ema"):
             period = parameters.get("period")
             if period is None:
                 parts = name.split("_")
-                period = (
-                    int(parts[1])
-                    if len(parts) > 1 and parts[1].isdigit()
-                    else 20
-                )
+                if len(parts) > 1 and parts[1].isdigit():
+                    period = int(parts[1])
+                else:
+                    # Handle compact forms like "EMA9", "EMA21"
+                    m = re.search(r"\d+", name)
+                    period = int(m.group()) if m else 20
             return engine.ema(period)
 
-        # SMA with optional period suffix
+        # SMA with optional period suffix (e.g. SMA_20, SMA20)
         if name_lower.startswith("sma"):
             period = parameters.get("period")
             if period is None:
                 parts = name.split("_")
-                period = (
-                    int(parts[1])
-                    if len(parts) > 1 and parts[1].isdigit()
-                    else 20
-                )
+                if len(parts) > 1 and parts[1].isdigit():
+                    period = int(parts[1])
+                else:
+                    m = re.search(r"\d+", name)
+                    period = int(m.group()) if m else 20
             return engine.sma(period)
 
         # VWAP

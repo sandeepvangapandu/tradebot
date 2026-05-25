@@ -18,11 +18,10 @@
       "signal": "BUY",
       "conditions": [
         {
-          "indicator": "EMA",
+          "indicator": "EMA_9",
           "comparison": ">",
-          "against": "EMA",
-          "timeframe": "5min",
-          "parameters": {"fast_period": 9, "slow_period": 21}
+          "against": "EMA_21",
+          "timeframe": "5min"
         },
         {
           "indicator": "MACD_Histogram",
@@ -52,11 +51,10 @@
       "signal": "SELL",
       "conditions": [
         {
-          "indicator": "EMA",
+          "indicator": "EMA_9",
           "comparison": "<",
-          "against": "EMA",
-          "timeframe": "5min",
-          "parameters": {"fast_period": 9, "slow_period": 21}
+          "against": "EMA_21",
+          "timeframe": "5min"
         },
         {
           "indicator": "MACD_Histogram",

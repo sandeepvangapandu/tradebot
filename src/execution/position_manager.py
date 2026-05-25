@@ -1822,6 +1822,25 @@ class PositionManager:
             # Determine exit side
             exit_side = OrderSide.SELL if position.side == OrderSide.BUY else OrderSide.BUY
 
+            # If partial profit exits already consumed the full position, just mark closed.
+            if position.remaining_quantity <= 0:
+                with self._lock:
+                    position.is_closed = True
+                    position.exit_time = self._now()
+                    position.exit_price = exit_price
+                    position.exit_reason = reason
+                    existing = self._instrument_to_position.get(position.instrument_key)
+                    if isinstance(existing, list):
+                        try:
+                            existing.remove(position.position_id)
+                        except ValueError:
+                            pass
+                        if not existing:
+                            del self._instrument_to_position[position.instrument_key]
+                    elif position.instrument_key in self._instrument_to_position:
+                        del self._instrument_to_position[position.instrument_key]
+                return True
+
             # Place exit order for remaining quantity
             exit_order = Order(
                 instrument_key=position.instrument_key,

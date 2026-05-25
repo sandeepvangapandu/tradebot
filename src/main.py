@@ -445,7 +445,7 @@ class TradingBot:
         # 6. Initialize broker, partial profit manager, and order/position managers
         self.paper_broker = PaperBroker(
             initial_capital=self.settings.capital,
-            slippage_pct=self.settings.slippage_pct,
+            slippage_pct=self.settings.slippage_pct / 100,  # settings stores percent; broker needs decimal
         )
         self.partial_profit_manager = PartialProfitManager()
         self.position_manager = PositionManager(

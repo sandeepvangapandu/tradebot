@@ -380,7 +380,7 @@ class BacktestHarness:
 
         self._paper_broker = PaperBroker(
             initial_capital=self._capital,
-            slippage_pct=settings.slippage_pct,
+            slippage_pct=settings.slippage_pct / 100,  # settings stores percent; broker needs decimal
         )
         self._partial_profit = PartialProfitManager()
         self._risk_manager = RiskManager(

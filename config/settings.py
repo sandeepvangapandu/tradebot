@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     max_capital_deployment_pct: int = 95
     consecutive_loss_pause: int = 3
     pause_minutes: int = 30
-    slippage_pct: float = 0.05
+    slippage_pct: float = 0.05    # in percent: 0.05 means 0.05% (divide by 100 before using as decimal)
 
     # Notifications
     telegram_bot_token: str = ""

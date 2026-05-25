@@ -1704,14 +1704,26 @@ class StrategyEngine:
                 seg_prefix = seg.rstrip("|") + "|"
                 if not actual_key.startswith(seg_prefix):
                     continue
+                # If underlying.instrument_key explicitly set, it must match too
+                # (prevents Nifty50 straddle from firing on BankNifty and vice versa).
+                _und_key: Optional[str] = None
+                if strategy.underlying and isinstance(strategy.underlying, dict):
+                    _und_key = strategy.underlying.get("instrument_key")
+                if _und_key and _und_key != actual_key:
+                    continue
                 instrument_key = actual_key
             else:
-                # No segment restriction — try configured underlying first,
-                # then fall back to the actual instrument (legacy behaviour).
+                # No segment restriction — use configured underlying.instrument_key.
+                # If it doesn't match the current bars, skip (strategy not for this instrument).
+                # Only fall back to actual_key when no underlying is configured at all.
                 instrument_key = None
                 if strategy.underlying and isinstance(strategy.underlying, dict):
                     instrument_key = strategy.underlying.get("instrument_key")
-                if not instrument_key or instrument_key not in bars:
+                if instrument_key and instrument_key not in bars:
+                    # Underlying explicitly set but not in current bars → skip.
+                    continue
+                if not instrument_key:
+                    # No underlying configured → run on whatever instrument is being evaluated.
                     instrument_key = actual_key
 
             if len(bars[instrument_key]) < 2:

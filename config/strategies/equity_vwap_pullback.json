@@ -26,14 +26,14 @@
         {
           "indicator": "RSI",
           "comparison": ">",
-          "value": 38,
+          "value": 42,
           "timeframe": "5min",
           "parameters": {"period": 14}
         },
         {
           "indicator": "RSI",
           "comparison": "<",
-          "value": 58,
+          "value": 62,
           "timeframe": "5min",
           "parameters": {"period": 14}
         }
@@ -52,14 +52,14 @@
         {
           "indicator": "RSI",
           "comparison": "<",
-          "value": 62,
+          "value": 58,
           "timeframe": "5min",
           "parameters": {"period": 14}
         },
         {
           "indicator": "RSI",
           "comparison": ">",
-          "value": 42,
+          "value": 38,
           "timeframe": "5min",
           "parameters": {"period": 14}
         }
@@ -67,8 +67,8 @@
     }
   ],
   "exit_rules": {
-    "stop_loss_pct": 0.5,
-    "target_pct": 0.8,
+    "stop_loss_pct": 0.6,
+    "target_pct": 1.5,
     "time_based_exit": "14:30:00",
     "max_holding_minutes": 60
   },
@@ -78,7 +78,7 @@
   },
   "risk_management": {
     "max_open_positions": 3,
-    "max_trades_per_day": 5
+    "max_trades_per_day": 3
   },
   "params": {
     "strategy_type": "mean_reversion"

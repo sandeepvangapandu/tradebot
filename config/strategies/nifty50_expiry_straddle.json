@@ -1,13 +1,13 @@
 {
   "name": "Expiry_Straddle_Sell_Nifty50",
   "description": "Sell ATM straddle on Nifty50 weekly expiry day (Thursday) for maximum theta decay",
-  "enabled": true,
+  "enabled": false,
   "underlying": {
     "instrument_key": "NSE_INDEX|Nifty 50",
     "symbol": "NIFTY",
     "segment": "NSE_FO"
   },
-  "segment": "NSE_FO",
+  "segment": "NSE_INDEX",
   "trading_hours": {
     "start_time": "10:00:00",
     "end_time": "14:00:00",
@@ -39,14 +39,14 @@
     }
   ],
   "exit_rules": {
-    "stop_loss_pct": 35.0,
-    "target_pct": 40.0,
+    "stop_loss_pct": 50.0,
+    "target_pct": 35.0,
     "time_based_exit": "14:00:00",
     "max_holding_minutes": 240,
     "trailing_stop_loss": {
       "enabled": true,
-      "activation_pct": 20.0,
-      "trail_pct": 10.0
+      "activation_pct": 25.0,
+      "trail_pct": 15.0
     }
   },
   "position_sizing": {
@@ -64,8 +64,8 @@
     "min_iv": 10,
     "max_iv": 60,
     "max_adx": 50,
-    "entry_window_start": "10:00:00",
-    "entry_window_end": "11:30:00",
+    "entry_window_start": "09:30:00",
+    "entry_window_end": "10:15:00",
     "emergency_exit_move_pct": 2.0,
     "require_confluence": false,
     "strategy_type": "theta_positive",

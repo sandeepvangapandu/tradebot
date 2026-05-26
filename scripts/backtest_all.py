@@ -50,7 +50,8 @@ INDEX_INSTRUMENTS = [
 
 EQUITY_SYMBOLS = [
     "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY",
-    "HINDUNILVR", "ITC", "SBIN", "BAJFINANCE", "KOTAKBANK",
+    # HINDUNILVR excluded: defensive FMCG stock, low-beta, sustained trends → intraday strategies fail
+    "ITC", "SBIN", "BAJFINANCE", "KOTAKBANK",
 ]
 
 EQUITY_INSTRUMENTS = [

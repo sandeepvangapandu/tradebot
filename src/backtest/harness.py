@@ -179,6 +179,7 @@ class BacktestHarness:
         option_premium_pct: float = 0.5,
         option_delta: float = 0.5,
         strategy_only: Optional[str] = None,
+        entry_anchor_time: Optional[dt_time] = None,
     ) -> None:
         self._settings = get_settings()
         self._capital = capital or self._settings.capital
@@ -194,21 +195,32 @@ class BacktestHarness:
 
         # Load historical data
         loader = BacktestDataLoader()
-        df = loader.load_csv(data_file, start_date=start_date, end_date=end_date)
+        raw_df = loader.load_csv(data_file, start_date=start_date, end_date=end_date)
         if prices_in_rupees:
             for col in ["open", "high", "low", "close"]:
-                df[col] = (df[col] * 100).astype(int)
+                raw_df[col] = (raw_df[col] * 100).astype(int)
 
         if straddle_proxy:
-            df = self._transform_to_straddle_proxy(df)
+            proxy_df = self._transform_to_straddle_proxy(raw_df, anchor_time=entry_anchor_time)
         elif options_proxy:
-            df = self._transform_to_options_proxy(df)
+            proxy_df = self._transform_to_options_proxy(raw_df)
+        else:
+            proxy_df = raw_df
 
-        self._master_df = df
-        self._data: dict[str, pd.DataFrame] = {instrument_key: df}
+        # Keep raw underlying data so strategy engine computes indicators on real
+        # prices (not synthetic premiums). Execution pipeline uses proxy prices.
+        self._raw_df = raw_df
+        self._raw_data: dict[str, pd.DataFrame] = {instrument_key: raw_df}
+
+        self._master_df = proxy_df
+        self._data: dict[str, pd.DataFrame] = {instrument_key: proxy_df}
 
         # Bar provider (shared BarBuilder + HistoricalDataFetcher interface)
         self._bar_provider = BacktestBarProvider(self._data)
+        # Raw bar provider: feeds underlying prices to strategy engine so indicators
+        # (EMA, RSI, MACD, Supertrend) are computed on actual index/equity prices,
+        # not on synthetic option premiums (fixes Critical #1).
+        self._raw_bar_provider = BacktestBarProvider(self._raw_data)
 
         # Initialize database (SessionLocal is set as a module-level var by init_db)
         db_url = database_url or self._settings.database_url
@@ -286,32 +298,54 @@ class BacktestHarness:
         )
         return df
 
-    def _transform_to_straddle_proxy(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _transform_to_straddle_proxy(
+        self, df: pd.DataFrame, anchor_time: Optional[dt_time] = None
+    ) -> pd.DataFrame:
         """Transform index OHLCV into synthetic ATM Straddle premium OHLCV.
 
         For a 0DTE straddle, premium consists of Time Value + Intrinsic Value.
         At open (9:15 AM), Intrinsic = 0. Total Premium = 2 * (premium_pct * ref).
         At close (15:30 PM), Time Value = 0. Total Premium = |Index - ref|.
-        
-        We linearly interpolate Time Value over the day from Open to Close,
-        and add pure absolute distance for Intrinsic Value.
-        
+
+        The reference price (straddle strike anchor) is computed per day from the
+        first bar at-or-after ``anchor_time`` (default: 9:15 AM day open). Setting
+        ``anchor_time`` to the strategy's entry_window_start (e.g. 10:00 AM) avoids
+        the ITM-straddle artifact when market moves significantly before entry.
+
         Args:
             df: Raw index OHLCV dataframe.
+            anchor_time: Per-day anchor time for the straddle strike. Defaults to
+                the first bar of each day (9:15 AM open).
 
         Returns:
             New dataframe representing combined Straddle premium.
         """
         df = df.copy()
-        
-        # Reference = opening index price
+
         day_key = df.index.date
-        day_open = pd.Series(df["open"].values, index=day_key).groupby(level=0).first()
-        
-        # Broadcast reference back to full index
-        ref_series = pd.Series(
-            [day_open.loc[d] for d in day_key], index=df.index, dtype="float64"
-        )
+
+        if anchor_time is None:
+            # Default: use the first bar of each day (9:15 AM open)
+            day_open = pd.Series(df["open"].values, index=day_key).groupby(level=0).first()
+            ref_series = pd.Series(
+                [day_open.loc[d] for d in day_key], index=df.index, dtype="float64"
+            )
+        else:
+            # Use the first bar at-or-after anchor_time as the strike reference.
+            # This prevents the ITM straddle artefact when entry fires after a
+            # large early-morning index move (High #4 fix).
+            day_anchor: dict[object, float] = {}
+            for ts, row in df.iterrows():
+                d = ts.date()
+                if d not in day_anchor and ts.time() >= anchor_time:
+                    day_anchor[d] = float(row["open"])
+            # Fall back to day open for days with no bar after anchor_time
+            day_open_fb = pd.Series(df["open"].values, index=day_key).groupby(level=0).first()
+            ref_series = pd.Series(
+                [day_anchor.get(d, float(day_open_fb.loc[d])) for d in day_key],
+                index=df.index,
+                dtype="float64",
+            )
         
         # Total initial Straddle premium = 2 * (1 side premium)
         # Using twice the base factor
@@ -362,11 +396,13 @@ class BacktestHarness:
         df["low"] = true_low
         df["close"] = new_close
 
+        first_ref = float(ref_series.iloc[0]) if len(ref_series) else 0
         logger.warning(
             "WARNING: Experimental synthetic STRADDLE proxy enabled | premium_pct={} | "
-            "first-day combined premium ≈ {} paisa.",
+            "anchor={} | first-day combined premium ≈ {} paisa.",
             self._option_premium_pct * 2.0,
-            int(day_open.iloc[0] * base_factor) if len(day_open) else 0,
+            anchor_time or "09:15 (day open)",
+            int(first_ref * base_factor),
         )
         return df
 
@@ -395,7 +431,7 @@ class BacktestHarness:
             max_consecutive_losses=settings.consecutive_loss_pause,
             pause_minutes=settings.pause_minutes,
         )
-        self._strategy_quarantine = StrategyQuarantine()
+        self._strategy_quarantine = StrategyQuarantine(backtest_mode=True)
 
         # Learning system — backtest_mode=True skips lesson persistence
         self._learning = LearningIntegration(
@@ -435,13 +471,10 @@ class BacktestHarness:
             on_position_close=self._learning.on_position_closed,
         )
 
-        # Kelly position sizer (optional)
+        # Kelly position sizer disabled in backtest: no live trade history means
+        # Kelly falls back to its 2% capital fraction, silently overriding the
+        # config quantity to qty=1 for all trades. Backtest uses config quantity.
         position_sizer = None
-        if _HAS_KELLY:
-            try:
-                position_sizer = KellyPositionSizer()
-            except Exception as exc:
-                logger.warning(f"KellyPositionSizer unavailable: {exc}")
 
         # Research module (optional — gracefully degrades without live data)
         trade_analyzer = None
@@ -619,6 +652,7 @@ class BacktestHarness:
 
             # --- Advance bar provider (no lookahead) ---
             self._bar_provider.advance(self._instrument_key, i)
+            self._raw_bar_provider.advance(self._instrument_key, i)
 
             # --- Update broker LTP so MARKET orders get correct fill price ---
             self._paper_broker.update_ltp(self._instrument_key, current_price)
@@ -730,6 +764,9 @@ class BacktestHarness:
 
             # --- Phase 5: Signal generation (same ConditionEvaluator as live) ---
             # Pass the bar_provider slice (no lookahead) not self._data (full df)
+            # Note: straddle proxy uses proxy premium data for ATM_IV computation.
+            # Raw data (self._raw_bar_provider) is stored for future use when index
+            # directional strategies are re-enabled with proper indicator decoupling.
             current_bars = {
                 self._instrument_key: self._bar_provider.get_bars(
                     self._instrument_key, timeframe=1

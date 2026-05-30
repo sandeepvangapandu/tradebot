@@ -182,6 +182,10 @@ class PaperBroker(BaseBroker):
     def _calculate_fill_price(self, instrument_key: str, side: OrderSide, order_type: OrderType, limit_price: Optional[int] = None) -> int:
         """Calculate simulated fill price with slippage.
 
+        When live bid/ask data is present, use it directly — the spread IS the
+        transaction cost. Adding slippage on top of an ask price double-penalizes
+        the trade. Slippage is only added when falling back to LTP (no quote data).
+
         Args:
             instrument_key: The instrument identifier
             side: BUY or SELL
@@ -194,23 +198,18 @@ class PaperBroker(BaseBroker):
         ltp = self._get_ltp(instrument_key)
 
         if order_type == OrderType.LIMIT and limit_price is not None:
-            base_price = limit_price
-        elif side == OrderSide.BUY:
-            # Prefer ask price for buys (more realistic than LTP + slippage)
-            base_price = self._ask_cache.get(instrument_key, 0) or ltp
-        else:
-            # Prefer bid price for sells (more realistic than LTP - slippage)
-            base_price = self._bid_cache.get(instrument_key, 0) or ltp
-
-        # Apply slippage (unfavorable direction) on top of bid/ask
-        slippage = int(base_price * self._slippage_pct)
+            return limit_price
 
         if side == OrderSide.BUY:
-            fill_price = base_price + slippage
+            ask = self._ask_cache.get(instrument_key, 0)
+            if ask > 0:
+                return ask  # spread already captures cost; no additional slippage
+            return ltp + int(ltp * self._slippage_pct)
         else:
-            fill_price = base_price - slippage
-
-        return fill_price
+            bid = self._bid_cache.get(instrument_key, 0)
+            if bid > 0:
+                return bid  # spread already captures cost; no additional slippage
+            return max(0, ltp - int(ltp * self._slippage_pct))
 
     def _calculate_charges(
         self,
@@ -236,7 +235,12 @@ class PaperBroker(BaseBroker):
         turnover_rupees = turnover / 100.0
 
         # Determine segment and calculate charges
-        is_fno = "NFO|" in instrument_key or "BFO|" in instrument_key or "MCX|" in instrument_key
+        is_fno = (
+            "NFO|" in instrument_key
+            or "BFO|" in instrument_key
+            or "MCX|" in instrument_key
+            or "NSE_INDEX|" in instrument_key  # index straddles use F&O fee structure
+        )
         is_delivery = product_type == ProductType.CNC
 
         charges = {}

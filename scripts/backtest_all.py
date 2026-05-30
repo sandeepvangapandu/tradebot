@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import time as dt_time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -39,12 +40,16 @@ INDEX_INSTRUMENTS = [
         "data_file": "data/backtest/banknifty_1m_6mo.csv",
         "instrument_key": "NSE_INDEX|Nifty Bank",
         "straddle_proxy": True,
+        # Anchor straddle strike at 10:00 AM (strategy entry window) not 9:15 AM open
+        # so the proxy doesn't simulate a deeply ITM straddle after early moves (High #4 fix)
+        "entry_anchor_time": dt_time(10, 0),
     },
     {
         "name": "Nifty50",
         "data_file": "data/backtest/nifty50_1m_6mo.csv",
         "instrument_key": "NSE_INDEX|Nifty 50",
         "straddle_proxy": True,
+        "entry_anchor_time": dt_time(10, 0),
     },
 ]
 
@@ -79,6 +84,7 @@ def run_one(inst: dict) -> dict | None:
             strategy_dir="config/strategies",
             capital=100_000_00,
             straddle_proxy=inst["straddle_proxy"],
+            entry_anchor_time=inst.get("entry_anchor_time"),
         )
         results = h.run()
         m = results.metrics

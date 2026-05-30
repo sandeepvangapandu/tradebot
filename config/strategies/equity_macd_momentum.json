@@ -1,0 +1,120 @@
+{
+  "name": "MACD_Momentum_Equity",
+  "description": "High-conviction MACD momentum strategy: enter on MACD histogram cross + volume surge + PDH/PDL breakout. Targets 4-5% moves on strong catalyst days. ~2 trades/month per stock.",
+  "enabled": true,
+  "segment": "NSE_EQ",
+  "trading_hours": {
+    "start_time": "10:00:00",
+    "end_time": "13:30:00",
+    "timezone": "Asia/Kolkata",
+    "days": [0, 1, 2, 3, 4]
+  },
+  "timeframes": {
+    "primary": "15min"
+  },
+  "entry_sets": [
+    {
+      "name": "MACD_Mom_Long",
+      "signal": "BUY",
+      "conditions": [
+        {
+          "indicator": "MACD_Histogram",
+          "comparison": "crosses_above",
+          "value": 0,
+          "timeframe": "15min",
+          "parameters": {"fast": 12, "slow": 26, "signal": 9}
+        },
+        {
+          "indicator": "Volume",
+          "comparison": ">",
+          "value": 1.5,
+          "timeframe": "15min",
+          "parameters": {"type": "average_multiplier", "period": 20}
+        },
+        {
+          "indicator": "Spot_Price",
+          "comparison": ">",
+          "against": "PDH",
+          "timeframe": "15min"
+        },
+        {
+          "indicator": "RSI",
+          "comparison": ">",
+          "value": 52,
+          "timeframe": "15min",
+          "parameters": {"period": 14}
+        },
+        {
+          "indicator": "RSI",
+          "comparison": "<",
+          "value": 72,
+          "timeframe": "15min",
+          "parameters": {"period": 14}
+        }
+      ]
+    },
+    {
+      "name": "MACD_Mom_Short",
+      "signal": "SELL",
+      "conditions": [
+        {
+          "indicator": "MACD_Histogram",
+          "comparison": "crosses_below",
+          "value": 0,
+          "timeframe": "15min",
+          "parameters": {"fast": 12, "slow": 26, "signal": 9}
+        },
+        {
+          "indicator": "Volume",
+          "comparison": ">",
+          "value": 1.5,
+          "timeframe": "15min",
+          "parameters": {"type": "average_multiplier", "period": 20}
+        },
+        {
+          "indicator": "Spot_Price",
+          "comparison": "<",
+          "against": "PDL",
+          "timeframe": "15min"
+        },
+        {
+          "indicator": "RSI",
+          "comparison": "<",
+          "value": 48,
+          "timeframe": "15min",
+          "parameters": {"period": 14}
+        },
+        {
+          "indicator": "RSI",
+          "comparison": ">",
+          "value": 28,
+          "timeframe": "15min",
+          "parameters": {"period": 14}
+        }
+      ]
+    }
+  ],
+  "exit_rules": {
+    "stop_loss_pct": 1.5,
+    "target_pct": 4.5,
+    "time_based_exit": "14:45:00",
+    "max_holding_minutes": 240,
+    "trailing_stop_loss": {
+      "enabled": true,
+      "activation_pct": 2.0,
+      "trail_pct": 1.0
+    }
+  },
+  "position_sizing": {
+    "method": "fixed_quantity",
+    "quantity": 15
+  },
+  "risk_management": {
+    "max_open_positions": 1,
+    "max_trades_per_day": 1
+  },
+  "params": {
+    "strategy_type": "momentum",
+    "timeframe": "15min"
+  }
+}

@@ -184,6 +184,7 @@ class StrategyQuarantine:
         max_drawdown_pct: float = 10.0,
         auto_release_hours: int = 24,
         reduced_size_pct: float = 50.0,
+        backtest_mode: bool = False,
     ) -> None:
         self._lock = threading.Lock()
 
@@ -193,23 +194,26 @@ class StrategyQuarantine:
         self.max_drawdown_pct: float = max_drawdown_pct
         self.auto_release_hours: int = auto_release_hours
         self.reduced_size_pct: float = reduced_size_pct
+        self._backtest_mode: bool = backtest_mode
 
         # In-memory cache of quarantined strategies (strategy_name -> reason)
         self._quarantined: dict[str, str] = {}
         # Track reduced size status after release (strategy_name -> bool)
         self._reduced_size: dict[str, bool] = {}
 
-        # Load existing quarantines from database
-        self._load_quarantine_state()
+        if not backtest_mode:
+            # Load existing quarantines from database (skip in backtest — no DB state)
+            self._load_quarantine_state()
 
         logger.info(
             "StrategyQuarantine initialized | min_trades={} | max_losses={} | "
-            "max_drawdown={}% | auto_release={}h | reduced_size={}%",
+            "max_drawdown={}% | auto_release={}h | reduced_size={}% | backtest={}",
             min_trades_for_win_rate,
             max_consecutive_losses,
             max_drawdown_pct,
             auto_release_hours,
             reduced_size_pct,
+            backtest_mode,
         )
 
     # ------------------------------------------------------------------
@@ -314,6 +318,9 @@ class StrategyQuarantine:
             strategy_name: Name of the strategy that executed the trade.
             pnl: Realized P&L in paisa (positive for profit, negative for loss).
         """
+        if self._backtest_mode:
+            return  # no DB writes or quarantine checks during backtest
+
         with self._lock:
             try:
                 with get_session() as session:
@@ -433,6 +440,10 @@ class StrategyQuarantine:
     def check_strategy(self, strategy_name: str) -> tuple[bool, Optional[str]]:
         """Check if a strategy is allowed to trade.
 
+        In backtest mode always returns (True, None) — quarantine only applies
+        to live trading where stale DB state and cross-day performance tracking
+        are meaningful.
+
         Args:
             strategy_name: Name of the strategy to check.
 
@@ -440,6 +451,9 @@ class StrategyQuarantine:
             Tuple of (allowed: bool, reason: Optional[str]).
             If allowed is False, reason contains the quarantine reason.
         """
+        if self._backtest_mode:
+            return True, None
+
         with self._lock:
             # First check auto-release
             self._auto_release_check_internal()

@@ -1264,13 +1264,19 @@ class PositionManager:
                             position_to_close = position
                             reason = "RL_EXIT"
                         elif rl_action == "TIGHTEN_SL" and position.stop_loss_price is not None:
-                            # Tighten SL by 30% toward current price
+                            # Write advisory tighter SL to momentum_trailing_sl_price so it feeds
+                            # through _update_momentum_trailing_stop's promotion logic (only advances
+                            # in the favourable direction, never loosens the hard SL directly).
                             if position.side.value == "BUY":
                                 new_sl = position.stop_loss_price + int((price - position.stop_loss_price) * 0.3)
-                                position.stop_loss_price = max(position.stop_loss_price, new_sl)
+                                new_sl = max(position.stop_loss_price, new_sl)
+                                if position.momentum_trailing_sl_price is None or new_sl > position.momentum_trailing_sl_price:
+                                    position.momentum_trailing_sl_price = new_sl
                             else:
                                 new_sl = position.stop_loss_price - int((position.stop_loss_price - price) * 0.3)
-                                position.stop_loss_price = min(position.stop_loss_price, new_sl)
+                                new_sl = min(position.stop_loss_price, new_sl)
+                                if position.momentum_trailing_sl_price is None or new_sl < position.momentum_trailing_sl_price:
+                                    position.momentum_trailing_sl_price = new_sl
                     except Exception as _rl_exc:
                         logger.debug("rl_exit_agent.get_action failed: {}", _rl_exc)
 

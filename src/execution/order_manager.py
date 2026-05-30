@@ -884,19 +884,23 @@ class OrderManager:
                     logger.debug("Entry optimizer not available, skipping optimization")
 
                 # Step 6.5: Score-tiered lot sizing
-                # Overrides fixed config quantity with 1/2/3 lots based on
-                # research conviction. Runs after research + Kelly so it has
-                # the final score but before lot-size rounding.
+                # Scales quantity 1x/2x/3x based on research conviction.
+                # Only applies to F&O instruments (lot_size > 1) where "lots" is
+                # a meaningful unit. For equity (lot_size=1) this would discard the
+                # config quantity (e.g. 15 units) and cap at 1–3 shares.
                 research_score_raw = (signal.metadata or {}).get("research_score", 0.0)
                 if research_score_raw and research_score_raw > 0:
                     _tier_lot_size = self._get_lot_size(instrument_key)
-                    _per_lot = max(_tier_lot_size, 1)
-                    _n_lots = self._score_to_n_lots(research_score_raw / 100.0)
-                    signal.quantity = _n_lots * _per_lot
-                    logger.info(
-                        "SCORE_TIERED_LOTS | %s | score=%.0f → %d lots (%d units)",
-                        signal.signal_id, research_score_raw, _n_lots, signal.quantity,
-                    )
+                    if _tier_lot_size > 1:
+                        # F&O: express size as whole lots
+                        _per_lot = _tier_lot_size
+                        _n_lots = self._score_to_n_lots(research_score_raw / 100.0)
+                        signal.quantity = _n_lots * _per_lot
+                        logger.info(
+                            "SCORE_TIERED_LOTS | %s | score=%.0f → %d lots (%d units)",
+                            signal.signal_id, research_score_raw, _n_lots, signal.quantity,
+                        )
+                    # else: equity — keep config quantity; score filtering handled by SKIP verdict
 
                 # Step 7: Validate quantity against lot size
                 lot_size = self._get_lot_size(instrument_key)

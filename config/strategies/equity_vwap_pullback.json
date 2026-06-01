@@ -100,11 +100,12 @@
   },
   "position_sizing": {
     "method": "fixed_quantity",
-    "quantity": 15
+    "quantity": 50
   },
   "risk_management": {
     "max_open_positions": 2,
-    "max_trades_per_day": 2
+    "max_trades_per_day": 4,
+    "max_position_size_pct": 50
   },
   "params": {
     "strategy_type": "mean_reversion"

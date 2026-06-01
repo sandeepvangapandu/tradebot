@@ -55,6 +55,18 @@ INSTRUMENTS = [
         "out_file":       "data/backtest/nifty50_1m_18mo.csv",
         "type":           "index",
     },
+    {
+        "name":           "FinNifty",
+        "instrument_key": "NSE_INDEX|Nifty Fin Service",
+        "out_file":       "data/backtest/finnifty_1m_18mo.csv",
+        "type":           "index",
+    },
+    {
+        "name":           "MidCpNifty",
+        "instrument_key": "NSE_INDEX|Nifty Midcap Select",
+        "out_file":       "data/backtest/midcpnifty_1m_18mo.csv",
+        "type":           "index",
+    },
     # Equities — core performers
     {
         "name":           "TCS",
@@ -91,6 +103,12 @@ INSTRUMENTS = [
         "name":           "BHARTIARTL",
         "instrument_key": "NSE_EQ|INE397D01024",
         "out_file":       "data/backtest/equity/bhartiartl_1m_18mo.csv",
+        "type":           "equity",
+    },
+    {
+        "name":           "TATAMOTORS",
+        "instrument_key": "NSE_EQ|INE155A01022",
+        "out_file":       "data/backtest/equity/tatamotors_1m_18mo.csv",
         "type":           "equity",
     },
 ]

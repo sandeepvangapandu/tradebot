@@ -1,7 +1,7 @@
 {
   "name": "Expiry_Straddle_Sell_Nifty50",
   "description": "Sell ATM straddle on Nifty50 weekly expiry day (Thursday) for maximum theta decay. Mirror of BankNifty straddle but for NSE_INDEX|Nifty 50 underlying. Nifty50 weekly options expire every Thursday.",
-  "enabled": false,
+  "enabled": true,
   "underlying": {
     "instrument_key": "NSE_INDEX|Nifty 50",
     "symbol": "NIFTY",
@@ -50,7 +50,7 @@
   },
   "position_sizing": {
     "method": "fixed_quantity",
-    "quantity": 2
+    "quantity": 10
   },
   "risk_management": {
     "max_open_positions": 1,

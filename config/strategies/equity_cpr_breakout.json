@@ -1,11 +1,11 @@
 {
   "name": "CPR_Breakout_Equity",
   "description": "Central Pivot Range (CPR) breakout on 5-min bars. Long when price crosses above TC (top central pivot) with EMA_9>EMA_21, price>VWAP, RSI>52, Volume>1.3x. Short when price crosses below BC (bottom central pivot) with opposite filters. CPR auto-computed from prior day OHLC. Very popular NSE intraday approach. SL 0.8% / target 1.8% (2.25:1 R:R, breakeven at 31% WR).",
-  "enabled": true,
+  "enabled": false,
   "segment": "NSE_EQ",
   "trading_hours": {
     "start_time": "09:30:00",
-    "end_time": "13:00:00",
+    "end_time": "14:00:00",
     "timezone": "Asia/Kolkata",
     "days": [0, 1, 2, 3, 4]
   },
@@ -38,14 +38,14 @@
         {
           "indicator": "RSI",
           "comparison": ">",
-          "value": 52,
+          "value": 50,
           "timeframe": "5min",
           "parameters": {"period": 14}
         },
         {
           "indicator": "Volume",
           "comparison": ">",
-          "value": 1.3,
+          "value": 1.1,
           "timeframe": "5min",
           "parameters": {"type": "average_multiplier", "period": 20}
         }
@@ -76,14 +76,14 @@
         {
           "indicator": "RSI",
           "comparison": "<",
-          "value": 48,
+          "value": 50,
           "timeframe": "5min",
           "parameters": {"period": 14}
         },
         {
           "indicator": "Volume",
           "comparison": ">",
-          "value": 1.3,
+          "value": 1.1,
           "timeframe": "5min",
           "parameters": {"type": "average_multiplier", "period": 20}
         }
@@ -98,7 +98,7 @@
   },
   "position_sizing": {
     "method": "fixed_quantity",
-    "quantity": 15
+    "quantity": 50
   },
   "risk_management": {
     "max_open_positions": 1,

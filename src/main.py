@@ -27,6 +27,12 @@ Shutdown sequence:
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+_root = str(Path(__file__).resolve().parent.parent)
+if _root not in sys.path:
+    sys.path.insert(0, _root)
+
 import queue
 import signal
 import subprocess
@@ -37,6 +43,12 @@ from datetime import datetime, time as dt_time
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(_root) / ".env")
+except ImportError:
+    pass
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -358,6 +370,26 @@ class TradingBot:
             logger.warning(f"Auto-authentication failed ({e}). Triggering interactive manual login...")
             from src.auth.manual_login import manual_login
             access_token = manual_login()
+
+        # Probe token against live API — catch stale/revoked tokens before they cause silent failures
+        try:
+            import upstox_client
+            _cfg = upstox_client.Configuration()
+            _cfg.access_token = access_token
+            _profile = upstox_client.UserApi(upstox_client.ApiClient(_cfg)).get_profile("2.0")
+            _name = getattr(getattr(_profile, "data", None), "user_name", "unknown")
+            logger.info(f"Token valid — logged in as: {_name}")
+        except Exception as _probe_err:
+            logger.error(f"Token probe FAILED: {_probe_err}")
+            logger.warning("Cached/env token is invalid or revoked. Triggering fresh login...")
+            # Clear stale cache so next startup doesn't reuse it
+            import os
+            stale_cache = Path("data/token_cache.json")
+            if stale_cache.exists():
+                stale_cache.unlink()
+            from src.auth.manual_login import manual_login
+            access_token = manual_login()
+
         logger.info("Authentication successful")
 
         # 3. Check if today is a trading day
@@ -676,8 +708,12 @@ class TradingBot:
                 options_to_subscribe.update(keys)
 
             if options_to_subscribe:
-                self.market_feed.subscribe(list(options_to_subscribe), mode="full")
-                logger.info("Dynamically subscribed to {} resolved option contracts", len(options_to_subscribe))
+                # Defer subscribe — WebSocket handshake not yet complete at this point.
+                # _subscribe_atm_options_once handles actual subscription on first tick.
+                logger.info(
+                    "Resolved {} option contracts — subscription deferred until WebSocket ready",
+                    len(options_to_subscribe),
+                )
 
             self.strategy_engine.start()
             logger.info("Strategy engine started")

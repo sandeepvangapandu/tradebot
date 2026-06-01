@@ -141,7 +141,7 @@ class MicroFeatureEngine:
 
         if ltp is None or volume is None:
             logger.warning(
-                "micro_features: skipping tick for %s — missing ltp or volume",
+                "micro_features: skipping tick for {} — missing ltp or volume",
                 instrument_key,
             )
             return

@@ -1,7 +1,7 @@
 {
   "name": "ORB_Breakout_Equity",
   "description": "Opening Range Breakout — first-hour only. EMA_9>EMA_21 trend alignment, RSI >60/<40, volume >1.5x avg. Cuts false breakouts vs prior 09:30-11:30 wide window.",
-  "enabled": true,
+  "enabled": false,
   "segment": "NSE_EQ",
   "trading_hours": {
     "start_time": "09:30:00",

@@ -1,17 +1,17 @@
 {
-  "name": "Expiry_Straddle_Sell_BankNifty",
-  "description": "Sell ATM straddle on BankNifty weekly expiry day (Wednesday) for maximum theta decay",
+  "name": "Expiry_Straddle_Sell_FinNifty",
+  "description": "Sell ATM straddle on FinNifty weekly expiry day (Tuesday) for theta decay. FinNifty (Nifty Financial Services) has weekly Tuesday expiry on NSE.",
   "enabled": true,
   "underlying": {
-    "instrument_key": "NSE_INDEX|Nifty Bank",
-    "symbol": "BANKNIFTY",
+    "instrument_key": "NSE_INDEX|Nifty Fin Service",
+    "symbol": "FINNIFTY",
     "segment": "NSE_FO"
   },
   "trading_hours": {
     "start_time": "10:00:00",
     "end_time": "14:00:00",
     "timezone": "Asia/Kolkata",
-    "days": [2]
+    "days": [1]
   },
   "instrument_selection": {
     "type": "options",
@@ -50,7 +50,7 @@
   },
   "position_sizing": {
     "method": "fixed_quantity",
-    "quantity": 50
+    "quantity": 10
   },
   "risk_management": {
     "max_open_positions": 1,
@@ -65,7 +65,7 @@
     "max_adx": 50,
     "entry_window_start": "10:00:00",
     "entry_window_end": "11:30:00",
-    "emergency_exit_move_pct": 2.0,
+    "emergency_exit_move_pct": 1.5,
     "require_confluence": false,
     "strategy_type": "theta_positive",
     "use_enhanced_filters": false,

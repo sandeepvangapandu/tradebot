@@ -40,7 +40,7 @@ from src.backtest.harness import BacktestHarness
 INDEX_INSTRUMENTS = [
     {
         "name": "BankNifty",
-        "data_file": "data/backtest/banknifty_1m_6mo.csv",
+        "data_file": "data/backtest/banknifty_1m_18mo.csv",
         "instrument_key": "NSE_INDEX|Nifty Bank",
         "straddle_proxy": True,
         # Anchor straddle strike at 10:00 AM (strategy entry window) not 9:15 AM open
@@ -49,31 +49,40 @@ INDEX_INSTRUMENTS = [
     },
     {
         "name": "Nifty50",
-        "data_file": "data/backtest/nifty50_1m_6mo.csv",
+        "data_file": "data/backtest/nifty50_1m_18mo.csv",
         "instrument_key": "NSE_INDEX|Nifty 50",
         "straddle_proxy": True,
         "entry_anchor_time": dt_time(10, 0),
     },
+    {
+        "name": "FinNifty",
+        "data_file": "data/backtest/finnifty_1m_18mo.csv",
+        "instrument_key": "NSE_INDEX|Nifty Fin Service",
+        "straddle_proxy": True,
+        "entry_anchor_time": dt_time(10, 0),
+    },
+    # MidCpNifty: Upstox API returns no historical data for this index — skipped
 ]
 
 EQUITY_SYMBOLS = [
     # Core performers
-    "TCS", "ICICIBANK", "SBIN", "INFY",
-    # High-beta trending
-    "ADANIENT", "BHARTIARTL",
-    # Removed synthetics with <20 trades: HINDALCO, JSWSTEEL, HCLTECH, TATAMOTORS
+    "TCS", "SBIN", "INFY",
+    # High-beta trending — primary P&L drivers
+    "ADANIENT", "BHARTIARTL", "TATAMOTORS",
+    # Removed: ICICIBANK (PF 0.34, 20% WR — catastrophic)
+    # Removed synthetics with <20 trades: HINDALCO, JSWSTEEL, HCLTECH
     # Removed low-PF real stocks: WIPRO, AXISBANK, BAJFINANCE, RELIANCE, HDFCBANK, KOTAKBANK, HINDUNILVR, ITC
 ]
 
 EQUITY_INSTRUMENTS = [
     {
         "name": sym,
-        "data_file": f"data/backtest/equity/{sym.lower()}_1m_6mo.csv",
+        "data_file": f"data/backtest/equity/{sym.lower()}_1m_18mo.csv",
         "instrument_key": f"NSE_EQ|{sym}",
         "straddle_proxy": False,
     }
     for sym in EQUITY_SYMBOLS
-    if Path(f"data/backtest/equity/{sym.lower()}_1m_6mo.csv").exists()
+    if Path(f"data/backtest/equity/{sym.lower()}_1m_18mo.csv").exists()
 ]
 
 ALL_INSTRUMENTS = INDEX_INSTRUMENTS + EQUITY_INSTRUMENTS
@@ -116,7 +125,7 @@ def run_one(inst: dict) -> dict | None:
             data_file=inst["data_file"],
             instrument_key=inst["instrument_key"],
             strategy_dir="config/strategies",
-            capital=100_000_00,
+            capital=500_000_00,
             straddle_proxy=inst["straddle_proxy"],
             entry_anchor_time=inst.get("entry_anchor_time"),
             database_url=database_url,

@@ -563,6 +563,7 @@ class BacktestHarness:
         self._strategy_engine = StrategyEngine(
             strategies_dir=self._strategy_dir,
             bars_provider=lambda: self._data,
+            account_equity_paisa=self._capital,
         )
         n = self._strategy_engine.load_strategies()
         logger.info(f"Loaded {n} strategies for backtest")

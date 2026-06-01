@@ -1,0 +1,124 @@
+{
+  "name": "EMA_Pullback_Trend",
+  "description": "EMA-9/21/50 pullback entry on 15-min bars. Long when price crosses back above EMA-9 during confirmed uptrend (EMA9>EMA21>EMA50) with RSI 45-70 and Volume>1.2x. Short mirror. Targets high-beta trending stocks. SL 0.8% / target 2.0% (2.5:1 R:R, breakeven at 29% WR).",
+  "enabled": false,
+  "segment": "NSE_EQ",
+  "trading_hours": {
+    "start_time": "09:45:00",
+    "end_time": "13:30:00",
+    "timezone": "Asia/Kolkata",
+    "days": [0, 1, 2, 3, 4]
+  },
+  "timeframes": {
+    "primary": "15min"
+  },
+  "entry_sets": [
+    {
+      "name": "EMA_Pullback_Long",
+      "signal": "BUY",
+      "conditions": [
+        {
+          "indicator": "EMA_9",
+          "comparison": ">",
+          "against": "EMA_21",
+          "timeframe": "15min"
+        },
+        {
+          "indicator": "EMA_21",
+          "comparison": ">",
+          "against": "EMA_50",
+          "timeframe": "15min"
+        },
+        {
+          "indicator": "Spot_Price",
+          "comparison": "crosses_above",
+          "against": "EMA_9",
+          "timeframe": "15min"
+        },
+        {
+          "indicator": "RSI",
+          "comparison": ">",
+          "value": 45,
+          "timeframe": "15min",
+          "parameters": {"period": 14}
+        },
+        {
+          "indicator": "RSI",
+          "comparison": "<",
+          "value": 70,
+          "timeframe": "15min",
+          "parameters": {"period": 14}
+        },
+        {
+          "indicator": "Volume",
+          "comparison": ">",
+          "value": 1.2,
+          "timeframe": "15min",
+          "parameters": {"type": "average_multiplier", "period": 20}
+        }
+      ]
+    },
+    {
+      "name": "EMA_Pullback_Short",
+      "signal": "SELL",
+      "conditions": [
+        {
+          "indicator": "EMA_9",
+          "comparison": "<",
+          "against": "EMA_21",
+          "timeframe": "15min"
+        },
+        {
+          "indicator": "EMA_21",
+          "comparison": "<",
+          "against": "EMA_50",
+          "timeframe": "15min"
+        },
+        {
+          "indicator": "Spot_Price",
+          "comparison": "crosses_below",
+          "against": "EMA_9",
+          "timeframe": "15min"
+        },
+        {
+          "indicator": "RSI",
+          "comparison": ">",
+          "value": 30,
+          "timeframe": "15min",
+          "parameters": {"period": 14}
+        },
+        {
+          "indicator": "RSI",
+          "comparison": "<",
+          "value": 55,
+          "timeframe": "15min",
+          "parameters": {"period": 14}
+        },
+        {
+          "indicator": "Volume",
+          "comparison": ">",
+          "value": 1.2,
+          "timeframe": "15min",
+          "parameters": {"type": "average_multiplier", "period": 20}
+        }
+      ]
+    }
+  ],
+  "exit_rules": {
+    "stop_loss_pct": 0.8,
+    "target_pct": 2.0,
+    "time_based_exit": "13:30:00",
+    "max_holding_minutes": 120
+  },
+  "position_sizing": {
+    "method": "fixed_quantity",
+    "quantity": 15
+  },
+  "risk_management": {
+    "max_open_positions": 2,
+    "max_trades_per_day": 3
+  },
+  "params": {
+    "strategy_type": "trend_following"
+  }
+}

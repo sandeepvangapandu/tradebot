@@ -119,7 +119,8 @@
   },
   "risk_management": {
     "max_open_positions": 1,
-    "max_trades_per_day": 1
+    "max_trades_per_day": 1,
+    "max_position_size_pct": 50
   },
   "params": {
     "orb_minutes": 15,

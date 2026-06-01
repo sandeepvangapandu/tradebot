@@ -50,7 +50,7 @@
   },
   "position_sizing": {
     "method": "fixed_quantity",
-    "quantity": 2
+    "quantity": 10
   },
   "risk_management": {
     "max_open_positions": 1,

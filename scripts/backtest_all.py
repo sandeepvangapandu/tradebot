@@ -57,9 +57,12 @@ INDEX_INSTRUMENTS = [
 ]
 
 EQUITY_SYMBOLS = [
-    "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY",
-    # HINDUNILVR excluded: defensive FMCG stock, low-beta, sustained trends → intraday strategies fail
-    "ITC", "SBIN", "BAJFINANCE", "KOTAKBANK",
+    # Core performers
+    "TCS", "ICICIBANK", "SBIN", "INFY",
+    # High-beta trending
+    "ADANIENT", "BHARTIARTL",
+    # Removed synthetics with <20 trades: HINDALCO, JSWSTEEL, HCLTECH, TATAMOTORS
+    # Removed low-PF real stocks: WIPRO, AXISBANK, BAJFINANCE, RELIANCE, HDFCBANK, KOTAKBANK, HINDUNILVR, ITC
 ]
 
 EQUITY_INSTRUMENTS = [

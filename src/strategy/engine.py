@@ -155,6 +155,7 @@ class SetEvaluator(threading.Thread):
         bar_close_event: threading.Event,
         bars_provider: callable,
         stop_event: threading.Event,
+        account_equity_paisa: int = 100_000_000,
     ):
         """Initialize the set evaluator.
 
@@ -175,6 +176,7 @@ class SetEvaluator(threading.Thread):
         self._bars_provider = bars_provider
         self._stop_event = stop_event
 
+        self._account_equity = account_equity_paisa
         self._evaluator = ConditionEvaluator()
         self._last_signal_time: Optional[datetime] = None
         self._signals_generated_today: int = 0
@@ -1056,14 +1058,8 @@ class SetEvaluator(threading.Thread):
         return 1  # Default for equity
 
     def _get_account_equity(self) -> int:
-        """Get total account equity in paisa.
-
-        Returns:
-            Account equity in paisa (default 10L INR placeholder).
-        """
-        # In production, this would come from broker/risk manager
-        # Default to 10,00,000 INR = 100,000,000 paisa
-        return 100000000
+        """Get total account equity in paisa."""
+        return self._account_equity
 
     def _calculate_risk_based_quantity(
         self,
@@ -1428,6 +1424,7 @@ class StrategyEngine:
         check_interval: float = 1.0,
         enable_confluence: bool = True,
         min_confluence_level: str = "WEAK",
+        account_equity_paisa: int | None = None,
     ):
         """Initialize the strategy engine.
 
@@ -1441,6 +1438,7 @@ class StrategyEngine:
         self._strategies_dir = Path(strategies_dir)
         self._bars_provider = bars_provider
         self._check_interval = check_interval
+        self._account_equity_paisa = account_equity_paisa or 100_000_000
 
         self._strategies: dict[str, StrategyConfig] = {}
         self._evaluators: list[SetEvaluator] = []
@@ -1875,6 +1873,7 @@ class StrategyEngine:
                     bar_close_event=self._bar_close_event,
                     bars_provider=self._bars_provider,
                     stop_event=self._stop_event,
+                    account_equity_paisa=self._account_equity_paisa,
                 )
                 self._evaluators.append(evaluator)
                 evaluator.start()

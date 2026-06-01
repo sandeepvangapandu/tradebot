@@ -10,7 +10,10 @@ Usage:
 from __future__ import annotations
 
 import json
+import os
 import sys
+import tempfile
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import time as dt_time
 from pathlib import Path
 
@@ -73,11 +76,39 @@ EQUITY_INSTRUMENTS = [
 ALL_INSTRUMENTS = INDEX_INSTRUMENTS + EQUITY_INSTRUMENTS
 
 # ---------------------------------------------------------------------------
-# Run
+# Worker initializer (runs once per subprocess on spawn)
+# ---------------------------------------------------------------------------
+
+def _worker_init() -> None:
+    _root = str(Path(__file__).resolve().parent.parent)
+    if _root not in sys.path:
+        sys.path.insert(0, _root)
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(Path(_root) / ".env")
+    except ImportError:
+        pass
+    import logging as _logging
+    _logging.disable(_logging.CRITICAL)
+    try:
+        from loguru import logger as _log
+        _log.remove()
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Per-instrument runner
 # ---------------------------------------------------------------------------
 
 def run_one(inst: dict) -> dict | None:
+    # Each worker gets its own temp SQLite to avoid write-lock contention
+    tmp_db_path = None
     try:
+        fd, tmp_db_path = tempfile.mkstemp(suffix=".db", prefix="bt_")
+        os.close(fd)
+        database_url = f"sqlite:///{tmp_db_path}"
+
         h = BacktestHarness(
             data_file=inst["data_file"],
             instrument_key=inst["instrument_key"],
@@ -85,6 +116,7 @@ def run_one(inst: dict) -> dict | None:
             capital=100_000_00,
             straddle_proxy=inst["straddle_proxy"],
             entry_anchor_time=inst.get("entry_anchor_time"),
+            database_url=database_url,
         )
         results = h.run()
         m = results.metrics
@@ -118,23 +150,49 @@ def run_one(inst: dict) -> dict | None:
         }
     except Exception as exc:
         return {"instrument": inst["name"], "error": str(exc)}
+    finally:
+        if tmp_db_path:
+            try:
+                os.unlink(tmp_db_path)
+            except OSError:
+                pass
 
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 def main() -> None:
-    all_results = []
-    print(f"\nRunning backtest on {len(ALL_INSTRUMENTS)} instruments...\n")
+    n_workers = min(os.cpu_count() or 4, len(ALL_INSTRUMENTS))
+    print(f"\nRunning backtest on {len(ALL_INSTRUMENTS)} instruments (parallel, workers={n_workers})...\n")
 
-    for inst in ALL_INSTRUMENTS:
-        print(f"  [{inst['name']}] {'(proxy)' if inst['straddle_proxy'] else '(equity)'}  ...", end=" ", flush=True)
-        r = run_one(inst)
-        if r is None:
-            print("SKIP")
-            continue
-        if "error" in r:
-            print(f"ERROR: {r['error']}")
-        else:
-            print(f"{r['total_trades']} trades | WR {r['win_rate']:.1f}% | PF {r['profit_factor']:.2f} | P&L ₹{r['net_pnl_rupees']:,.0f}")
-        all_results.append(r)
+    # Preserve insertion order for summary table
+    results_map: dict[str, dict] = {}
+
+    with ProcessPoolExecutor(max_workers=n_workers, initializer=_worker_init) as pool:
+        future_to_inst = {pool.submit(run_one, inst): inst for inst in ALL_INSTRUMENTS}
+        for future in as_completed(future_to_inst):
+            inst = future_to_inst[future]
+            try:
+                r = future.result()
+            except Exception as exc:
+                r = {"instrument": inst["name"], "error": str(exc)}
+
+            if r is None:
+                print(f"  [{inst['name']}] SKIP")
+                continue
+            if "error" in r:
+                print(f"  [{inst['name']}] {'(proxy)' if inst['straddle_proxy'] else '(equity)'}  ERROR: {r['error'][:60]}")
+            else:
+                print(
+                    f"  [{inst['name']}] {'(proxy)' if inst['straddle_proxy'] else '(equity)'}  "
+                    f"{r['total_trades']} trades | WR {r['win_rate']:.1f}% | "
+                    f"PF {r['profit_factor']:.2f} | P&L ₹{r['net_pnl_rupees']:,.0f}"
+                )
+            results_map[inst["name"]] = r
+
+    # Ordered summary: maintain catalogue order
+    all_results = [results_map[inst["name"]] for inst in ALL_INSTRUMENTS if inst["name"] in results_map]
 
     # ---------- Summary table ----------
     print("\n" + "=" * 75)

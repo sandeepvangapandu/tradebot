@@ -1,11 +1,11 @@
 {
   "name": "ORB_Breakout_Equity",
-  "description": "Opening Range Breakout strategy for NSE equity with VWAP and RSI confluence",
+  "description": "Opening Range Breakout — first-hour only. EMA_9>EMA_21 trend alignment, RSI >60/<40, volume >1.5x avg. Cuts false breakouts vs prior 09:30-11:30 wide window.",
   "enabled": true,
   "segment": "NSE_EQ",
   "trading_hours": {
     "start_time": "09:30:00",
-    "end_time": "11:30:00",
+    "end_time": "10:30:00",
     "timezone": "Asia/Kolkata",
     "days": [0, 1, 2, 3, 4]
   },
@@ -32,11 +32,31 @@
           "timeframe": "5min"
         },
         {
+          "indicator": "EMA_9",
+          "comparison": ">",
+          "against": "EMA_21",
+          "timeframe": "5min"
+        },
+        {
           "indicator": "RSI",
           "comparison": ">",
-          "value": 55,
+          "value": 60,
           "timeframe": "5min",
           "parameters": {"period": 14}
+        },
+        {
+          "indicator": "RSI",
+          "comparison": "<",
+          "value": 78,
+          "timeframe": "5min",
+          "parameters": {"period": 14}
+        },
+        {
+          "indicator": "Volume",
+          "comparison": ">",
+          "value": 1.5,
+          "timeframe": "5min",
+          "parameters": {"type": "average_multiplier", "period": 20}
         }
       ]
     },
@@ -58,11 +78,31 @@
           "timeframe": "5min"
         },
         {
+          "indicator": "EMA_9",
+          "comparison": "<",
+          "against": "EMA_21",
+          "timeframe": "5min"
+        },
+        {
           "indicator": "RSI",
           "comparison": "<",
-          "value": 45,
+          "value": 40,
           "timeframe": "5min",
           "parameters": {"period": 14}
+        },
+        {
+          "indicator": "RSI",
+          "comparison": ">",
+          "value": 22,
+          "timeframe": "5min",
+          "parameters": {"period": 14}
+        },
+        {
+          "indicator": "Volume",
+          "comparison": ">",
+          "value": 1.5,
+          "timeframe": "5min",
+          "parameters": {"type": "average_multiplier", "period": 20}
         }
       ]
     }
@@ -70,16 +110,16 @@
   "exit_rules": {
     "stop_loss_pct": 0.8,
     "target_pct": 2.5,
-    "time_based_exit": "13:00:00",
-    "max_holding_minutes": 90
+    "time_based_exit": "11:30:00",
+    "max_holding_minutes": 60
   },
   "position_sizing": {
     "method": "fixed_quantity",
     "quantity": 15
   },
   "risk_management": {
-    "max_open_positions": 2,
-    "max_trades_per_day": 2
+    "max_open_positions": 1,
+    "max_trades_per_day": 1
   },
   "params": {
     "orb_minutes": 15,

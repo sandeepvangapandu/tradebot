@@ -1,7 +1,7 @@
 {
   "name": "MACD_Momentum_Equity",
   "description": "High-conviction MACD momentum strategy: enter on MACD histogram cross + volume surge + PDH/PDL breakout. Targets 4-5% moves on strong catalyst days. ~2 trades/month per stock.",
-  "enabled": true,
+  "enabled": false,
   "segment": "NSE_EQ",
   "trading_hours": {
     "start_time": "10:00:00",

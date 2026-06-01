@@ -1,11 +1,11 @@
 {
-  "name": "VWAP_Pullback_Equity",
-  "description": "VWAP pullback mean-reversion with EMA trend direction filter. Only trade VWAP crosses aligned with EMA_9/21 trend. RSI 40-55 for longs (in-trend pullback), 45-60 for shorts. Volume >1.2x. Target raised 1.5%->2.0% (3.3:1 R:R).",
-  "enabled": false,
+  "name": "CPR_Breakout_Equity",
+  "description": "Central Pivot Range (CPR) breakout on 5-min bars. Long when price crosses above TC (top central pivot) with EMA_9>EMA_21, price>VWAP, RSI>52, Volume>1.3x. Short when price crosses below BC (bottom central pivot) with opposite filters. CPR auto-computed from prior day OHLC. Very popular NSE intraday approach. SL 0.8% / target 1.8% (2.25:1 R:R, breakeven at 31% WR).",
+  "enabled": true,
   "segment": "NSE_EQ",
   "trading_hours": {
-    "start_time": "10:30:00",
-    "end_time": "13:30:00",
+    "start_time": "09:30:00",
+    "end_time": "13:00:00",
     "timezone": "Asia/Kolkata",
     "days": [0, 1, 2, 3, 4]
   },
@@ -14,12 +14,18 @@
   },
   "entry_sets": [
     {
-      "name": "VWAP_Long",
+      "name": "CPR_Long",
       "signal": "BUY",
       "conditions": [
         {
           "indicator": "Spot_Price",
           "comparison": "crosses_above",
+          "against": "CPR_TC",
+          "timeframe": "5min"
+        },
+        {
+          "indicator": "Spot_Price",
+          "comparison": ">",
           "against": "VWAP",
           "timeframe": "5min"
         },
@@ -32,33 +38,32 @@
         {
           "indicator": "RSI",
           "comparison": ">",
-          "value": 40,
-          "timeframe": "5min",
-          "parameters": {"period": 14}
-        },
-        {
-          "indicator": "RSI",
-          "comparison": "<",
-          "value": 55,
+          "value": 52,
           "timeframe": "5min",
           "parameters": {"period": 14}
         },
         {
           "indicator": "Volume",
           "comparison": ">",
-          "value": 1.2,
+          "value": 1.3,
           "timeframe": "5min",
           "parameters": {"type": "average_multiplier", "period": 20}
         }
       ]
     },
     {
-      "name": "VWAP_Short",
+      "name": "CPR_Short",
       "signal": "SELL",
       "conditions": [
         {
           "indicator": "Spot_Price",
           "comparison": "crosses_below",
+          "against": "CPR_BC",
+          "timeframe": "5min"
+        },
+        {
+          "indicator": "Spot_Price",
+          "comparison": "<",
           "against": "VWAP",
           "timeframe": "5min"
         },
@@ -71,21 +76,14 @@
         {
           "indicator": "RSI",
           "comparison": "<",
-          "value": 60,
-          "timeframe": "5min",
-          "parameters": {"period": 14}
-        },
-        {
-          "indicator": "RSI",
-          "comparison": ">",
-          "value": 45,
+          "value": 48,
           "timeframe": "5min",
           "parameters": {"period": 14}
         },
         {
           "indicator": "Volume",
           "comparison": ">",
-          "value": 1.2,
+          "value": 1.3,
           "timeframe": "5min",
           "parameters": {"type": "average_multiplier", "period": 20}
         }
@@ -93,8 +91,8 @@
     }
   ],
   "exit_rules": {
-    "stop_loss_pct": 0.6,
-    "target_pct": 2.0,
+    "stop_loss_pct": 0.8,
+    "target_pct": 1.8,
     "time_based_exit": "13:30:00",
     "max_holding_minutes": 90
   },
@@ -103,10 +101,10 @@
     "quantity": 15
   },
   "risk_management": {
-    "max_open_positions": 2,
+    "max_open_positions": 1,
     "max_trades_per_day": 2
   },
   "params": {
-    "strategy_type": "mean_reversion"
+    "strategy_type": "breakout"
   }
 }

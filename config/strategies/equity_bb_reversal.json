@@ -1,11 +1,11 @@
 {
-  "name": "VWAP_Pullback_Equity",
-  "description": "VWAP pullback mean-reversion with EMA trend direction filter. Only trade VWAP crosses aligned with EMA_9/21 trend. RSI 40-55 for longs (in-trend pullback), 45-60 for shorts. Volume >1.2x. Target raised 1.5%->2.0% (3.3:1 R:R).",
+  "name": "BB_Reversal_Equity",
+  "description": "Bollinger Band (20,2) mean reversion on 5-min bars. Long when price crosses above lower band with RSI 25-42 (oversold recovery) and Volume>1.2x. Short when price crosses below upper band with RSI 58-75 (overbought reversal) and Volume>1.2x. Targets range-bound large-caps (RELIANCE, HDFCBANK, ITC). SL 1.0% / target 1.8% (1.8:1 R:R, breakeven at 36% WR).",
   "enabled": false,
   "segment": "NSE_EQ",
   "trading_hours": {
-    "start_time": "10:30:00",
-    "end_time": "13:30:00",
+    "start_time": "10:00:00",
+    "end_time": "14:00:00",
     "timezone": "Asia/Kolkata",
     "days": [0, 1, 2, 3, 4]
   },
@@ -14,32 +14,27 @@
   },
   "entry_sets": [
     {
-      "name": "VWAP_Long",
+      "name": "BB_Long",
       "signal": "BUY",
       "conditions": [
         {
           "indicator": "Spot_Price",
           "comparison": "crosses_above",
-          "against": "VWAP",
-          "timeframe": "5min"
-        },
-        {
-          "indicator": "EMA_9",
-          "comparison": ">",
-          "against": "EMA_21",
+          "against": "BB",
+          "parameters": {"band": "lower", "period": 20, "std": 2.0},
           "timeframe": "5min"
         },
         {
           "indicator": "RSI",
           "comparison": ">",
-          "value": 40,
+          "value": 25,
           "timeframe": "5min",
           "parameters": {"period": 14}
         },
         {
           "indicator": "RSI",
           "comparison": "<",
-          "value": 55,
+          "value": 42,
           "timeframe": "5min",
           "parameters": {"period": 14}
         },
@@ -49,36 +44,38 @@
           "value": 1.2,
           "timeframe": "5min",
           "parameters": {"type": "average_multiplier", "period": 20}
+        },
+        {
+          "indicator": "ADX",
+          "comparison": "<",
+          "value": 25,
+          "timeframe": "5min",
+          "parameters": {"period": 14}
         }
       ]
     },
     {
-      "name": "VWAP_Short",
+      "name": "BB_Short",
       "signal": "SELL",
       "conditions": [
         {
           "indicator": "Spot_Price",
           "comparison": "crosses_below",
-          "against": "VWAP",
-          "timeframe": "5min"
-        },
-        {
-          "indicator": "EMA_9",
-          "comparison": "<",
-          "against": "EMA_21",
+          "against": "BB",
+          "parameters": {"band": "upper", "period": 20, "std": 2.0},
           "timeframe": "5min"
         },
         {
           "indicator": "RSI",
-          "comparison": "<",
-          "value": 60,
+          "comparison": ">",
+          "value": 58,
           "timeframe": "5min",
           "parameters": {"period": 14}
         },
         {
           "indicator": "RSI",
-          "comparison": ">",
-          "value": 45,
+          "comparison": "<",
+          "value": 75,
           "timeframe": "5min",
           "parameters": {"period": 14}
         },
@@ -88,14 +85,21 @@
           "value": 1.2,
           "timeframe": "5min",
           "parameters": {"type": "average_multiplier", "period": 20}
+        },
+        {
+          "indicator": "ADX",
+          "comparison": "<",
+          "value": 25,
+          "timeframe": "5min",
+          "parameters": {"period": 14}
         }
       ]
     }
   ],
   "exit_rules": {
-    "stop_loss_pct": 0.6,
-    "target_pct": 2.0,
-    "time_based_exit": "13:30:00",
+    "stop_loss_pct": 1.0,
+    "target_pct": 1.8,
+    "time_based_exit": "14:00:00",
     "max_holding_minutes": 90
   },
   "position_sizing": {
@@ -104,7 +108,7 @@
   },
   "risk_management": {
     "max_open_positions": 2,
-    "max_trades_per_day": 2
+    "max_trades_per_day": 3
   },
   "params": {
     "strategy_type": "mean_reversion"

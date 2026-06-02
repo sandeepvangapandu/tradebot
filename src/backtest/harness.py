@@ -667,38 +667,6 @@ class BacktestHarness:
                 if prev_date is not None:
                     logger.info(f"[BACKTEST] New day: {today} (prev: {prev_date})")
                     
-                    # Auto-disable dead strategies
-                    strat_stats = {}
-                    for trade in results.trades:
-                        s_id = trade.get("strategy_id")
-                        if not s_id: continue
-                        if s_id not in strat_stats:
-                            strat_stats[s_id] = {"wins": 0, "losses": 0, "gross_profit": 0, "gross_loss": 0, "total": 0}
-                        
-                        pnl = trade.get("net_pnl", 0)
-                        strat_stats[s_id]["total"] += 1
-                        if pnl > 0:
-                            strat_stats[s_id]["wins"] += 1
-                            strat_stats[s_id]["gross_profit"] += pnl
-                        else:
-                            strat_stats[s_id]["losses"] += 1
-                            strat_stats[s_id]["gross_loss"] += abs(pnl)
-                            
-                    for s_id, stats in strat_stats.items():
-                        total = stats["total"]
-                        if total >= 10:
-                            win_rate = (stats["wins"] / total) * 100
-                            profit_factor = stats["gross_profit"] / stats["gross_loss"] if stats["gross_loss"] > 0 else float('inf')
-                            
-                            strategy = self._strategy_engine._strategies.get(s_id)
-                            if strategy and strategy.enabled:
-                                if win_rate < 45.0 or profit_factor < 1.0:
-                                    logger.warning(
-                                        f"[QUARANTINE] Auto-disabling strategy {s_id} | "
-                                        f"Trades: {total} | WR: {win_rate:.1f}% | PF: {profit_factor:.2f}"
-                                    )
-                                    strategy.enabled = False
-                                    
                 self._risk_manager.reset_daily()
                 # Compound: update risk limits and position sizing to current equity
                 current_equity = self._paper_broker.get_portfolio_value()

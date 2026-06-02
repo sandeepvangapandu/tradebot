@@ -233,7 +233,7 @@ class EventCalendarAnalyzer:
                     self.election_days.add(date.fromisoformat(str(raw)))
             logger.info(
                 f"Loaded election dates from {self._ELECTION_CONFIG_PATH}: "
-                f"{len(data.get('election_days', []))} entries"
+                f"{len(data.get('election_days') or [])} entries"
             )
         except Exception as exc:
             logger.warning(f"Could not load election_dates.yaml: {exc}")

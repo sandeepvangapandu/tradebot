@@ -10,6 +10,7 @@ Integration flow:
 """
 
 import threading
+import time
 from datetime import datetime
 from queue import Empty, Queue
 from typing import Any, Optional
@@ -1051,6 +1052,26 @@ class OrderManager:
 
                 # Step 9: Place order with retry logic
                 if is_combo and combo_order:
+                    # For newly-subscribed option instruments the first tick may
+                    # not have arrived yet.  Poll up to 3s so the paper broker
+                    # doesn't reject with "no LTP yet".
+                    if hasattr(self._broker, '_ltp_cache'):
+                        deadline = time.monotonic() + 3.0
+                        missing = [
+                            leg.instrument_key for leg in combo_order.legs
+                            if self._broker._ltp_cache.get(leg.instrument_key, 0) <= 0
+                        ]
+                        while missing and time.monotonic() < deadline:
+                            time.sleep(0.1)
+                            missing = [
+                                ik for ik in missing
+                                if self._broker._ltp_cache.get(ik, 0) <= 0
+                            ]
+                        if missing:
+                            logger.warning(
+                                "Combo order: still no LTP for {} after 3s wait — proceeding anyway",
+                                missing,
+                            )
                     # For combo orders, we bypass retry logic for now (all or nothing)
                     responses = self._broker.place_combo_order(combo_order)
                     if not responses:

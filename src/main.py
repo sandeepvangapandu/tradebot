@@ -594,16 +594,18 @@ class TradingBot:
         self.portfolio_feed.start()
         logger.info("WebSocket feeds started — subscribed to index underlyings")
 
-        # 8b. Dynamic ATM option subscription on first tick.
-        # We can't resolve ATM strike until we have the live spot price.
-        # Register a one-shot callback: extract spot from first BankNifty tick
-        # then subscribe to the resolved ATM CE/PE option contracts.
+        # 8b. Dynamic ATM option subscription.
+        # Retries every tick until every active option strategy has had its
+        # underlying spot resolved and its instruments subscribed.  Strategies
+        # whose underlying hasn't appeared in the feed yet are skipped that
+        # tick and retried next tick — no wrong-fallback subscriptions.
         _banknifty_key = "NSE_INDEX|Nifty Bank"
-        _options_subscribed = [False]  # mutable flag for closure
+        _subscribed_option_keys: set[str] = set()  # globally subscribed so far
+        _all_strategies_resolved = [False]
 
         def _subscribe_atm_options_once(tick: Any) -> None:
-            """One-shot: subscribe to ATM options on first BankNifty tick."""
-            if _options_subscribed[0]:
+            """Retry-until-complete: subscribe correct ATM options per underlying."""
+            if _all_strategies_resolved[0]:
                 return
             if not isinstance(tick, dict):
                 return
@@ -611,8 +613,6 @@ class TradingBot:
             if _banknifty_key not in feeds:
                 return
 
-            # Extract spot price for every index instrument present in this tick
-            # so each strategy uses its own underlying's price, not just BankNifty.
             def _extract_ltp(payload: dict) -> float | None:
                 ltpc = payload.get("ltpc") or {}
                 ltp = ltpc.get("ltp")
@@ -623,6 +623,7 @@ class TradingBot:
                     ltp = ltpc.get("ltp")
                 return ltp
 
+            # Build spot map from current tick — only underlyings in this tick.
             spot_map: dict[str, int] = {}
             for ik, payload in feeds.items():
                 try:
@@ -632,39 +633,44 @@ class TradingBot:
                 except Exception:
                     pass
 
-            banknifty_spot = spot_map.get(_banknifty_key)
-            if banknifty_spot is None:
-                return
-
-            _options_subscribed[0] = True
-            logger.info(
-                "ATM subscription triggered — spots: {}",
-                {k: f"₹{v/100:.2f}" for k, v in spot_map.items()},
-            )
-
-            # Resolve ATM option keys for all active option strategies.
-            # Each strategy gets the spot of its own underlying via the getter.
             if not self.strategy_engine or not self.instrument_manager:
                 return
             try:
                 resolver = OptionsResolver(self.instrument_manager)
                 active_strategies = self.strategy_engine.get_active_strategies()
 
+                # Getter returns 0 for unknowns — resolver skips those strategies.
                 def _spot_getter(underlying_key: str) -> int:
-                    return spot_map.get(underlying_key, banknifty_spot)
+                    return spot_map.get(underlying_key, 0)
 
-                option_keys = resolver.resolve_all_strategies(active_strategies, _spot_getter)
-                if option_keys:
-                    self.market_feed.subscribe(option_keys, mode="full")
+                new_keys = [
+                    k for k in resolver.resolve_all_strategies(active_strategies, _spot_getter)
+                    if k not in _subscribed_option_keys
+                ]
+                if new_keys:
+                    self.market_feed.subscribe(new_keys, mode="full")
+                    _subscribed_option_keys.update(new_keys)
                     logger.info(
-                        "Subscribed to {} ATM option instrument(s): {}",
-                        len(option_keys),
-                        option_keys,
+                        "ATM option subscription — spots={} — subscribed {} new: {}",
+                        {k.split("|")[1]: f"₹{v/100:.0f}" for k, v in spot_map.items()},
+                        len(new_keys),
+                        new_keys,
                     )
-                else:
-                    logger.warning(
-                        "No ATM option instruments resolved — "
-                        "check strategy instrument_selection configs"
+
+                # Stop retrying once all option strategies are covered.
+                # (Strategies without instrument_selection are ignored by resolver.)
+                option_strategies = [
+                    s for s in active_strategies
+                    if getattr(getattr(s, "instrument_selection", None), "type", None) == "options"
+                    or (isinstance(getattr(s, "instrument_selection", None), dict)
+                        and s.instrument_selection.get("type") == "options")
+                ]
+                if len(_subscribed_option_keys) >= len(option_strategies) * 2:
+                    _all_strategies_resolved[0] = True
+                    logger.info(
+                        "All {} option strategies resolved ({} instruments total)",
+                        len(option_strategies),
+                        len(_subscribed_option_keys),
                     )
             except Exception as exc:
                 logger.error("ATM option subscription failed: {}", exc)

@@ -226,7 +226,7 @@ class EventCalendarAnalyzer:
         try:
             with open(self._ELECTION_CONFIG_PATH) as f:
                 data = yaml.safe_load(f) or {}
-            for raw in data.get("election_days", []):
+            for raw in data.get("election_days") or []:
                 if isinstance(raw, date):
                     self.election_days.add(raw)
                 else:

@@ -483,7 +483,7 @@ class RejectionFilter:
                 SELECT rs_rank, total_sectors
                 FROM sector_rank_daily
                 WHERE sector_symbol = :sector
-                ORDER BY rank_date DESC
+                ORDER BY trade_date DESC
                 LIMIT 1
                 """
             )
@@ -595,7 +595,7 @@ class RejectionFilter:
                 SELECT adv_paisa
                 FROM liquidity_rank_daily
                 WHERE symbol = :symbol
-                ORDER BY rank_date DESC
+                ORDER BY trade_date DESC
                 LIMIT 1
                 """
             )

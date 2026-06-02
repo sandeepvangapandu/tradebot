@@ -22,10 +22,21 @@ from __future__ import annotations
 import threading
 from collections import deque
 from dataclasses import dataclass, field
+from datetime import datetime, time as dtime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import numpy as np
 from loguru import logger
+
+_IST = ZoneInfo("Asia/Kolkata")
+_MARKET_OPEN = dtime(9, 15)
+_MARKET_CLOSE = dtime(15, 30)
+
+
+def _is_market_hours() -> bool:
+    now = datetime.now(_IST).time()
+    return _MARKET_OPEN <= now <= _MARKET_CLOSE
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -140,10 +151,16 @@ class MicroFeatureEngine:
         volume = tick.get("volume")
 
         if ltp is None or volume is None:
-            logger.warning(
-                "micro_features: skipping tick for {} — missing ltp or volume",
-                instrument_key,
-            )
+            if _is_market_hours():
+                logger.warning(
+                    "micro_features: skipping tick for {} — missing ltp or volume",
+                    instrument_key,
+                )
+            else:
+                logger.debug(
+                    "micro_features: skipping tick for {} — missing ltp or volume (market closed)",
+                    instrument_key,
+                )
             return
 
         record = _TickRecord(

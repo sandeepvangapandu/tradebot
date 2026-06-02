@@ -49,8 +49,9 @@
     }
   },
   "position_sizing": {
-    "method": "fixed_quantity",
-    "quantity": 50
+    "method": "percent_of_equity",
+    "percent_of_equity": 5.0,
+    "min_quantity": 1
   },
   "risk_management": {
     "max_open_positions": 1,

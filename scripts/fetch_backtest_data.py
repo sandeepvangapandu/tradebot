@@ -41,74 +41,33 @@ CHUNK_DAYS = 25  # Upstox 1-min limit is 30 days per request; use 25 for safety
 # Active instrument catalogue
 # ---------------------------------------------------------------------------
 
+# Active instruments for backtest — survivor universe (PF > 1.0 only)
+# out_file is a template: {mo} gets replaced with the actual months count at runtime
 INSTRUMENTS = [
     # Indices (straddle proxy backtest)
     {
         "name":           "BankNifty",
         "instrument_key": "NSE_INDEX|Nifty Bank",
-        "out_file":       "data/backtest/banknifty_1m_18mo.csv",
+        "out_file":       "data/backtest/banknifty_1m_{mo}mo.csv",
         "type":           "index",
     },
     {
         "name":           "Nifty50",
         "instrument_key": "NSE_INDEX|Nifty 50",
-        "out_file":       "data/backtest/nifty50_1m_18mo.csv",
+        "out_file":       "data/backtest/nifty50_1m_{mo}mo.csv",
         "type":           "index",
     },
     {
         "name":           "FinNifty",
         "instrument_key": "NSE_INDEX|Nifty Fin Service",
-        "out_file":       "data/backtest/finnifty_1m_18mo.csv",
+        "out_file":       "data/backtest/finnifty_1m_{mo}mo.csv",
         "type":           "index",
     },
-    {
-        "name":           "MidCpNifty",
-        "instrument_key": "NSE_INDEX|Nifty Midcap Select",
-        "out_file":       "data/backtest/midcpnifty_1m_18mo.csv",
-        "type":           "index",
-    },
-    # Equities — core performers
-    {
-        "name":           "TCS",
-        "instrument_key": "NSE_EQ|INE467B01029",
-        "out_file":       "data/backtest/equity/tcs_1m_18mo.csv",
-        "type":           "equity",
-    },
-    {
-        "name":           "ICICIBANK",
-        "instrument_key": "NSE_EQ|INE090A01021",
-        "out_file":       "data/backtest/equity/icicibank_1m_18mo.csv",
-        "type":           "equity",
-    },
-    {
-        "name":           "SBIN",
-        "instrument_key": "NSE_EQ|INE062A01020",
-        "out_file":       "data/backtest/equity/sbin_1m_18mo.csv",
-        "type":           "equity",
-    },
-    {
-        "name":           "INFY",
-        "instrument_key": "NSE_EQ|INE009A01021",
-        "out_file":       "data/backtest/equity/infy_1m_18mo.csv",
-        "type":           "equity",
-    },
-    # Equities — high-beta additions
+    # Equities — survivor universe (PF > 1.0 confirmed over 18mo)
     {
         "name":           "ADANIENT",
         "instrument_key": "NSE_EQ|INE423A01024",
-        "out_file":       "data/backtest/equity/adanient_1m_18mo.csv",
-        "type":           "equity",
-    },
-    {
-        "name":           "BHARTIARTL",
-        "instrument_key": "NSE_EQ|INE397D01024",
-        "out_file":       "data/backtest/equity/bhartiartl_1m_18mo.csv",
-        "type":           "equity",
-    },
-    {
-        "name":           "TATAMOTORS",
-        "instrument_key": "NSE_EQ|INE155A01022",
-        "out_file":       "data/backtest/equity/tatamotors_1m_18mo.csv",
+        "out_file":       "data/backtest/equity/adanient_1m_{mo}mo.csv",
         "type":           "equity",
     },
 ]
@@ -179,26 +138,36 @@ def save_csv(df: pd.DataFrame, out_file: str) -> None:
     logger.info(f"  Saved {len(df):,} bars → {out}")
 
 
-def update_backtest_symlinks(instruments: list[dict]) -> None:
-    """Update backtest_all.py to reference 18mo CSVs instead of 6mo."""
-    bt_script = Path("scripts/backtest_all.py")
-    content = bt_script.read_text()
-    updated = content.replace("_1m_6mo.csv", "_1m_18mo.csv")
-    if updated != content:
-        bt_script.write_text(updated)
-        logger.info("  Updated scripts/backtest_all.py: _1m_6mo → _1m_18mo")
+def update_backtest_symlinks(instruments: list[dict], months: int) -> None:
+    """Update backtest scripts to reference newly-fetched CSV filenames."""
+    new_suffix = f"_1m_{months}mo.csv"
+    for script in ["scripts/backtest_all.py", "scripts/backtest_poe.py"]:
+        bt_script = Path(script)
+        if not bt_script.exists():
+            continue
+        content = bt_script.read_text()
+        # Replace any existing _1m_NNmo.csv suffix with the new one
+        import re
+        updated = re.sub(r"_1m_\d+mo\.csv", new_suffix, content)
+        if updated != content:
+            bt_script.write_text(updated)
+            logger.info(f"  Updated {script}: *_1m_NNmo.csv → {new_suffix}")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Fetch 18-month 1-min backtest data from Upstox")
-    parser.add_argument("--months", type=int, default=18, help="Months of history to fetch (default 18)")
+    parser = argparse.ArgumentParser(description="Fetch 1-min backtest data from Upstox (max 24 months for 1-min interval)")
+    parser.add_argument("--months", type=int, default=24, help="Months of history to fetch (default 24, max 24 for 1-min)")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be fetched without API calls")
     parser.add_argument("--instruments", type=str, default=None,
                         help="Comma-separated names to fetch (default: all). E.g. TCS,SBIN")
     args = parser.parse_args()
 
     target_names = {n.strip().upper() for n in args.instruments.split(",")} if args.instruments else None
-    instruments = [i for i in INSTRUMENTS if target_names is None or i["name"].upper() in target_names]
+    instruments = [
+        {**i, "out_file": i["out_file"].replace("{mo}", str(args.months))}
+        for i in INSTRUMENTS
+        if target_names is None or i["name"].upper() in target_names
+    ]
 
     if not instruments:
         print("No matching instruments found.")
@@ -241,11 +210,10 @@ def main() -> None:
             print(f"  FAILED — no data returned")
             results.append({"name": inst["name"], "rows": 0, "ok": False})
 
-    # Update backtest_all.py to use new 18mo files
+    # Update backtest scripts to reference the newly-fetched CSV filenames
     if not args.dry_run and any(r["ok"] for r in results):
-        print("\nUpdating scripts/backtest_all.py to reference new 18mo CSVs...")
-        fetched = [i for i in instruments if any(r["name"] == i["name"] and r["ok"] for r in results)]
-        update_backtest_symlinks(fetched)
+        print(f"\nUpdating backtest scripts to reference {args.months}mo CSVs...")
+        update_backtest_symlinks(instruments, args.months)
 
     print(f"\n{'='*50}")
     print(f"Done: {sum(r['ok'] for r in results)}/{len(results)} instruments fetched")

@@ -700,6 +700,10 @@ class BacktestHarness:
                                     strategy.enabled = False
                                     
                 self._risk_manager.reset_daily()
+                # Compound: update risk limits and position sizing to current equity
+                current_equity = self._paper_broker.get_portfolio_value()
+                self._risk_manager.update_capital(current_equity)
+                self._strategy_engine.update_account_equity(current_equity)
                 prev_date = today
 
             # --- Phase 2: Skip pre-market bars ---

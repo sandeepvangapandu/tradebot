@@ -1440,6 +1440,13 @@ class TradingBot:
             minute=0,
             job_id="ai_playbook",
         )
+        # 9:15 AM SOD: update risk limits and position sizing to current equity
+        self.scheduler.add_daily_job(
+            func=self._scheduled_sod_equity_update,
+            hour=9,
+            minute=15,
+            job_id="sod_equity_update",
+        )
         # 9:35 AM ORB Dynamic Update (Scheme 1)
         self.scheduler.add_daily_job(
             func=self._scheduled_orb_update,
@@ -1856,6 +1863,18 @@ class TradingBot:
             )
         except Exception as exc:
             logger.error("Scheduled daily summary failed: {}", exc)
+
+    def _scheduled_sod_equity_update(self) -> None:
+        """SOD 9:15: compound risk limits and position sizing to current portfolio equity."""
+        if not (self.paper_broker and self.risk_manager and self.strategy_engine):
+            return
+        try:
+            equity = self.paper_broker.get_portfolio_value()
+            self.risk_manager.update_capital(equity)
+            self.strategy_engine.update_account_equity(equity)
+            logger.info("[SOD] Equity updated to {} paisa ({:.0f} INR)", equity, equity / 100)
+        except Exception as exc:
+            logger.warning("[SOD] Equity update failed: {}", exc)
 
     def _scheduled_ai_playbook(self) -> None:
         """Scheduled job: Generate the Daily AI Playbook at 9:00 AM.

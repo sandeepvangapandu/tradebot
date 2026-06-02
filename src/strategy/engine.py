@@ -1061,6 +1061,10 @@ class SetEvaluator(threading.Thread):
         """Get total account equity in paisa."""
         return self._account_equity
 
+    def update_account_equity(self, equity_paisa: int) -> None:
+        """Update equity so percent_of_equity position sizing scales with account growth."""
+        self._account_equity = equity_paisa
+
     def _calculate_risk_based_quantity(
         self,
         entry_price: int,
@@ -1774,13 +1778,20 @@ class StrategyEngine:
                 signal_type = self._SIGNAL_MAP.get(signal_str, SignalType.BUY)
                 is_buy = signal_str in ("BUY", "BUY_CE")
 
-                # Quantity from position sizing
-                quantity = 1
-                if strategy.position_sizing and strategy.position_sizing.quantity:
-                    quantity = strategy.position_sizing.quantity
-
-                # Current price for SL/target calculation
+                # Current price for quantity sizing AND SL/target calculation
                 current_price = int(window[instrument_key]["close"].iloc[-1])
+
+                # Quantity from position sizing — support all sizing methods
+                quantity = 1
+                if strategy.position_sizing:
+                    ps = strategy.position_sizing
+                    if ps.method.value == "percent_of_equity":
+                        equity = self._account_equity_paisa
+                        cap = equity * (ps.percent_of_equity or 10.0) / 100
+                        qty = int(cap // current_price) if current_price > 0 else 1
+                        quantity = max(qty, ps.min_quantity or 1)
+                    elif ps.quantity:
+                        quantity = ps.quantity
 
                 # Calculate SL and target from strategy exit_rules
                 stop_loss = None
@@ -1984,6 +1995,10 @@ class StrategyEngine:
             except queue.Empty:
                 break
         return signals
+
+    def update_account_equity(self, equity_paisa: int) -> None:
+        """Update equity so percent_of_equity position sizing scales with account growth."""
+        self._account_equity_paisa = equity_paisa
 
     @property
     def strategies(self) -> list[StrategyConfig]:

@@ -66,6 +66,7 @@ class RiskManager:
 
         # Configuration (immutable after init)
         self.capital: int = capital
+        self._daily_loss_pct: float = (max_daily_loss / capital * 100) if capital else 3.0
         self.max_daily_loss: int = max_daily_loss
         self.max_open_positions: int = max_open_positions
         self.max_position_size_pct: int = max_position_size_pct
@@ -313,6 +314,17 @@ class RiskManager:
             "Positions updated | count={} | deployed={} paisa",
             count,
             deployed,
+        )
+
+    def update_capital(self, new_capital: int) -> None:
+        """Update capital base so risk limits (daily loss, deployment cap) scale with equity."""
+        with self._lock:
+            old = self.capital
+            self.capital = new_capital
+            self.max_daily_loss = int(new_capital * self._daily_loss_pct / 100)
+        logger.info(
+            "RiskManager capital updated: {} → {} paisa (daily_loss_limit={})",
+            old, new_capital, self.max_daily_loss,
         )
 
     def reset_daily(self) -> None:

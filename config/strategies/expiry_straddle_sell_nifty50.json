@@ -11,13 +11,18 @@
     "start_time": "10:00:00",
     "end_time": "14:00:00",
     "timezone": "Asia/Kolkata",
-    "days": [3]
+    "days": [
+      3
+    ]
   },
   "instrument_selection": {
     "type": "options",
     "expiry_type": "weekly_current",
     "strike_selection": "atm",
-    "option_types": ["CE", "PE"]
+    "option_types": [
+      "CE",
+      "PE"
+    ]
   },
   "timeframes": {
     "primary": "5min",
@@ -49,8 +54,9 @@
     }
   },
   "position_sizing": {
-    "method": "fixed_quantity",
-    "quantity": 10
+    "method": "percent_of_equity",
+    "percent_of_equity": 0.5,
+    "min_quantity": 1
   },
   "risk_management": {
     "max_open_positions": 1,

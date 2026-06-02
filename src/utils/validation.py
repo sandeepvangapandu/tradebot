@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field, validator
 from src.utils.logger import logger
 
 # Constants for Indian markets
-MAX_SYMBOL_LENGTH = 25
+MAX_SYMBOL_LENGTH = 50  # Upstox instrument keys like 'NSE_INDEX|Nifty Fin Service' (27 chars)
 MAX_PRICE_PAISA = 1_000_000 * 100  # 10,00,000 INR in paisa
 MAX_QUANTITY = 10_000
 VALID_ORDER_TYPES = {"MARKET", "LIMIT", "SL", "SL-M"}

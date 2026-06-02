@@ -1319,7 +1319,7 @@ class TradingBot:
         # ------------------------------------------------------------------ #
         try:
             if _Archiver is not None:
-                self.archiver = _Archiver(db_engine=self.db_engine)
+                self.archiver = _Archiver()
                 logger.debug("archiver: OK")
         except Exception as exc:
             logger.warning("archiver init failed: {}", exc)

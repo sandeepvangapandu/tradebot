@@ -657,20 +657,14 @@ class TradingBot:
                         new_keys,
                     )
 
-                # Stop retrying once all option strategies are covered.
-                # (Strategies without instrument_selection are ignored by resolver.)
-                option_strategies = [
-                    s for s in active_strategies
-                    if getattr(getattr(s, "instrument_selection", None), "type", None) == "options"
-                    or (isinstance(getattr(s, "instrument_selection", None), dict)
-                        and s.instrument_selection.get("type") == "options")
-                ]
-                if len(_subscribed_option_keys) >= len(option_strategies) * 2:
+                # Converged: no new instruments this tick means every strategy
+                # that has a spot available is already subscribed.  Stop retrying.
+                if not new_keys and _subscribed_option_keys:
                     _all_strategies_resolved[0] = True
                     logger.info(
-                        "All {} option strategies resolved ({} instruments total)",
-                        len(option_strategies),
+                        "ATM option subscription complete — {} instruments total: {}",
                         len(_subscribed_option_keys),
+                        sorted(_subscribed_option_keys),
                     )
             except Exception as exc:
                 logger.error("ATM option subscription failed: {}", exc)

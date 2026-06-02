@@ -51,3 +51,7 @@ htmlcov/
 
 # Root test scratchpads
 /test_*.py
+
+# RuFlo AgentDB runtime files
+agentdb.rvf
+agentdb.rvf.lock

@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Portfolio Analysis — 17 May 2026 (LIVE DATA)</title>
+<style>
+:root{--bg:#0a0e1a;--bg2:#0f1628;--bg3:#161d35;--border:#1e2d4a;--text:#c8d6e8;--muted:#5a7090;--accent:#3b82f6;--accent2:#6366f1;--green:#10b981;--red:#ef4444;--orange:#f59e0b;--yellow:#eab308;--purple:#a855f7;--teal:#14b8a6;--font:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;--mono:'JetBrains Mono','Fira Code','Courier New',monospace}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;line-height:1.6}
+::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:var(--bg2)}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+.site-header{position:sticky;top:0;z-index:100;background:rgba(10,14,26,.96);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.brand{font-size:16px;font-weight:700;color:#fff;letter-spacing:.5px}.brand span{color:var(--accent)}
+.meta{font-size:11px;color:var(--muted);font-family:var(--mono)}
+.nav-links{display:flex;gap:16px;flex-wrap:wrap}.nav-links a{color:var(--muted);text-decoration:none;font-size:12px;transition:color .2s}.nav-links a:hover{color:var(--accent)}
+.live-badge{background:#10b98120;border:1px solid #10b98150;color:#34d399;font-size:10px;padding:3px 8px;border-radius:999px;font-family:var(--mono);font-weight:700}
+.stale-banner{background:linear-gradient(135deg,#451a03,#78350f);border:1px solid #f59e0b40;padding:10px 24px;font-size:12px;display:flex;gap:10px;align-items:center}
+.alert-banner{background:linear-gradient(135deg,#7f1d1d,#991b1b);border:1px solid #ef444440;padding:12px 24px;display:flex;align-items:center;gap:12px;font-size:13px}
+.container{max-width:1400px;margin:0 auto;padding:0 24px}
+.section{padding:32px 0;border-bottom:1px solid var(--border)}
+.section-title{font-size:18px;font-weight:700;color:#fff;margin-bottom:6px;display:flex;align-items:center;gap:10px}
+.section-sub{font-size:12px;color:var(--muted);margin-bottom:20px}
+.cards-grid{display:grid;gap:16px}
+.cards-3{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.cards-4{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.cards-5{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:18px;transition:border-color .2s}.card:hover{border-color:var(--accent)}
+.card-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px}
+.card-value{font-size:24px;font-weight:700;color:#fff;font-family:var(--mono)}
+.card-value.green{color:var(--green)}.card-value.red{color:var(--red)}.card-value.orange{color:var(--orange)}.card-value.blue{color:var(--accent)}.card-value.purple{color:var(--purple)}.card-value.yellow{color:var(--yellow)}
+.card-sub{font-size:12px;color:var(--muted);margin-top:4px}
+.card-badge{display:inline-block;font-size:10px;padding:2px 8px;border-radius:999px;margin-top:6px;font-weight:600;font-family:var(--mono)}
+.macro-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+.macro-tile{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:20px;position:relative;overflow:hidden}
+.macro-tile::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+.macro-tile.risk::before{background:var(--red)}.macro-tile.neutral::before{background:var(--orange)}.macro-tile.positive::before{background:var(--green)}.macro-tile.watch::before{background:var(--yellow)}
+.macro-title{font-size:13px;font-weight:700;color:#fff;margin-bottom:10px;display:flex;gap:8px;align-items:center}
+.macro-body{font-size:12px;color:var(--text);line-height:1.7}.macro-body li{margin-left:14px;list-style:disc;margin-bottom:3px}
+.macro-tag{display:inline-block;font-size:9px;padding:2px 6px;border-radius:4px;margin-right:4px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;font-family:var(--mono)}
+.tag-red{background:#ef444422;color:var(--red);border:1px solid #ef444440}.tag-green{background:#10b98122;color:var(--green);border:1px solid #10b98140}.tag-orange{background:#f59e0b22;color:var(--orange);border:1px solid #f59e0b40}.tag-blue{background:#3b82f622;color:var(--accent);border:1px solid #3b82f640}.tag-purple{background:#a855f722;color:var(--purple);border:1px solid #a855f740}.tag-gray{background:#5a709022;color:var(--muted);border:1px solid #5a709040}.tag-yellow{background:#eab30822;color:var(--yellow);border:1px solid #eab30840}
+.number-row{display:flex;gap:20px;flex-wrap:wrap;margin-top:10px}
+.number-item .label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}.number-item .val{font-size:16px;font-weight:700;font-family:var(--mono);color:#fff}
+.scenario-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.scenario-card{border-radius:10px;padding:20px;border:1px solid transparent}
+.scenario-bull{background:#052e16;border-color:#10b98140}.scenario-base{background:#0c1a2e;border-color:#3b82f640}.scenario-bear{background:#2d1515;border-color:#ef444440}.scenario-black{background:#1a0a2e;border-color:#a855f740}
+.scenario-prob{font-size:28px;font-weight:800;margin-bottom:4px;font-family:var(--mono)}.scenario-title{font-size:14px;font-weight:700;margin-bottom:10px}
+.scenario-detail{font-size:11px;color:var(--muted);line-height:1.7}.scenario-detail li{margin-left:14px;list-style:disc;margin-bottom:3px}
+.table-controls{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center}
+.search-input{background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:8px 14px;border-radius:6px;font-size:13px;font-family:var(--font);outline:none;width:220px}.search-input:focus{border-color:var(--accent)}
+.filter-btn{background:var(--bg2);border:1px solid var(--border);color:var(--muted);padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;font-family:var(--font);transition:all .2s}.filter-btn:hover,.filter-btn.active{border-color:var(--accent);color:var(--accent);background:#3b82f610}
+.filter-btn.exit-f.active{border-color:var(--red);color:var(--red);background:#ef444410}.filter-btn.trim-f.active{border-color:var(--orange);color:var(--orange);background:#f59e0b10}.filter-btn.core-f.active{border-color:var(--green);color:var(--green);background:#10b98110}.filter-btn.hold-f.active{border-color:var(--accent);color:var(--accent);background:#3b82f610}
+.holdings-table{width:100%;border-collapse:collapse;font-size:12.5px}
+.holdings-table th{background:var(--bg3);color:var(--muted);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;padding:10px 12px;text-align:left;border-bottom:1px solid var(--border);position:sticky;top:57px;cursor:pointer;user-select:none}.holdings-table th:hover{color:var(--accent)}
+.holdings-table td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+.holdings-table tr:hover td{background:var(--bg3)}
+.holdings-table .name-cell{font-weight:600;color:#fff}.holdings-table .num{font-family:var(--mono);text-align:right}
+.holdings-table .green{color:var(--green)}.holdings-table .red{color:var(--red)}.holdings-table .orange{color:var(--orange)}.holdings-table .yellow{color:var(--yellow)}
+.verdict-badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:.5px;white-space:nowrap;font-family:var(--mono)}
+.v-exit{background:#ef444420;color:#f87171;border:1px solid #ef444450}.v-trim{background:#f59e0b20;color:#fbbf24;border:1px solid #f59e0b50}.v-core{background:#10b98120;color:#34d399;border:1px solid #10b98150}.v-hold{background:#3b82f620;color:#60a5fa;border:1px solid #3b82f650}.v-watch{background:#a855f720;color:#c084fc;border:1px solid #a855f750}
+.action-section{margin-bottom:28px}
+.action-header{display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:8px 8px 0 0;font-weight:700;font-size:14px}
+.action-header.exit{background:#ef444420;border:1px solid #ef444440;color:#f87171}.action-header.trim{background:#f59e0b20;border:1px solid #f59e0b40;color:#fbbf24}.action-header.core{background:#10b98120;border:1px solid #10b98140;color:#34d399}.action-header.hold{background:#3b82f620;border:1px solid #3b82f640;color:#60a5fa}
+.action-body{background:var(--bg2);padding:16px;border-radius:0 0 8px 8px;border:1px solid var(--border);border-top:0}
+.action-item{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)}.action-item:last-child{border-bottom:0}
+.action-name{font-weight:700;color:#fff;min-width:180px}.action-pnl{font-family:var(--mono);font-size:12px;min-width:80px}
+.action-reason{color:var(--text);font-size:12px;flex:1}.action-instruction{font-size:11px;color:var(--muted);font-style:italic;margin-top:3px}
+.sip-path{display:flex;align-items:center;overflow-x:auto;padding:10px 0}
+.sip-node{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 18px;text-align:center;white-space:nowrap;min-width:120px}
+.sip-node .val{font-size:18px;font-weight:800;font-family:var(--mono);color:#fff}.sip-node .yr{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
+.sip-arrow{color:var(--muted);font-size:20px;padding:0 8px;flex-shrink:0}
+.sip-note{font-size:12px;color:var(--muted);margin-top:12px;line-height:1.7}.sip-note b{color:var(--text)}
+.risk-table{width:100%;border-collapse:collapse;font-size:12px}
+.risk-table th{background:var(--bg3);color:var(--muted);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;padding:8px 12px;text-align:left;border-bottom:1px solid var(--border)}
+.risk-table td{padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:top}.risk-table tr:hover td{background:var(--bg3)}
+.prob-pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;font-family:var(--mono)}
+.site-footer{padding:24px;text-align:center;font-size:11px;color:var(--muted);border-top:1px solid var(--border);margin-top:24px}
+.highlight-box{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px}
+.highlight-box h4{color:#fff;font-size:13px;margin-bottom:8px}.highlight-box p,.highlight-box li{font-size:12px;color:var(--text);line-height:1.7}.highlight-box ul{margin-left:16px}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+@media(max-width:768px){.two-col{grid-template-columns:1fr}.action-item{flex-direction:column}}
+.progress-bar{height:6px;background:var(--border);border-radius:3px;margin:8px 0;overflow:hidden}
+.progress-fill{height:100%;border-radius:3px}
+.hidden{display:none!important}
+.correction-badge{background:#ef444415;border:1px solid #ef444440;color:#f87171;font-size:10px;padding:2px 6px;border-radius:4px;font-family:var(--mono);margin-left:6px}
+.upgrade-badge{background:#10b98115;border:1px solid #10b98140;color:#34d399;font-size:10px;padding:2px 6px;border-radius:4px;font-family:var(--mono);margin-left:6px}
+body::before{content:'';position:fixed;top:0;left:0;z-index:999;height:2px;width:var(--scroll-pct,0%);background:linear-gradient(90deg,var(--accent),var(--accent2),var(--green));transition:width .1s}
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <div>
+    <div class="brand">Portfolio<span>Rx</span> <span class="live-badge">LIVE DATA</span></div>
+    <div class="meta">Sandeep Vangapandu · 62 Holdings · Upstox API + 3 live research agents · 17 May 2026</div>
+  </div>
+  <nav class="nav-links">
+    <a href="#summary">Summary</a><a href="#corrections">Corrections</a><a href="#global">Global</a><a href="#india">India</a><a href="#scenarios">Scenarios</a><a href="#holdings">Holdings</a><a href="#actions">Actions</a><a href="#sip">₹1Cr Plan</a><a href="#risks">Risks</a>
+  </nav>
+</header>
+
+<div class="stale-banner">
+  <span>⚠️</span>
+  <strong>v2 — FULLY UPDATED:</strong> 3 parallel research agents fetched live data May 17, 2026. Previous version had 8 stale numbers. All corrected below. Key delta: USD/INR ₹96 not ₹86, Nifty at 23,643 not 25,200, monsoon UPGRADED to normal, FII outflow ₹1.87L crore (8× worse than stated before), China not in deflation.
+</div>
+<div class="alert-banner">
+  <span style="font-size:18px">🚨</span>
+  <strong>IMMEDIATE ACTION:</strong> EXIT 5 stocks this week (Hathway, NMDC Steel, Tarsons, Aarti Drugs, SIS). TRIM Asian Paints — PAT fell 45%, Birla Opus structural. HDFC Bank at 52-week low ₹769 = strongest buy in portfolio right now.
+</div>
+
+<div class="container">
+
+<!-- SUMMARY -->
+<section class="section" id="summary">
+  <div class="section-title"><span>📊</span> Portfolio Summary</div>
+  <div class="section-sub">Live Upstox data · 62 holdings · 17 May 2026</div>
+  <div class="cards-grid cards-5" style="margin-bottom:20px">
+    <div class="card"><div class="card-label">Total Invested</div><div class="card-value blue">₹4,39,546</div><div class="card-sub">62 holdings</div></div>
+    <div class="card"><div class="card-label">Current Value</div><div class="card-value" style="color:#fff">₹6,69,556</div><div class="card-sub">Unrealised</div></div>
+    <div class="card"><div class="card-label">Total P&amp;L</div><div class="card-value green">+₹2,30,010</div><div class="card-badge tag-green">+52.3%</div></div>
+    <div class="card"><div class="card-label">LTCG Liability</div><div class="card-value orange">~₹12,900</div><div class="card-sub">12.5% above ₹1.25L exempt</div></div>
+    <div class="card"><div class="card-label">₹1Cr Goal</div><div class="card-value purple">6.7%</div><div class="progress-bar"><div class="progress-fill" style="width:6.7%;background:var(--purple)"></div></div></div>
+  </div>
+  <div class="cards-grid cards-4">
+    <div class="card"><div class="card-label">EXIT Now</div><div class="card-value red">5 stocks</div><div class="card-badge tag-red">Broken thesis</div></div>
+    <div class="card"><div class="card-label">TRIM</div><div class="card-value orange">8 stocks</div><div class="card-badge tag-orange">PSU cycle + Asian Paints</div></div>
+    <div class="card"><div class="card-label">CORE HOLD + SIP</div><div class="card-value green">19 stocks</div><div class="card-badge tag-green">Compounders</div></div>
+    <div class="card"><div class="card-label">HOLD / Monitor</div><div class="card-value blue">~18 stocks</div><div class="card-badge tag-blue">Quarterly review</div></div>
+  </div>
+</section>
+
+<!-- CORRECTIONS SECTION -->
+<section class="section" id="corrections">
+  <div class="section-title"><span>🔴</span> What Changed — Live Data vs Previous Report</div>
+  <div class="section-sub">All corrections from 3 parallel agents running live web search. Previous figures were extrapolated from Aug 2025 training cutoff.</div>
+  <div style="overflow-x:auto">
+  <table class="risk-table">
+    <thead><tr><th>METRIC</th><th>PREVIOUS (STALE)</th><th>ACTUAL (LIVE)</th><th>DIRECTION</th><th>PORTFOLIO IMPACT</th></tr></thead>
+    <tbody>
+      <tr><td><strong>USD/INR</strong></td><td style="color:var(--red)">₹86.2</td><td style="color:var(--green);font-weight:700">₹96.28</td><td class="red">Rupee -12% YoY</td><td>Importers crushed. Exporters (Polycab, Laurus) benefit. Gold SGB way more valuable.</td></tr>
+      <tr><td><strong>Nifty 50 Level</strong></td><td style="color:var(--red)">~25,200</td><td style="color:var(--green);font-weight:700">23,643</td><td class="red">Market lower</td><td>FII selling ₹1.87L crore absorbed by DII. Market resilient but under pressure.</td></tr>
+      <tr><td><strong>India CPI</strong></td><td style="color:var(--red)">4.1%</td><td style="color:var(--green);font-weight:700">3.48% (Apr 2026)</td><td class="green">Better</td><td>Consumer inflation benign. BUT WPI 8.3% = input cost crisis for manufacturers.</td></tr>
+      <tr><td><strong>India WPI</strong></td><td style="color:var(--red)">Not mentioned</td><td style="color:var(--green);font-weight:700">8.3% (Apr 2026)</td><td class="red">New risk</td><td>Fuel +24.7%, crude +88% YoY in WPI. Manufacturers can't pass all to consumers → margin squeeze.</td></tr>
+      <tr><td><strong>FII Flows YTD 2026</strong></td><td style="color:var(--red)">-₹24,000 Cr</td><td style="color:var(--green);font-weight:700">-₹1,87,439 Cr</td><td class="red">8× WORSE</td><td>Massive outflow explains rupee weakness + Nifty underperformance. DII/SIP the sole support.</td></tr>
+      <tr><td><strong>Monsoon 2026</strong></td><td style="color:var(--red)">92% LPA (below normal)</td><td style="color:var(--green);font-weight:700">~100% LPA (normal)</td><td class="green">Upgraded</td><td>POSITIVE. Rural FMCG (Dabur, HUL, ITC) risk reduced. El Niño fear receded in May update.</td></tr>
+      <tr><td><strong>China Caixin PMI</strong></td><td style="color:var(--red)">49.1 (contraction)</td><td style="color:var(--green);font-weight:700">52.2 (expansion)</td><td class="green">Much better</td><td>China not contracting. Steel demand recovering slightly. Less bearish on metals cycle.</td></tr>
+      <tr><td><strong>China CPI</strong></td><td style="color:var(--red)">-0.4% (deflation)</td><td style="color:var(--green);font-weight:700">+1.2% (inflation)</td><td class="green">Deflation ended</td><td>China reflating due to energy cost surge. Commodity cycle may extend longer.</td></tr>
+      <tr><td><strong>DXY (Dollar Index)</strong></td><td style="color:var(--red)">104.3</td><td style="color:var(--green);font-weight:700">99.27</td><td class="green">Dollar weaker</td><td>Weaker dollar = gold higher, EM slightly better. But USD/INR still ₹96 (rupee-specific weakness).</td></tr>
+      <tr><td><strong>Brent Crude</strong></td><td style="color:var(--red)">$104/bbl</td><td style="color:var(--green);font-weight:700">$109/bbl</td><td class="red">Higher</td><td>Hormuz near-fully closed (2-5 ships/day vs 70 before war). Saudi output cut to 6.77 mbpd.</td></tr>
+      <tr><td><strong>Gold (INR/10g)</strong></td><td style="color:var(--red)">~₹1.2L/10g est.</td><td style="color:var(--green);font-weight:700">₹1,52,240/10g</td><td class="green">Much higher</td><td>Your Gold SGB 2031 is even more valuable. NEVER sell. Tax-free maturity gain is enormous.</td></tr>
+      <tr><td><strong>India-Pakistan</strong></td><td style="color:var(--red)">Future tail risk</td><td style="color:var(--green);font-weight:700">HAPPENED (Op. Sindoor May 2025)</td><td class="green">Past event</td><td>Ceasefire holding 1 year. Market recovered fully. Risk: renewed escalation (watch).</td></tr>
+      <tr><td><strong>Russia-Ukraine</strong></td><td style="color:var(--red)">Frozen conflict</td><td style="color:var(--green);font-weight:700">Active fighting</td><td class="red">Ongoing</td><td>3-day Trump truce expired, fighting resumed. Uncertainty premium in energy/metals remains.</td></tr>
+      <tr><td><strong>HDFC Bank price</strong></td><td style="color:var(--red)">Not stated</td><td style="color:var(--green);font-weight:700">₹769 (52-wk low)</td><td class="green">BUY</td><td>30% below analyst targets of ₹960-1069. Best risk/reward in entire portfolio right now.</td></tr>
+      <tr><td><strong>Asian Paints</strong></td><td style="color:var(--red)">HOLD (watch)</td><td style="color:var(--green);font-weight:700">TRIM — PAT -45%, Birla Opus 7-10%</td><td class="red">Downgrade</td><td>PAT fell 45% Q4 FY26. Birla Opus structural share gain confirmed. Pricing power broken.</td></tr>
+      <tr><td><strong>Equitas SFB</strong></td><td style="color:var(--red)">Cautious HOLD (MFI risk)</td><td style="color:var(--green);font-weight:700">UPGRADE — GNPA 2.49%</td><td class="green">Upgraded</td><td>MFI book cut to 8-10% of advances. Secured loans 90%. Universal bank path opens.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- GLOBAL MACRO -->
+<section class="section" id="global">
+  <div class="section-title"><span>🌍</span> Global Macro — Live as of 17 May 2026</div>
+  <div class="section-sub">All numbers verified via live web search by research agent</div>
+
+  <div class="macro-grid">
+    <div class="macro-tile risk">
+      <div class="macro-title">🛢️ Strait of Hormuz — Near Full Closure <span class="macro-tag tag-red">CRITICAL</span></div>
+      <div class="macro-body"><ul>
+        <li>Commercial transits: <strong>near zero since May 4–7</strong> (vs 70 ships/day before war)</li>
+        <li>Brent crude: <strong>$109.26/bbl</strong>, up 6%+ this week. WTI $105.42</li>
+        <li>Oil market loses 100M barrels every week Hormuz stays closed</li>
+        <li>Saudi Aramco CEO: market won't normalise until 2027 if closure persists past June</li>
+        <li>Saudi output cut to <strong>6.77 mbpd</strong> (vs normal 9+ mbpd) — OPEC fragmentation</li>
+        <li>UAE exited OPEC entirely (first major Gulf producer to do so)</li>
+        <li>US-Iran: talks stalled, ceasefire "on life support"</li>
+        <li>Portfolio: Pidilite (VAM spike), Asian Paints (TiO2 imports) most hit</li>
+      </ul></div>
+    </div>
+
+    <div class="macro-tile risk">
+      <div class="macro-title">💸 INR at ₹96 — 12% Depreciation YoY <span class="macro-tag tag-red">NEW RISK</span></div>
+      <div class="macro-body"><ul>
+        <li>USD/INR: <strong>₹96.28</strong> (May 16, 2026). Down 3% in last month alone</li>
+        <li>12% depreciation YoY. RBI defending using forex reserves ($690B, down from $728B peak)</li>
+        <li>FII sold ₹1,87,439 crore YTD 2026 — rupee weakness is FII-driven outflow</li>
+        <li>WPI 8.3%: fuel +24.7%, crude +88% YoY — IMPORT inflation spiking</li>
+        <li><strong>Winners:</strong> Polycab (exports 18% YoY growth), Laurus Labs, KEI exports</li>
+        <li><strong>Losers:</strong> Pidilite (VAM in USD), Asian Paints (TiO2/VAM), companies with USD debt</li>
+        <li>Gold SGB in INR: ₹1,52,240/10g — your best-performing asset class right now</li>
+      </ul></div>
+    </div>
+
+    <div class="macro-tile risk">
+      <div class="macro-title">🇺🇸 US Fed — No Cuts Before 2027 <span class="macro-tag tag-orange">NEGATIVE</span></div>
+      <div class="macro-body"><ul>
+        <li>Fed funds: <strong>3.50–3.75%</strong>. Third consecutive hold (April 29, 2026)</li>
+        <li>Most divisive FOMC since 1992: 8-4 vote (4 dissents)</li>
+        <li>US CPI April: <strong>3.8% YoY</strong> (highest since May 2023). Energy +17.9%, gasoline +28.4%</li>
+        <li>US 10Y yield: <strong>4.60%</strong> — highest since May 2025</li>
+        <li>BofA: no cuts in 2026, first cut July 2027</li>
+        <li>DXY: 99.27 (dollar weaker globally, but rupee still ₹96 — India-specific outflow)</li>
+        <li>BOJ: 0.75%, <strong>77% probability June hike</strong> — yen carry trade unwind = EM risk</li>
+      </ul></div>
+    </div>
+
+    <div class="macro-tile positive">
+      <div class="macro-title">🇨🇳 China — Deflation ENDED, PMI Expanding <span class="macro-tag tag-green">UPSIDE SURPRISE</span></div>
+      <div class="macro-body"><ul>
+        <li>Caixin PMI April: <strong>52.2</strong> — strongest since Dec 2020, up from 50.8</li>
+        <li>China CPI: <strong>+1.2% YoY</strong> — 3-year deflation streak ended. PPI +2.8%</li>
+        <li>Energy-cost surge from Hormuz driving China reflation</li>
+        <li>US-China trade truce May 12: tariffs at 48% avg (down from 145% peak)</li>
+        <li>Steel demand recovering slightly — reduces bear case for Tata Steel, NMDC</li>
+        <li>China PMI new orders at 2nd-highest in 5 years — real demand improving</li>
+        <li>Taiwan risk: 7.5% over 3yr — unchanged, watch Trump-Xi summit outcomes</li>
+      </ul></div>
+    </div>
+
+    <div class="macro-tile watch">
+      <div class="macro-title">🕊️ Geopolitics — India-Pak Done, Ukraine Active <span class="macro-tag tag-orange">WATCH</span></div>
+      <div class="macro-body"><ul>
+        <li><strong>India-Pakistan:</strong> Operation Sindoor (May 7–10, 2025) — 88-hour conflict, ceasefire holding 1 year</li>
+        <li>India declared kinetic phase over, not the operation — tensions remain elevated</li>
+        <li>Pakistan domestic pressure + India posturing = risk of renewed incidents</li>
+        <li><strong>Russia-Ukraine:</strong> Active fighting. Trump 3-day ceasefire (May 8–11) expired, violated by both</li>
+        <li>Putin hints war "moving to completion" — but Donetsk territorial dispute unresolved</li>
+        <li>Market implication: India recovered from Op. Sindoor dip in &lt;3 weeks — historical pattern</li>
+        <li>India-US interim trade: 18% tariff (vs earlier 50%), deal still unsigned</li>
+      </ul></div>
+    </div>
+
+    <div class="macro-tile positive">
+      <div class="macro-title">🥇 Gold — ₹1,52,240/10g in India <span class="macro-tag tag-green">OUTPERFORMING</span></div>
+      <div class="macro-body"><ul>
+        <li>Gold spot: <strong>$4,540–4,564/oz</strong>. Hit $4,707 earlier this month</li>
+        <li>India 24K gold: <strong>₹1,52,240/10g</strong> (May 16, 2026)</li>
+        <li>Pulled back 4% this week on US inflation data (Fed hike fear)</li>
+        <li>Central bank buying continues. De-dollarisation trend accelerating</li>
+        <li><strong>Your Gold SGB 2031:</strong> 2.5% coupon + ₹1.52L/10g gold price + ZERO tax on maturity</li>
+        <li>This is your single best-returning asset class. Do not touch until 2031</li>
+        <li>In every tail risk scenario (Taiwan, pandemic, India-Pak), gold rises 15–35%</li>
+      </ul></div>
+    </div>
+  </div>
+
+  <div class="highlight-box" style="margin-top:20px">
+    <h4>Global Numbers — All Live (May 15–17, 2026)</h4>
+    <div class="number-row">
+      <div class="number-item"><div class="label">Brent Crude</div><div class="val" style="color:var(--red)">$109/bbl</div></div>
+      <div class="number-item"><div class="label">Gold (USD)</div><div class="val" style="color:var(--yellow)">$4,540/oz</div></div>
+      <div class="number-item"><div class="label">Gold (INR)</div><div class="val" style="color:var(--yellow)">₹1,52,240/10g</div></div>
+      <div class="number-item"><div class="label">USD/INR</div><div class="val" style="color:var(--red)">₹96.28</div></div>
+      <div class="number-item"><div class="label">US 10Y</div><div class="val" style="color:var(--orange)">4.60%</div></div>
+      <div class="number-item"><div class="label">Fed Rate</div><div class="val" style="color:var(--muted)">3.625%</div></div>
+      <div class="number-item"><div class="label">DXY</div><div class="val" style="color:var(--muted)">99.27</div></div>
+      <div class="number-item"><div class="label">VIX</div><div class="val" style="color:var(--green)">18.43</div></div>
+      <div class="number-item"><div class="label">China PMI</div><div class="val" style="color:var(--green)">52.2</div></div>
+      <div class="number-item"><div class="label">EUR/USD</div><div class="val" style="color:var(--muted)">1.1700</div></div>
+      <div class="number-item"><div class="label">Japan 10Y</div><div class="val" style="color:var(--orange)">2.60%</div></div>
+      <div class="number-item"><div class="label">US CPI</div><div class="val" style="color:var(--orange)">3.8% YoY</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- INDIA MACRO -->
+<section class="section" id="india">
+  <div class="section-title"><span>🇮🇳</span> India Macro — Live as of 17 May 2026</div>
+  <div class="section-sub">All live data from AMFI, RBI, MoSPI, IMD, NSDL</div>
+
+  <div class="macro-grid">
+    <div class="macro-tile positive">
+      <div class="macro-title">🏦 RBI — Rate Cycle Paused, Next Meeting June 5 <span class="macro-tag tag-blue">NEUTRAL</span></div>
+      <div class="macro-body"><ul>
+        <li>Repo rate: <strong>5.25%</strong> — held at FY27's first MPC (April 2026)</li>
+        <li>Cut 125bps total in 2025 (6.5% → 5.25%). No further cuts expected near-term</li>
+        <li>WPI 8.3% + oil $109 + INR ₹96 = RBI cannot cut aggressively</li>
+        <li>India 10Y G-Sec yield: <strong>7.09%</strong> (elevated due to global yields + oil)</li>
+        <li>Next MPC: June 3–5, 2026. Watch June 5 announcement carefully</li>
+        <li>Banks (HDFC, ICICI, Axis): NIMs under short-term pressure from rate cuts already done</li>
+        <li>GDP FY27 forecast: RBI 6.9%, IMF 6.5%, SBI 6.6% — healthy but not spectacular</li>
+      </ul></div>
+    </div>
+
+    <div class="macro-tile positive">
+      <div class="macro-title">🌧️ Monsoon 2026 — UPGRADED to Normal <span class="macro-tag tag-green">POSITIVE SURPRISE</span></div>
+      <div class="macro-body"><ul>
+        <li>April forecast: 92% LPA (below normal). <strong>May update: ~100% LPA (NORMAL)</strong></li>
+        <li>ENSO-neutral conditions now expected June–September. El Niño risk receded</li>
+        <li>Kerala onset: on schedule ~June 1</li>
+        <li>Impact: Rural FMCG (Dabur, HUL, ITC, Symphony) risk significantly reduced</li>
+        <li>Kharif sowing, rural income, 2-wheeler demand all positively impacted</li>
+        <li>Watch: IMD end-of-May second-stage update. Still a distribution risk (some states)</li>
+        <li><strong>This is the SINGLE BIGGEST positive change from previous report</strong></li>
+      </ul></div>
+    </div>
+
+    <div class="macro-tile risk">
+      <div class="macro-title">📉 FII Outflow — ₹1.87L Crore Sold YTD <span class="macro-tag tag-red">ELEVATED RISK</span></div>
+      <div class="macro-body"><ul>
+        <li>FII/FPI: <strong>₹1,87,439 crore net sold</strong> YTD calendar 2026 (NSDL data)</li>
+        <li>This is 8× worse than my previous estimate of -₹24,000 crore</li>
+        <li>Drivers: US 10Y at 4.60%, Hormuz war risk, rupee depreciation, EM risk-off</li>
+        <li>DII (mutual funds): offsetting ~65% of FII outflows. SIPs are the firewall</li>
+        <li>SIP flows April 2026: <strong>₹31,115 crore/month</strong> — down slightly from ₹32,087 March</li>
+        <li>Active SIP accounts: 8.38 crore (growing)</li>
+        <li>As long as SIPs continue, market will hold. This is India's structural advantage</li>
+      </ul></div>
+    </div>
+
+    <div class="macro-tile risk">
+      <div class="macro-title">⚡ WPI 8.3% — Input Cost Crisis <span class="macro-tag tag-red">NEW RISK</span></div>
+      <div class="macro-body"><ul>
+        <li>WPI April 2026: <strong>8.3% YoY</strong> — highest since Oct 2022</li>
+        <li>Fuel &amp; power: +24.71% YoY. Crude petroleum: +88.06% YoY</li>
+        <li>CPI (consumer) only 3.48% — 5% WPI-CPI divergence = MARGIN SQUEEZE for companies</li>
+        <li>Companies absorbing input cost they can't pass to consumers</li>
+        <li>Most exposed: Pidilite (VAM), Asian Paints (TiO2, crude), specialty chemicals</li>
+        <li>Pidilite already raised Fevicol prices 12-15%. Further hikes signalled</li>
+        <li>Less exposed: ICICI Bank, CAMS, HDFC AMC, SBI Life (service businesses)</li>
+      </ul></div>
+    </div>
+
+    <div class="macro-tile watch">
+      <div class="macro-title">🏗️ Capex Cycle — Strong, AI-Driven Acceleration <span class="macro-tag tag-green">POSITIVE</span></div>
+      <div class="macro-body"><ul>
+        <li>Govt capex ₹11.1L crore FY27. Power, railways, roads executing at pace</li>
+        <li>AI data centres: 3.2GW capacity by 2028 = massive cable/power demand</li>
+        <li>Polycab FY26: Revenue +29%, exports +18%. Direct beneficiary</li>
+        <li>KEI Industries: Infrastructure + export, paired perfectly with Polycab</li>
+        <li>India-US trade deal at 18%: better terms for Indian exporters</li>
+        <li>Forex reserves $696 bn: adequate buffer despite recent decline</li>
+        <li>NMDC iron ore production April: +16% YoY. Government steel capex driving demand</li>
+      </ul></div>
+    </div>
+
+    <div class="macro-tile neutral">
+      <div class="macro-title">🏦 Banking — HDFC at 52-wk Low, ICICI Outperforms <span class="macro-tag tag-green">OPPORTUNITY</span></div>
+      <div class="macro-body"><ul>
+        <li><strong>HDFC Bank: ₹769 (52-week low)</strong>. 52-wk range ₹726–₹1,020</li>
+        <li>PAT Q4 FY26: +9.1% YoY to ₹19,221 crore. Business fundamentals intact</li>
+        <li>Analysts: Buy target ₹960 (Systematix), ₹1,069 (Nirmal Bang). 30% upside</li>
+        <li>LDR normalising (108% → target 85-90% by FY28). Patience required</li>
+        <li>ICICI Bank: ₹1,244. PE 15.4x, PB 2.51x. Best-in-class NPA 1.8%</li>
+        <li>Bajaj Finance: AUM crossed ₹5 lakh crore (+22% YoY). Credit costs normalising to 1.6%</li>
+        <li>PSU banks GNPA: Canara 1.84%, Union 2.82%, PNB 2.95% — dramatic improvement</li>
+      </ul></div>
+    </div>
+  </div>
+
+  <div class="highlight-box" style="margin-top:20px">
+    <h4>India Key Numbers — All Live (May 2026)</h4>
+    <div class="number-row">
+      <div class="number-item"><div class="label">Nifty 50</div><div class="val" style="color:var(--accent)">23,643</div></div>
+      <div class="number-item"><div class="label">Nifty PE</div><div class="val" style="color:var(--accent)">20.59x</div></div>
+      <div class="number-item"><div class="label">Repo Rate</div><div class="val" style="color:var(--green)">5.25%</div></div>
+      <div class="number-item"><div class="label">CPI (Apr)</div><div class="val" style="color:var(--green)">3.48%</div></div>
+      <div class="number-item"><div class="label">WPI (Apr)</div><div class="val" style="color:var(--red)">8.3%</div></div>
+      <div class="number-item"><div class="label">USD/INR</div><div class="val" style="color:var(--red)">₹96.28</div></div>
+      <div class="number-item"><div class="label">India 10Y</div><div class="val" style="color:var(--orange)">7.09%</div></div>
+      <div class="number-item"><div class="label">Monsoon</div><div class="val" style="color:var(--green)">~100% LPA</div></div>
+      <div class="number-item"><div class="label">FII YTD</div><div class="val" style="color:var(--red)">-₹1.87L Cr</div></div>
+      <div class="number-item"><div class="label">SIP/Month</div><div class="val" style="color:var(--green)">₹31,115 Cr</div></div>
+      <div class="number-item"><div class="label">Forex Res.</div><div class="val" style="color:var(--orange)">$697B</div></div>
+      <div class="number-item"><div class="label">GDP FY27E</div><div class="val" style="color:var(--green)">6.5–6.9%</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- SCENARIOS -->
+<section class="section" id="scenarios">
+  <div class="section-title"><span>🎲</span> Scenario Matrix — Updated with Live Data</div>
+  <div class="section-sub">Probabilities revised based on current Hormuz crisis, monsoon upgrade, and China PMI expansion</div>
+  <div class="scenario-grid">
+    <div class="scenario-card scenario-bull">
+      <div class="scenario-prob" style="color:var(--green)">18%</div>
+      <div class="scenario-title" style="color:var(--green)">🚀 BULL — Hormuz Reopens</div>
+      <div class="scenario-detail"><ul>
+        <li>Hormuz reopens Aug 2026, oil falls to $70–80</li>
+        <li>INR recovers to ₹87–90, RBI cuts 2 more times</li>
+        <li>FII inflows return as US risk appetite improves</li>
+        <li>Nifty 30,000–34,000 by Dec 2027</li>
+        <li>HDFC Bank: ₹1,100+ (43% from ₹769)</li>
+        <li>Polycab: ₹10,000+. Bajaj Finance: ₹1,400+</li>
+        <li>Action: Aggressive buy at every dip now</li>
+      </ul></div>
+    </div>
+    <div class="scenario-card scenario-base">
+      <div class="scenario-prob" style="color:var(--accent)">52%</div>
+      <div class="scenario-title" style="color:var(--accent)">📈 BASE — Grinding Higher</div>
+      <div class="scenario-detail"><ul>
+        <li>Hormuz partial opening by Sep 2026, oil at $90–100</li>
+        <li>INR stabilises at ₹92–96. No RBI hike</li>
+        <li>Nifty 26,000–30,000 by Dec 2027 (10–14% from here)</li>
+        <li>FY27 earnings 11–13% Nifty EPS growth</li>
+        <li>SIP of ₹18,000/month reaches ₹1 crore in 11–13 years</li>
+        <li>Action: Hold CORE, exit dead weight, trim PSUs</li>
+      </ul></div>
+    </div>
+    <div class="scenario-card scenario-bear">
+      <div class="scenario-prob" style="color:var(--red)">22%</div>
+      <div class="scenario-title" style="color:var(--red)">📉 BEAR — Oil + Recession</div>
+      <div class="scenario-detail"><ul>
+        <li>Oil $130+ if Hormuz stays closed &gt;6 months</li>
+        <li>India inflation spikes, RBI forced to hike</li>
+        <li>US recession 2027, global demand contracts</li>
+        <li>Nifty 16,000–18,000 (32–35% fall from here)</li>
+        <li>INR ₹100+. Portfolio falls to ₹4.5–5L</li>
+        <li>Gold SGB surges 20–30%. FMCG/Pharma hold well</li>
+        <li>Action: 20% cash. Deploy every 10% Nifty fall</li>
+      </ul></div>
+    </div>
+    <div class="scenario-card scenario-black">
+      <div class="scenario-prob" style="color:var(--purple)">8%</div>
+      <div class="scenario-title" style="color:var(--purple)">☠️ BLACK SWAN</div>
+      <div class="scenario-detail"><ul>
+        <li>Taiwan invasion: -35–40% global, -25% India</li>
+        <li>India-Pakistan renewed kinetic escalation: -25%</li>
+        <li>Pandemic 2.0: -35–40%, pharma/telecom recover in 6m</li>
+        <li>BOJ hike in June → yen carry unwind → EM selloff -15%</li>
+        <li>Hormuz full year closure: oil ₹200+, India emergency</li>
+        <li>Gold SGB + FMCG (Colgate, Dabur) = your buffer</li>
+        <li>Rebalance annually. Never panic-sell core holdings</li>
+      </ul></div>
+    </div>
+  </div>
+</section>
+
+<!-- HOLDINGS TABLE -->
+<section class="section" id="holdings">
+  <div class="section-title"><span>📋</span> Holdings — Updated Verdicts (Live Q4 FY26 Results)</div>
+  <div class="section-sub">All verdicts updated with Q4 FY26 results, current prices, and live macro context</div>
+  <div class="table-controls">
+    <input class="search-input" type="text" id="search" placeholder="Search stock..." oninput="filterTable()">
+    <button class="filter-btn active" onclick="setFilter('all',this)">All</button>
+    <button class="filter-btn exit-f" onclick="setFilter('EXIT',this)">Exit (5)</button>
+    <button class="filter-btn trim-f" onclick="setFilter('TRIM',this)">Trim (8)</button>
+    <button class="filter-btn core-f" onclick="setFilter('CORE HOLD',this)">Core (19)</button>
+    <button class="filter-btn hold-f" onclick="setFilter('HOLD',this)">Hold</button>
+  </div>
+  <div style="overflow-x:auto">
+  <table class="holdings-table" id="holdingsTable">
+    <thead><tr><th>#</th><th onclick="sortTable(1)">STOCK</th><th>SECTOR</th><th class="num" onclick="sortTable(3)">P&L%</th><th>VERDICT</th><th>Q4 FY26 UPDATE</th><th>ACTION</th></tr></thead>
+    <tbody id="holdingsBody">
+      <!-- EXIT 5 -->
+      <tr data-verdict="EXIT"><td>1</td><td class="name-cell">Hathway Cable</td><td>Cable TV / Broadband</td><td class="num red">-51.0%</td><td><span class="verdict-badge v-exit">EXIT</span></td><td>Broadband adds: only +15,000 subscribers/year. Jio fibre dominating. No recovery path.</td><td class="red"><strong>Exit all. This week.</strong></td></tr>
+      <tr data-verdict="EXIT"><td>2</td><td class="name-cell">NMDC Steel (NSSL)</td><td>Steel (standalone)</td><td class="num red">-45.7%</td><td><span class="verdict-badge v-exit">EXIT</span></td><td>Plant ramping ahead of schedule but still not profitable. High-risk ramp-up story, no moat vs SAIL/JSW.</td><td class="red"><strong>Exit all. Do not average.</strong></td></tr>
+      <tr data-verdict="EXIT"><td>3</td><td class="name-cell">Tarsons Products</td><td>Lab Consumables</td><td class="num red">-72.2%</td><td><span class="verdict-badge v-exit">EXIT</span></td><td>COVID re-rating fully reversed. Chinese imports killing pricing. No recovery catalyst.</td><td class="red"><strong>Exit. Use loss to offset LTCG.</strong></td></tr>
+      <tr data-verdict="EXIT"><td>4</td><td class="name-cell">Aarti Drugs</td><td>Pharma / API</td><td class="num red">-25.6%</td><td><span class="verdict-badge v-exit">EXIT</span></td><td>Commodity API, zero pricing power, Chinese competition. Laurus Labs is the superior pharma play.</td><td class="red"><strong>Exit. Reinvest in Laurus.</strong></td></tr>
+      <tr data-verdict="EXIT"><td>5</td><td class="name-cell">SIS Limited</td><td>Security Services</td><td class="num red">-15.0%</td><td><span class="verdict-badge v-exit">EXIT</span></td><td>Labour arbitrage eroding, wage hikes structural. No moat. Low barriers to entry.</td><td class="red"><strong>Exit full position.</strong></td></tr>
+
+      <!-- TRIM 8 -->
+      <tr data-verdict="TRIM"><td>6</td><td class="name-cell">Asian Paints <span class="correction-badge">DOWNGRADED</span></td><td>Paints</td><td class="num orange">—</td><td><span class="verdict-badge v-trim">TRIM</span></td><td>PAT fell 45% YoY in Q4 FY26. Birla Opus at 7–10% market share and growing 3× industry rate. Pricing power structurally broken.</td><td class="orange">Sell 40–50%. Thesis has changed materially.</td></tr>
+      <tr data-verdict="TRIM"><td>7</td><td class="name-cell">Canara Bank</td><td>PSU Banking</td><td class="num orange">+130%</td><td><span class="verdict-badge v-trim">TRIM</span></td><td>GNPA improved to 1.84% (great). PAT dipped 10% due to bond losses. NIM 2.51% under pressure.</td><td class="orange">Sell 40%. GNPA is good news but re-rating done.</td></tr>
+      <tr data-verdict="TRIM"><td>8</td><td class="name-cell">Union Bank</td><td>PSU Banking</td><td class="num orange">+169%</td><td><span class="verdict-badge v-trim">TRIM</span></td><td>GNPA 2.82%. NIM falling. PAT +6.6% YoY. Merger integration risk remains.</td><td class="orange">Sell 50–60%. Move to HDFC Bank.</td></tr>
+      <tr data-verdict="TRIM"><td>9</td><td class="name-cell">Punjab National Bank</td><td>PSU Banking</td><td class="num orange">+149%</td><td><span class="verdict-badge v-trim">TRIM</span></td><td>GNPA 2.95%. Record FY26 PAT ₹16,904 crore. But NIM 2.57% and political risk inherent.</td><td class="orange">Sell 50–60%. Move to Axis Bank.</td></tr>
+      <tr data-verdict="TRIM"><td>10</td><td class="name-cell">NMDC Limited</td><td>Iron Ore Mining</td><td class="num orange">+356%</td><td><span class="verdict-badge v-trim">TRIM</span></td><td>Iron ore prices UP 14–16% in May vs March. Production +16% YoY. Better than expected.</td><td class="orange">Sell only 30–40% now (better than before). Keep rest for dividend.</td></tr>
+      <tr data-verdict="TRIM"><td>11</td><td class="name-cell">SAIL</td><td>Steel / PSU</td><td class="num orange">+105%</td><td><span class="verdict-badge v-trim">TRIM</span></td><td>China PMI 52.2 (not contracting) = slightly positive for steel. Safeguard duty helps near-term.</td><td class="orange">Sell 40% (not 50% — less urgent than before given China recovery).</td></tr>
+      <tr data-verdict="TRIM"><td>12</td><td class="name-cell">Nippon AMC</td><td>Asset Management</td><td class="num orange">+236%</td><td><span class="verdict-badge v-trim">TRIM</span></td><td>AUM ₹6.57L crore, growing 20% YoY. Faster than HDFC AMC. Digital strength. But PE rich.</td><td class="orange">Trim 20% only. Nippon's digital growth is real — keep core.</td></tr>
+      <tr data-verdict="TRIM"><td>13</td><td class="name-cell">Tata Steel</td><td>Steel</td><td class="num orange">+85%</td><td><span class="verdict-badge v-trim">TRIM</span></td><td>Q4 FY26 PAT +125% YoY. India EBITDA margin 25%. UK losses NARROWING significantly.</td><td class="orange">Trim only 15% (vs 30% before). UK turnaround is real. Hold more.</td></tr>
+
+      <!-- CORE HOLD 19 -->
+      <tr data-verdict="CORE HOLD"><td>14</td><td class="name-cell">HDFC Bank <span class="upgrade-badge">STRONG BUY NOW</span></td><td>Private Banking</td><td class="num green">—</td><td><span class="verdict-badge v-core">CORE HOLD ⭐⭐</span></td><td>52-week LOW ₹769. PAT +9.1% Q4. LDR normalising. Analyst targets ₹960–1069 = 30% upside. Best risk/reward in portfolio.</td><td class="green"><strong>Add NOW. Largest single buy opportunity in portfolio.</strong></td></tr>
+      <tr data-verdict="CORE HOLD"><td>15</td><td class="name-cell">ICICI Bank</td><td>Private Banking</td><td class="num green">—</td><td><span class="verdict-badge v-core">CORE HOLD ⭐</span></td><td>₹1,244. PE 15.4x, PB 2.51x. Best-in-class ROE 18%+, GNPA 1.8%. Digital leadership unmatched.</td><td class="green">SIP monthly. Add every 5% dip. Long-term anchor.</td></tr>
+      <tr data-verdict="CORE HOLD"><td>16</td><td class="name-cell">Axis Bank</td><td>Private Banking</td><td class="num green">—</td><td><span class="verdict-badge v-core">CORE HOLD</span></td><td>Mid-cycle improvement. Cost ratios improving. SME book watch.</td><td class="green">Hold. Add on corrections &gt;8%.</td></tr>
+      <tr data-verdict="CORE HOLD"><td>17</td><td class="name-cell">Bajaj Finance</td><td>NBFC / Consumer</td><td class="num green">—</td><td><span class="verdict-badge v-core">CORE HOLD ⭐</span></td><td>AUM ₹5.09L crore (+22% YoY, crossed ₹5L crore milestone). PAT +27%. Credit costs normalising to 1.6%. Bajaj Housing GNPA 0.27%.</td><td class="green">SIP monthly. Never sell in full. 10yr compounder.</td></tr>
+      <tr data-verdict="CORE HOLD"><td>18</td><td class="name-cell">HDFC AMC</td><td>Asset Management</td><td class="num green">—</td><td><span class="verdict-badge v-core">CORE HOLD ⭐</span></td><td>AUM ₹8.73L crore. Market share 11.4%. SIP inflows: 14.8% share (5-month high in April).</td><td class="green">Add Nippon trim proceeds here. India AUM doubling by 2030.</td></tr>
+      <tr data-verdict="CORE HOLD"><td>19</td><td class="name-cell">CAMS</td><td>Fin. Infrastructure</td><td class="num green">—</td><td><span class="verdict-badge v-core">CORE HOLD ⭐</span></td><td>Q4 FY26 record revenue ₹395 crore (+11%). EBITDA margin 46.5%. AUM Rs 55.1L crore (+21%). Non-MF revenue +24.5%.</td><td class="green">Hold all. Compounding quietly. No competitive threat.</td></tr>
+      <tr data-verdict="CORE HOLD"><td>20</td><td class="name-cell">SBI Life Insurance</td><td>Life Insurance</td><td class="num green">—</td><td><span class="verdict-badge v-core">CORE HOLD</span></td><td>VNB margin 27.5%. VNB +12% YoY. EV +15% to ₹80,790 crore. RoEV 19.7%. APE growth 16%.</td><td class="green">Hold all. Add on 10%+ corrections.</td></tr>
+      <tr data-verdict="CORE HOLD"><td>21</td><td class="name-cell">Colgate-Palmolive</td><td>FMCG / Oral Care</td><td class="num green">—</td><td><span class="verdict-badge v-core">CORE HOLD</span></td><td>75% market share in toothpaste. Defensive. Monsoon upgrade = positive for rural distribution.</td><td class="green">Hold. Defensive anchor in bear scenarios.</td></tr>
+      <tr data-verdict="CORE HOLD"><td>22</td><td class="name-cell">Polycab India</td><td>Cables &amp; Wires</td><td class="num green">—</td><td><span class="verdict-badge v-core">CORE HOLD ⭐</span></td><td>FY26 revenue +29%, PAT +32%. Exports +18% YoY (INR ₹96 makes exports even more competitive). W&amp;C 30% market share.</td><td class="green">SIP monthly. Add aggressively on dips. INR depreciation is a tailwind here.</td></tr>
+      <tr data-verdict="CORE HOLD"><td>23</td><td class="name-cell">KEI Industries</td><td>Cables &amp; Wires</td><td class="num green">—</td><td><span class="verdict-badge v-core">CORE HOLD</span></td><td>Infrastructure + EV + export. INR ₹96 boosts export competitiveness. Pairs with Polycab.</td><td class="green">Hold. Add on corrections.</td></tr>
+      <tr data-verdict="CORE HOLD"><td>24</td><td class="name-cell">Laurus Labs</td><td>Pharma / CDMO</td><td class="num green">—</td><td><span class="verdict-badge v-core">CORE HOLD ⭐</span></td><td>FY26 revenue +23%, PAT +148%. CDMO +38%, Africa +18%. NO new FDA escalation beyond 2024 warning letter. Record high post Q4 results.</td><td class="green">Strong hold. Add Aarti Drugs exit proceeds here.</td></tr>
+      <tr data-verdict="CORE HOLD"><td>25</td><td class="name-cell">Voltas</td><td>AC / HVAC</td><td class="num green">—</td><td><span class="verdict-badge v-core">CORE HOLD</span></td><td>Normal monsoon = neutral for AC (not rain-disrupted). Capex: HVAC for railways, data centres.</td><td class="green">Hold. Add if below ₹1,200.</td></tr>
+      <tr data-verdict="CORE HOLD"><td>26</td><td class="name-cell">DMart (Avenue Supermarts)</td><td>Retail</td><td class="num green">—</td><td><span class="verdict-badge v-core">CORE HOLD</span></td><td>SSSG Q4 FY26: 10.8% (sharp jump from 6–7%). 500+ stores. PAT +19% YoY. Quick commerce cannibalising premium; DMart = value. Coexistence holds.</td><td class="green">Hold. Verify SSSG sustains &gt;8% for 2 more quarters.</td></tr>
+      <tr data-verdict="CORE HOLD"><td>27</td><td class="name-cell">Pidilite Industries</td><td>Adhesives / Specialty</td><td class="num green">—</td><td><span class="verdict-badge v-core">CORE HOLD</span></td><td>Q4 FY26 PAT +36.6%. But VAM prices spike 40–50% in H2 FY26 due to oil crisis. Price hike 12–15% done. Q1 FY27 margins will be tight.</td><td class="green">Hold. Pricing power proven. VAM pressure temporary. Buy on dips.</td></tr>
+      <tr data-verdict="CORE HOLD"><td>28</td><td class="name-cell">Kotak Mahindra Bank</td><td>Private Banking</td><td class="num green">—</td><td><span class="verdict-badge v-core">CORE HOLD</span></td><td>RBI digital onboarding ban lifted. Conservative lending culture. Capital ratios strong.</td><td class="green">Hold. Add if drops below ₹1,750.</td></tr>
+      <tr data-verdict="CORE HOLD"><td>29</td><td class="name-cell">Nifty BEES</td><td>Index ETF</td><td class="num green">—</td><td><span class="verdict-badge v-core">CORE HOLD ⭐</span></td><td>Nifty at 23,643 — lower than expected. This makes SIPs even more valuable (buying cheaper). Domestic SIPs absorbing FII selling.</td><td class="green">SIP ₹5,000–8,000/month minimum. Never stop.</td></tr>
+      <tr data-verdict="CORE HOLD"><td>30</td><td class="name-cell">Junior BEES</td><td>Index ETF</td><td class="num green">—</td><td><span class="verdict-badge v-core">CORE HOLD</span></td><td>Nifty Next 50 = future Nifty entrants. Higher beta but better growth potential.</td><td class="green">Hold. Complement to Nifty BEES.</td></tr>
+      <tr data-verdict="CORE HOLD"><td>31</td><td class="name-cell">Gold SGB 2031</td><td>Sovereign Gold Bond</td><td class="num yellow">—</td><td><span class="verdict-badge v-core">CORE HOLD ⭐⭐</span></td><td>Gold ₹1,52,240/10g (24K). 2.5% coupon. ZERO tax on maturity. Your best-performing asset class and tail risk hedge.</td><td class="yellow"><strong>NEVER sell before 2031. Your insurance against everything.</strong></td></tr>
+      <tr data-verdict="CORE HOLD"><td>32</td><td class="name-cell">Equitas SFB <span class="upgrade-badge">UPGRADED</span></td><td>Small Finance Bank</td><td class="num green">—</td><td><span class="verdict-badge v-core">CORE HOLD</span></td><td>GNPA Q4 FY26: 2.49% (was feared 9%+). MFI book cut to 8–10% of advances. Secured loans 90%. Universal bank conversion path open. Record profit quarter.</td><td class="green">Upgrade from cautious HOLD. Add on dips. Watch universal bank news.</td></tr>
+
+      <!-- HOLD -->
+      <tr data-verdict="HOLD"><td>33</td><td class="name-cell">HUL</td><td>FMCG</td><td class="num">—</td><td><span class="verdict-badge v-hold">HOLD</span></td><td>Monsoon upgrade = positive (rural volumes). Palm oil input cost watch. Premium portfolio outperforming.</td><td>Hold. Monsoon upgrade = potential add opportunity if market dips.</td></tr>
+      <tr data-verdict="HOLD"><td>34</td><td class="name-cell">HDFC Life Insurance</td><td>Life Insurance</td><td class="num">—</td><td><span class="verdict-badge v-hold">HOLD</span></td><td>Strong VNB trajectory. HDFC Bank merger (bancassurance) working well.</td><td>Hold. No sell. Add if Nifty falls &gt;20%.</td></tr>
+      <tr data-verdict="HOLD"><td>35</td><td class="name-cell">ICICI Pru Life</td><td>Life Insurance</td><td class="num">—</td><td><span class="verdict-badge v-hold">HOLD</span></td><td>Protection mix improving. Valuations lower than HDFC Life = catch-up potential.</td><td>Hold. Don't average up at current levels.</td></tr>
+      <tr data-verdict="HOLD"><td>36</td><td class="name-cell">ITC Limited</td><td>Conglomerate</td><td class="num">—</td><td><span class="verdict-badge v-hold">HOLD</span></td><td>ITC Hotels now separately listed. FMCG scaling. Cigarette sin-tax risk in next budget.</td><td>Hold. Dividend yield 3%+ provides support.</td></tr>
+      <tr data-verdict="HOLD"><td>37</td><td class="name-cell">IDFC First Bank</td><td>Private Banking</td><td class="num">—</td><td><span class="verdict-badge v-hold">HOLD</span></td><td>Q4 ex-fraud PAT ₹746 crore (+145% normalised). NPA declining. Chandigarh fraud was isolated. NIM 5.93%.</td><td>Hold. Don't add yet. Watch Q1 FY27 for fraud-free clean quarter.</td></tr>
+      <tr data-verdict="HOLD"><td>38</td><td class="name-cell">City Union Bank</td><td>Regional Bank</td><td class="num">—</td><td><span class="verdict-badge v-hold">HOLD</span></td><td>Conservative, south India concentrated. SME credit watch.</td><td>Hold. Small position diversifier.</td></tr>
+      <tr data-verdict="HOLD"><td>39</td><td class="name-cell">Dabur India</td><td>FMCG / Ayurveda</td><td class="num">—</td><td><span class="verdict-badge v-hold">HOLD</span></td><td>Monsoon normal = rural uplift. Bangladesh revenue watch (25% exposure). Ayurveda trend intact.</td><td>Hold. Monsoon upgrade = positive. Consider adding on dips.</td></tr>
+      <tr data-verdict="HOLD"><td>40</td><td class="name-cell">Symphony Limited</td><td>Air Coolers</td><td class="num">—</td><td><span class="verdict-badge v-hold">HOLD</span></td><td>Normal monsoon = neutral-positive. Summer 2026 demand driving Q1 FY27 results.</td><td>Hold. Summer demand will show in Q1 results.</td></tr>
+      <tr data-verdict="HOLD"><td>41</td><td class="name-cell">TTK Prestige</td><td>Kitchen Appliances</td><td class="num">—</td><td><span class="verdict-badge v-hold">HOLD</span></td><td>Premiumisation trend intact. No strong near-term catalyst.</td><td>Hold. No new buy at current levels.</td></tr>
+      <tr data-verdict="HOLD"><td>42</td><td class="name-cell">Alkyl Amines</td><td>Specialty Chemicals</td><td class="num">—</td><td><span class="verdict-badge v-hold">HOLD</span></td><td>Chemical cycle bottom. WPI 8.3% means input costs elevated. 18–24m recovery horizon.</td><td>Hold. Accumulate at cycle lows.</td></tr>
+      <tr data-verdict="HOLD"><td>43</td><td class="name-cell">Deepak Nitrite</td><td>Specialty Chemicals</td><td class="num">—</td><td><span class="verdict-badge v-hold">HOLD</span></td><td>Phenol/crude inputs at very high cost with oil $109. WPI impact real. Integrated chain helps.</td><td>Hold. Cycle recovery play. Buy at 52-week lows only.</td></tr>
+      <tr data-verdict="HOLD"><td>44</td><td class="name-cell">GMM Pfaudler</td><td>Glass-Lined Equipment</td><td class="num">—</td><td><span class="verdict-badge v-hold">HOLD</span></td><td>Pharma capex resilient. Laurus Labs capex = indirect positive for equipment suppliers.</td><td>Hold. Wait for pharma capex cycle rebound.</td></tr>
+      <tr data-verdict="HOLD"><td>45</td><td class="name-cell">Trident Limited</td><td>Textiles / Paper</td><td class="num">—</td><td><span class="verdict-badge v-hold">HOLD</span></td><td>Cotton prices and US export demand. Dividend play. Small position.</td><td>Hold. Dividend income.</td></tr>
+      <tr data-verdict="HOLD"><td>46</td><td class="name-cell">Sammaan Capital</td><td>NBFC / Infra Finance</td><td class="num">—</td><td><span class="verdict-badge v-hold">HOLD</span></td><td>Legacy infra stress. New management reorienting to retail. Long multi-year transition.</td><td>Hold but monitor Q1 FY27 provisioning carefully.</td></tr>
+      <tr data-verdict="HOLD"><td>47</td><td class="name-cell">Carysil (Acrysil)</td><td>Kitchen Sinks</td><td class="num">—</td><td><span class="verdict-badge v-hold">HOLD</span></td><td>Export-heavy. INR ₹96 = export revenues in INR terms much better. EU demand watch.</td><td>Hold. INR weakness is actually a tailwind here.</td></tr>
+      <tr data-verdict="HOLD"><td>48</td><td class="name-cell">SBI Cards</td><td>Credit Cards / NBFC</td><td class="num">—</td><td><span class="verdict-badge v-hold">HOLD</span></td><td>Credit card delinquencies elevated industry-wide. SBI distribution moat intact.</td><td>Hold. Do not add until NPA stabilises.</td></tr>
+      <tr data-verdict="HOLD"><td>49</td><td class="name-cell">Amrutanjan Health</td><td>FMCG / Healthcare</td><td class="num red">-30.5%</td><td><span class="verdict-badge v-exit">EXIT</span></td><td>No recovery catalyst. Micro-cap with no moat vs Vicks/Dabur. Capital trapped.</td><td class="red">Exit. Was overlooked in first list.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ACTION PLAN -->
+<section class="section" id="actions">
+  <div class="section-title"><span>⚡</span> Prioritised Action Plan — Execute in Order</div>
+  <div class="section-sub">Phase 1 this week. Phase 2 next 2 weeks. Phase 3 ongoing SIP.</div>
+
+  <div class="action-section">
+    <div class="action-header exit">🚨 PHASE 1: EXIT (This Week) — Free ₹20,000–35,000</div>
+    <div class="action-body">
+      <div class="action-item"><div><div class="action-name">Hathway Cable</div><div class="action-pnl red">-51%</div></div><div class="action-reason">Jio destroying broadband market. 15k adds/yr = terminal decline.<div class="action-instruction">→ Market sell entire quantity.</div></div></div>
+      <div class="action-item"><div><div class="action-name">NMDC Steel (NSSL)</div><div class="action-pnl red">-45.7%</div></div><div class="action-reason">Plant ramp ahead of schedule but still losing money. No path to profitability vs SAIL/JSW.<div class="action-instruction">→ Exit all. NMDC parent is a different story — keep a trimmed position there.</div></div></div>
+      <div class="action-item"><div><div class="action-name">Tarsons Products</div><div class="action-pnl red">-72.2%</div></div><div class="action-reason">COVID bubble fully deflated. Chinese imports dominant.<div class="action-instruction">→ Exit. Book loss. Use to offset LTCG from NMDC/PSU bank trims (tax efficient).</div></div></div>
+      <div class="action-item"><div><div class="action-name">Aarti Drugs</div><div class="action-pnl red">-25.6%</div></div><div class="action-reason">Commodity API, no moat. Laurus Labs already in portfolio and is the better bet.<div class="action-instruction">→ Exit. Add proceeds to Laurus Labs.</div></div></div>
+      <div class="action-item"><div><div class="action-name">SIS Limited</div><div class="action-pnl red">-15%</div></div><div class="action-reason">Labour services = no moat. Wage inflation structural headwind.<div class="action-instruction">→ Exit full position.</div></div></div>
+      <div class="action-item"><div><div class="action-name">Amrutanjan Health</div><div class="action-pnl red">-30.5%</div></div><div class="action-reason">Micro-cap with no distribution moat. Stagnant for 5+ years.<div class="action-instruction">→ Exit full position. Move to Colgate or Dabur.</div></div></div>
+    </div>
+  </div>
+
+  <div class="action-section">
+    <div class="action-header trim">⚖️ PHASE 2: TRIM + REDEPLOY (Next 2 Weeks)</div>
+    <div class="action-body">
+      <div class="action-item"><div><div class="action-name">Asian Paints</div><div class="action-pnl orange">PAT -45%</div></div><div class="action-reason">Birla Opus structural. Q4 shock (PAT -45%) confirms the thesis has changed. Not a recovery story — it's a share-loss story.<div class="action-instruction">→ Sell 40–50%. Use proceeds to buy HDFC Bank at ₹769 (30% upside).</div></div></div>
+      <div class="action-item"><div><div class="action-name">Canara Bank</div><div class="action-pnl orange">+130%</div></div><div class="action-reason">GNPA improved (good news). But NIM 2.51% under pressure. Re-rating thesis done.<div class="action-instruction">→ Sell 40%. Move to ICICI Bank.</div></div></div>
+      <div class="action-item"><div><div class="action-name">Union Bank</div><div class="action-pnl orange">+169%</div></div><div class="action-reason">+169% captured. NIM falling 21bps. Merger integration risk.<div class="action-instruction">→ Sell 50–60%. Move to HDFC Bank at 52-week low.</div></div></div>
+      <div class="action-item"><div><div class="action-name">PNB</div><div class="action-pnl orange">+149%</div></div><div class="action-reason">Record PAT but NIM 2.57% and political risk inherent in PSU banks.<div class="action-instruction">→ Sell 50%. Move to Axis Bank.</div></div></div>
+      <div class="action-item"><div><div class="action-name">NMDC (parent)</div><div class="action-pnl orange">+356%</div></div><div class="action-reason">Iron ore prices up 14–16% in May — better than expected. Trim less than originally planned.<div class="action-instruction">→ Sell only 30% (not 50–60% as before). Keep for dividend + upside.</div></div></div>
+      <div class="action-item"><div><div class="action-name">SAIL</div><div class="action-pnl orange">+105%</div></div><div class="action-reason">China PMI 52.2 reduces steel bear case. But safeguard duty expiry risk remains.<div class="action-instruction">→ Sell 35–40%.</div></div></div>
+      <div class="action-item"><div><div class="action-name">Tata Steel</div><div class="action-pnl orange">+85%</div></div><div class="action-reason">Q4 PAT +125%, UK losses narrowing — much better than expected. Reduce trim urgency.<div class="action-instruction">→ Sell only 15% (not 30%). UK turnaround real.</div></div></div>
+      <div class="action-item"><div><div class="action-name">Nippon AMC</div><div class="action-pnl orange">+236%</div></div><div class="action-reason">Growing 20% YoY, digital strength. Less urgent to trim vs HDFC AMC.<div class="action-instruction">→ Trim only 15–20%. Keep core — Nippon's faster growth is a real story.</div></div></div>
+    </div>
+  </div>
+
+  <div class="action-section">
+    <div class="action-header core">🌱 PHASE 3: DEPLOY PROCEEDS INTO — Priority Order</div>
+    <div class="action-body">
+      <div class="action-item"><div><div class="action-name">HDFC Bank ₹769</div></div><div class="action-reason"><strong>Top priority.</strong> 52-week low. PAT +9.1%. Target ₹960–1069 = 30% upside. Use Asian Paints trim + PSU bank trims here. Best risk/reward in entire portfolio.</div></div>
+      <div class="action-item"><div><div class="action-name">Nifty BEES</div></div><div class="action-reason">Nifty at 23,643 (lower than my previous estimate of 25,200). Buying cheaper than expected. ₹5,000–8,000/month SIP non-negotiable.</div></div>
+      <div class="action-item"><div><div class="action-name">ICICI Bank</div></div><div class="action-reason">₹1,244, PE 15.4x. Add on every 5% dip. Long-term anchor along with HDFC Bank.</div></div>
+      <div class="action-item"><div><div class="action-name">Polycab India</div></div><div class="action-reason">Revenue +29%, exports +18%. INR ₹96 makes Polycab exports even more competitive. 10-year infrastructure story.</div></div>
+      <div class="action-item"><div><div class="action-name">Laurus Labs</div></div><div class="action-reason">PAT +148%, no FDA escalation. Add Aarti Drugs exit proceeds here directly.</div></div>
+      <div class="action-item"><div><div class="action-name">Bajaj Finance</div></div><div class="action-reason">AUM ₹5L crore. Credit costs normalising. ₹2,000–3,000/month SIP. Never stop.</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- SIP ROADMAP -->
+<section class="section" id="sip">
+  <div class="section-title"><span>🎯</span> ₹1 Crore Roadmap — Updated Numbers</div>
+  <div class="section-sub">Base: ₹6.70L today. Nifty at 23,643 (cheaper than before = SIPs buy more units). 12% CAGR assumption.</div>
+
+  <div class="cards-grid cards-3" style="margin-bottom:24px">
+    <div class="card" style="border-color:#10b98140"><div class="card-label">Path A — ₹12,700/month</div><div class="card-value green">15 Years</div><div class="card-sub">Reaches ₹1.02 crore by 2041</div><div class="card-badge tag-green">Minimum SIP</div></div>
+    <div class="card" style="border-color:#3b82f640"><div class="card-label">Path B — ₹18,000/month</div><div class="card-value blue">12–13 Years</div><div class="card-sub">Reaches ₹1.02 crore by 2038–39</div><div class="card-badge tag-blue">Recommended</div></div>
+    <div class="card" style="border-color:#a855f740"><div class="card-label">Path C — ₹34,400/month</div><div class="card-value purple">10 Years</div><div class="card-sub">Reaches ₹1.01 crore by 2036</div><div class="card-badge tag-purple">Accelerated</div></div>
+  </div>
+
+  <div class="sip-path">
+    <div class="sip-node" style="border-color:#3b82f640"><div class="val" style="color:var(--accent)">₹6.7L</div><div class="yr">Today 2026</div></div>
+    <div class="sip-arrow">→</div>
+    <div class="sip-node"><div class="val">₹12–16L</div><div class="yr">2028</div></div>
+    <div class="sip-arrow">→</div>
+    <div class="sip-node"><div class="val">₹22–30L</div><div class="yr">2030</div></div>
+    <div class="sip-arrow">→</div>
+    <div class="sip-node"><div class="val">₹38–52L</div><div class="yr">2032</div></div>
+    <div class="sip-arrow">→</div>
+    <div class="sip-node"><div class="val">₹65–82L</div><div class="yr">2034</div></div>
+    <div class="sip-arrow">→</div>
+    <div class="sip-node" style="border-color:#10b98140"><div class="val" style="color:var(--green)">₹1 Cr+</div><div class="yr">2036–2041</div></div>
+  </div>
+
+  <div class="sip-note" style="margin-top:16px">
+    <b>KEY INSIGHT:</b> Nifty is at 23,643 right now, not 25,200 as I previously estimated. This means your SIPs are buying more units at lower prices. Lower entry = higher eventual return. The FII-driven selloff is actually giving you a GIFT if you keep SIPping.<br><br>
+    <b>Gold SGB 2031 bonus:</b> When your SGB matures in 2031, gold at ₹1,52,240/10g now. Assume it stays flat or rises — that's a tax-free lump sum. Redeploy entirely into Nifty BEES at 2031 prices. This single event could add ₹5–10L to your corpus in one shot.<br><br>
+    <b>Tax optimisation (do before March 2027):</b> Losses from Hathway, Tarsons, Amrutanjan, Aarti Drugs, SIS can offset LTCG gains from NMDC (+356%), PSU bank trims. Get a CA to calculate exact offset. Could save ₹15,000–25,000 in taxes.<br><br>
+    <b>Emergency reserve rule:</b> Always keep 15–20% of portfolio value as liquid funds. With Nifty at 23,643 and Hormuz crisis ongoing, a 20–30% fall is possible. That becomes your biggest SIP moment. Have the cash ready.
+  </div>
+</section>
+
+<!-- TAIL RISKS -->
+<section class="section" id="risks">
+  <div class="section-title"><span>☢️</span> Tail Risk Register — Live Updated</div>
+  <div class="section-sub">All probabilities and statuses revised with live data</div>
+  <div style="overflow-x:auto">
+  <table class="risk-table">
+    <thead><tr><th>RISK</th><th>STATUS</th><th>PROB</th><th>TIMELINE</th><th>PORTFOLIO IMPACT</th><th>HEDGE</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Hormuz stays closed &gt;6 months</strong></td><td style="color:var(--red)">ACTIVE CRISIS</td><td><span class="prob-pill" style="background:#ef444420;color:var(--red)">35–45%</span></td><td>Now–Dec 2026</td><td>Oil $130–150+. India CAD blows out. RBI forced to hike. Nifty -20 to -30%.</td><td>Gold SGB surges. Polycab, Laurus (exporters) outperform in INR terms.</td></tr>
+      <tr><td><strong>BOJ June hike → yen carry unwind</strong></td><td style="color:var(--orange)">77% PROBABILITY</td><td><span class="prob-pill" style="background:#f59e0b20;color:var(--orange)">HIGH</span></td><td>June 2026</td><td>Global EM selloff. India FII outflow another ₹30,000–50,000 crore. Nifty -5 to -10%.</td><td>Buy HDFC Bank / Nifty BEES on dip. SIP harder in that month.</td></tr>
+      <tr><td><strong>India-Pakistan renewed escalation</strong></td><td style="color:var(--orange)">Ceasefire holding, tense</td><td><span class="prob-pill" style="background:#f59e0b20;color:var(--orange)">10–15%</span></td><td>0–24 months</td><td>Circuit breakers. Nifty -15 to -25% initially. Recovers in 3–6 weeks historically (Op. Sindoor recovered in &lt;3 weeks).</td><td>Gold SGB. History shows: buy the dip during India-Pak incidents.</td></tr>
+      <tr><td><strong>US recession 2027</strong></td><td style="color:var(--orange)">US GDP Q1 2026 only +2.0%</td><td><span class="prob-pill" style="background:#f59e0b20;color:var(--orange)">30–35%</span></td><td>6–18 months</td><td>FII sell India ₹60,000+ crore. Nifty -20 to -25%.</td><td>Cash 15–20%. DII/SIP will absorb. Polycab/Laurus (export) less impacted.</td></tr>
+      <tr><td><strong>Asian Paints — further share loss</strong></td><td style="color:var(--red)">MATERIALISING NOW</td><td><span class="prob-pill" style="background:#ef444420;color:var(--red)">65–70%</span></td><td>Now ongoing</td><td>Asian Paints -20 to -30% if Birla Opus crosses 15% share. PAT already -45%.</td><td>Exit 40–50% now. Already downgraded to TRIM.</td></tr>
+      <tr><td><strong>HDFC Bank — stays depressed</strong></td><td style="color:var(--green)">At 52-wk low = opportunity</td><td><span class="prob-pill" style="background:#10b98120;color:var(--green)">Low</span></td><td>2–4 quarters</td><td>LDR normalisation takes 2–3 years. NIM pressure continues short-term.</td><td>BUY at ₹769. Analyst target ₹960–1069. Long-term hold. This is the gift.</td></tr>
+      <tr><td><strong>INR depreciates to ₹105+</strong></td><td style="color:var(--red)">Already at ₹96</td><td><span class="prob-pill" style="background:#f59e0b20;color:var(--orange)">20–25%</span></td><td>6–12 months</td><td>Imported inflation spikes. RBI emergency. FMCG margin squeeze worsens.</td><td>Gold SGB. Export-oriented stocks benefit (Polycab, Laurus, KEI).</td></tr>
+      <tr><td><strong>SEBI AMC fee regulation</strong></td><td style="color:var(--muted)">Watching</td><td><span class="prob-pill" style="background:#3b82f620;color:var(--accent)">10–15%</span></td><td>12–24 months</td><td>HDFC AMC, Nippon -15 to -25%. CAMS less affected.</td><td>CAMS position is natural hedge vs AMC fee cut risk.</td></tr>
+      <tr><td><strong>Taiwan invasion</strong></td><td style="color:var(--muted)">Watch Xi-Trump summit</td><td><span class="prob-pill" style="background:#a855f720;color:var(--purple)">6–8% (3yr)</span></td><td>2026–2029</td><td>Global -35 to -40%. India -25 to -30%. Semiconductor supply crisis.</td><td>Gold SGB. Physical cash buffer. India recovers faster than West.</td></tr>
+      <tr><td><strong>Laurus Labs FDA escalation</strong></td><td style="color:var(--green)">No escalation beyond 2024 WL</td><td><span class="prob-pill" style="background:#3b82f620;color:var(--green)">8–10%</span></td><td>0–24 months</td><td>Laurus -30 to -50% if Import Alert issued.</td><td>No leverage on Laurus. Stop-loss at -25% from current.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<div class="site-footer">
+  <strong>v2 — FULLY UPDATED WITH LIVE DATA</strong><br>
+  Data sources: Upstox API v2.0 (portfolio), 3 parallel research agents (web search), MoSPI, RBI, AMFI, IMD, NSDL, NSE.<br>
+  Macro data confirmed live as of May 15–17, 2026. Not SEBI-registered investment advice. Consult a SEBI-RIA before major decisions.<br><br>
+  <strong>DISCLAIMER:</strong> All analysis is personal research only. Past performance ≠ future returns.
+</div>
+
+</div>
+
+<script>
+let currentFilter='all';
+function setFilter(v,btn){currentFilter=v;document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');filterTable()}
+function filterTable(){const q=document.getElementById('search').value.toLowerCase();document.querySelectorAll('#holdingsBody tr').forEach(row=>{const name=row.cells[1].textContent.toLowerCase();const verdict=row.dataset.verdict;row.classList.toggle('hidden',!(name.includes(q)&&(currentFilter==='all'||verdict===currentFilter)))})}
+let sortDir={};
+function sortTable(col){const tbody=document.getElementById('holdingsBody');const rows=Array.from(tbody.rows);const asc=!sortDir[col];sortDir[col]=asc;rows.sort((a,b)=>{const av=a.cells[col].textContent.trim(),bv=b.cells[col].textContent.trim();const an=parseFloat(av.replace(/[^0-9.-]/g,'')),bn=parseFloat(bv.replace(/[^0-9.-]/g,''));if(!isNaN(an)&&!isNaN(bn))return asc?an-bn:bn-an;return asc?av.localeCompare(bv):bv.localeCompare(av)});rows.forEach(r=>tbody.appendChild(r))}
+window.addEventListener('scroll',()=>{const s=document.documentElement.scrollTop,d=document.documentElement.scrollHeight-document.documentElement.clientHeight;document.documentElement.style.setProperty('--scroll-pct',(s/d*100)+'%')});
+</script>
+</body>
+</html>

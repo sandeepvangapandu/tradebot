@@ -40,7 +40,7 @@ from src.backtest.harness import BacktestHarness
 INDEX_INSTRUMENTS = [
     {
         "name": "BankNifty",
-        "data_file": "data/backtest/banknifty_1m_18mo.csv",
+        "data_file": "data/backtest/banknifty_1m_24mo.csv",
         "instrument_key": "NSE_INDEX|Nifty Bank",
         "straddle_proxy": True,
         # Anchor straddle strike at 10:00 AM (strategy entry window) not 9:15 AM open
@@ -49,14 +49,14 @@ INDEX_INSTRUMENTS = [
     },
     {
         "name": "Nifty50",
-        "data_file": "data/backtest/nifty50_1m_18mo.csv",
+        "data_file": "data/backtest/nifty50_1m_24mo.csv",
         "instrument_key": "NSE_INDEX|Nifty 50",
         "straddle_proxy": True,
         "entry_anchor_time": dt_time(10, 0),
     },
     {
         "name": "FinNifty",
-        "data_file": "data/backtest/finnifty_1m_18mo.csv",
+        "data_file": "data/backtest/finnifty_1m_24mo.csv",
         "instrument_key": "NSE_INDEX|Nifty Fin Service",
         "straddle_proxy": True,
         "entry_anchor_time": dt_time(10, 0),
@@ -74,12 +74,12 @@ EQUITY_SYMBOLS = [
 EQUITY_INSTRUMENTS = [
     {
         "name": sym,
-        "data_file": f"data/backtest/equity/{sym.lower()}_1m_18mo.csv",
+        "data_file": f"data/backtest/equity/{sym.lower()}_1m_24mo.csv",
         "instrument_key": f"NSE_EQ|{sym}",
         "straddle_proxy": False,
     }
     for sym in EQUITY_SYMBOLS
-    if Path(f"data/backtest/equity/{sym.lower()}_1m_18mo.csv").exists()
+    if Path(f"data/backtest/equity/{sym.lower()}_1m_24mo.csv").exists()
 ]
 
 ALL_INSTRUMENTS = INDEX_INSTRUMENTS + EQUITY_INSTRUMENTS

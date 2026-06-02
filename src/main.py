@@ -1322,8 +1322,19 @@ class TradingBot:
 
         # ------------------------------------------------------------------ #
         # Expand WebSocket subscriptions to include universe + sector + macro
+        # Deferred to first tick so the socket is guaranteed open.
         # ------------------------------------------------------------------ #
-        self._expand_websocket_subscriptions()
+        _ws_expanded = False
+
+        def _expand_ws_once(tick: Any) -> None:
+            nonlocal _ws_expanded
+            if _ws_expanded:
+                return
+            _ws_expanded = True
+            self._expand_websocket_subscriptions()
+
+        if self.market_feed is not None:
+            self.market_feed.register_callback(_expand_ws_once)
 
         # ------------------------------------------------------------------ #
         # Startup health log
@@ -2124,7 +2135,15 @@ class TradingBot:
                 # ---------------------------------------------------------- #
                 if self.micro_feature_engine is not None:
                     try:
-                        self.micro_feature_engine.on_tick(instrument_key, tick)
+                        # Pass normalized tick dict — micro_features expects top-level
+                        # ltp (paisa int), volume, bid, ask.  The raw `tick` dict has
+                        # feeds/currentTs at the top level, not ltp/volume.
+                        self.micro_feature_engine.on_tick(instrument_key, {
+                            "ltp": price_paisa,
+                            "volume": volume,
+                            "best_bid_price": bid_paisa,
+                            "best_ask_price": ask_paisa,
+                        })
                     except Exception as exc:
                         logger.debug("micro_feature_engine.on_tick failed: {}", exc)
 

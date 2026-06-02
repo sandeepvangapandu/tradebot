@@ -3,6 +3,7 @@
 This module provides event-based analysis for trading signals, including:
 - NSE holidays and trading calendar
 - RBI MPC and US Fed meeting dates
+- Indian general and state election result/exit-poll days
 - Weekly/Monthly expiry detection
 - Time-of-day quality scoring
 - Event risk assessment
@@ -12,9 +13,13 @@ All timestamps are in IST (Asia/Kolkata).
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, date, time, timedelta
+from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
+
+import yaml
 
 from loguru import logger
 from .models import AnalysisComponent, EventData
@@ -154,6 +159,25 @@ class EventCalendarAnalyzer:
         date(2026, 2, 1),
     }
 
+    # Indian election high-volatility days (result days + exit-poll days).
+    # These are the dates that actually moved markets, not every polling phase.
+    # Add future elections here OR load via config/election_dates.yaml.
+    INDIAN_ELECTION_DAYS: set[date] = {
+        # 18th Lok Sabha General Election 2024
+        date(2024, 6, 3),   # Exit poll release day (heavy speculation overnight)
+        date(2024, 6, 4),   # Results day — BankNifty -8%, ADANIENT gapped -10%
+
+        # Maharashtra state assembly election 2024
+        date(2024, 11, 23),  # Results day
+
+        # Delhi assembly election 2025
+        date(2025, 2, 8),   # Results day
+    }
+
+    # Path to optional YAML file for loading future election dates at runtime.
+    # Format: list of ISO date strings under key 'election_days'.
+    _ELECTION_CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "election_dates.yaml"
+
     # Quarterly Earnings Seasons (approximate periods)
     # Format: (start_date, end_date) for each quarter
     EARNINGS_SEASONS_2024: list[tuple[date, date]] = [
@@ -184,7 +208,35 @@ class EventCalendarAnalyzer:
         self.fed_dates = self.US_FED_DATES_2024 | self.US_FED_DATES_2025
         self.budget_days = self.BUDGET_DAYS
         self.earnings_seasons = self.EARNINGS_SEASONS_2024 + self.EARNINGS_SEASONS_2025
-        logger.info("EventCalendarAnalyzer initialized")
+        self.election_days: set[date] = set(self.INDIAN_ELECTION_DAYS)
+        self._load_election_dates_from_config()
+        logger.info(
+            f"EventCalendarAnalyzer initialized — election blackout days: {len(self.election_days)}"
+        )
+
+    def _load_election_dates_from_config(self) -> None:
+        """Merge election dates from config/election_dates.yaml if it exists.
+
+        YAML format:
+            election_days:
+              - 2027-05-23   # some future election result day
+        """
+        if not self._ELECTION_CONFIG_PATH.exists():
+            return
+        try:
+            with open(self._ELECTION_CONFIG_PATH) as f:
+                data = yaml.safe_load(f) or {}
+            for raw in data.get("election_days", []):
+                if isinstance(raw, date):
+                    self.election_days.add(raw)
+                else:
+                    self.election_days.add(date.fromisoformat(str(raw)))
+            logger.info(
+                f"Loaded election dates from {self._ELECTION_CONFIG_PATH}: "
+                f"{len(data.get('election_days', []))} entries"
+            )
+        except Exception as exc:
+            logger.warning(f"Could not load election_dates.yaml: {exc}")
 
     def is_nse_holiday(self, check_date: date) -> bool:
         """Check if the given date is an NSE holiday.
@@ -197,10 +249,21 @@ class EventCalendarAnalyzer:
         """
         return check_date in self.holidays
 
+    def is_election_day(self, check_date: Optional[date] = None) -> bool:
+        """Check if date is a known Indian election high-volatility day.
+
+        Covers general election result days, exit-poll release days, and
+        major state election result days. Loaded from INDIAN_ELECTION_DAYS
+        plus any entries in config/election_dates.yaml.
+        """
+        d = check_date or datetime.now(IST).date()
+        return d in self.election_days
+
     def is_high_risk_event_day(self, check_date: Optional[date] = None) -> tuple[bool, Optional[str]]:
         """Return (is_event_day, reason) — used by strategies for news blackout.
 
-        Flags RBI MPC days, US Fed meeting days, and Indian budget days.
+        Flags RBI MPC days, US Fed meeting days, Indian budget days, and
+        Indian election result/exit-poll days.
         Short-premium strategies (straddles, strangles) should avoid entries
         on these days because vol typically expands and intraday gaps blow
         through stop-losses.
@@ -212,6 +275,8 @@ class EventCalendarAnalyzer:
             Tuple of (is_event_day, reason). Reason is None when False.
         """
         d = check_date or datetime.now(IST).date()
+        if d in self.election_days:
+            return True, "Indian election day"
         if d in self.rbi_dates:
             return True, "RBI MPC policy day"
         if d in self.fed_dates:
@@ -409,8 +474,14 @@ class EventCalendarAnalyzer:
         score = 80  # Default: no event
         risk_level = "low"
 
+        # Check for election day (highest risk — same tier as budget)
+        if self.is_election_day(check_date):
+            score = 10
+            risk_level = "extreme"
+            reasoning_parts.append("Indian election day - extreme gap/volatility risk")
+
         # Check for Budget day (highest risk)
-        if self.is_budget_day(check_date):
+        elif self.is_budget_day(check_date):
             score = 10
             risk_level = "extreme"
             event_data.is_budget_day = True
@@ -673,7 +744,7 @@ class EventCalendarAnalyzer:
 
         Args:
             event_date: Date of the event
-            event_type: Type of event ('rbi', 'fed', 'budget')
+            event_type: Type of event ('rbi', 'fed', 'budget', 'election')
         """
         if event_type == 'rbi':
             self.rbi_dates.add(event_date)
@@ -681,6 +752,8 @@ class EventCalendarAnalyzer:
             self.fed_dates.add(event_date)
         elif event_type == 'budget':
             self.budget_days.add(event_date)
+        elif event_type == 'election':
+            self.election_days.add(event_date)
         else:
             raise ValueError(f"Unknown event type: {event_type}")
         logger.info(f"Added custom {event_type} event: {event_date}")

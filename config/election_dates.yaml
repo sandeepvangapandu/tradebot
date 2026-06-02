@@ -1,0 +1,16 @@
+# Indian election high-volatility blackout dates.
+# Add future election result days and exit-poll days here.
+# The EventCalendarAnalyzer loads this at startup and merges with the hardcoded set.
+#
+# Format: ISO date strings (YYYY-MM-DD)
+# Include: result days, exit-poll release days (next trading day after release)
+#
+# Hardcoded in INDIAN_ELECTION_DAYS (no need to duplicate here):
+#   2024-06-03 — Lok Sabha exit poll release day
+#   2024-06-04 — Lok Sabha results day
+#   2024-11-23 — Maharashtra state election results
+#   2025-02-08 — Delhi assembly election results
+
+election_days:
+  # Add future elections below:
+  # - 2027-05-23   # Example: next general election result day

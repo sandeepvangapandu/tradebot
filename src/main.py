@@ -75,7 +75,7 @@ from src.strategy.engine import StrategyEngine
 from src.utils.exceptions import TradingBotError
 from src.utils.health_monitor import HealthMonitor
 from src.utils.holidays import is_trading_day
-from src.utils.logger import setup_logger
+from src.utils.logger import setup_logger, add_db_sink
 from src.utils.scheduler import get_scheduler
 from src.data.options_resolver import OptionsResolver
 
@@ -980,6 +980,14 @@ class TradingBot:
                 logger.debug("db_engine: OK")
         except Exception as exc:
             logger.warning("db_engine init failed: {}", exc)
+
+        # Attach SQLite log sink — writes every INFO+ record to bot_logs table.
+        try:
+            from src.persistence.database import engine as _sqlite_engine
+            add_db_sink(_sqlite_engine, level="INFO")
+            logger.info("bot_logs DB sink attached")
+        except Exception as exc:
+            logger.warning("bot_logs DB sink failed to attach: {}", exc)
 
         # ------------------------------------------------------------------ #
         # Helper: historical provider compatible with research modules

@@ -1,6 +1,7 @@
 """Logging configuration using loguru."""
 
 import sys
+from typing import Any
 
 from loguru import logger as _logger
 
@@ -69,6 +70,71 @@ def setup_logger(
     )
 
     return _logger
+
+
+def add_db_sink(db_engine: Any, level: str = "INFO") -> None:
+    """Attach a SQLite sink that writes every log record to the bot_logs table.
+
+    Call this once from main.py after the SQLite engine is ready.
+    The table is created automatically if it doesn't exist.
+
+    Args:
+        db_engine: SQLAlchemy engine pointing at data/trading_bot.db.
+        level:     Minimum log level to persist (default INFO — avoids
+                   flooding the DB with DEBUG noise).
+    """
+    from sqlalchemy import text
+
+    try:
+        with db_engine.begin() as conn:
+            conn.execute(text(
+                """CREATE TABLE IF NOT EXISTS bot_logs (
+                    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts       TEXT    NOT NULL,
+                    level    TEXT    NOT NULL,
+                    module   TEXT,
+                    function TEXT,
+                    line     INTEGER,
+                    message  TEXT    NOT NULL
+                )"""
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_bot_logs_ts ON bot_logs(ts)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_bot_logs_level ON bot_logs(level)"
+            ))
+    except Exception as exc:
+        _logger.warning("add_db_sink: could not create bot_logs table: {}", exc)
+        return
+
+    def _sqlite_sink(message: Any) -> None:
+        record = message.record
+        try:
+            with db_engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "INSERT INTO bot_logs (ts, level, module, function, line, message) "
+                        "VALUES (:ts, :level, :module, :func, :line, :msg)"
+                    ),
+                    {
+                        "ts":     record["time"].isoformat(),
+                        "level":  record["level"].name,
+                        "module": record["name"],
+                        "func":   record["function"],
+                        "line":   record["line"],
+                        "msg":    record["message"],
+                    },
+                )
+        except Exception:
+            pass  # Never let DB errors kill the logging pipeline
+
+    _logger.add(
+        _sqlite_sink,
+        level=level,
+        format="{message}",
+        enqueue=True,
+    )
 
 
 # Module-level pre-configured logger instance.

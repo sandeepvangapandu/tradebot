@@ -1248,9 +1248,26 @@ class PositionManager:
                         tgt_dist = abs((position.target_price or entry_px) - price) / max(entry_px, 1)
                         trailing_on = 1.0 if position.trailing_sl_activated else 0.0
                         peak_gain = max(0.0, pnl_pct)
+
+                        # Compute actual bars held (5-min bars, 48 bars = 4h session)
+                        _now_ts = self._now()
+                        _held_s = (
+                            (_now_ts - position.entry_time).total_seconds()
+                            if position.entry_time else 0.0
+                        )
+                        _bars_held_norm = float(min(_held_s / (48 * 300), 1.0))
+
+                        # Minimum hold time: straddle strategies need 2h; others 15min.
+                        _is_straddle = "straddle" in position.strategy_id.lower()
+                        _min_hold_s = 7200.0 if _is_straddle else 900.0
+                        if _held_s < _min_hold_s:
+                            # Too early to allow EXIT regardless of Q-values.
+                            rl_exit_triggered = False
+                            return closed_positions
+
                         rl_state = {
                             "pnl_pct": float(pnl_pct),
-                            "bars_held_norm": 0.5,
+                            "bars_held_norm": _bars_held_norm,
                             "momentum": 0.0,
                             "vol_regime": 1.0,
                             "dist_to_sl": float(sl_dist),

@@ -1294,14 +1294,17 @@ class TradingBot:
         try:
             if _Reconciler is not None:
                 from src.execution.reconciler import ReconcilerConfig as _ReconcilerConfig
+                from src.persistence.database import engine as _sqlite_engine
                 _rcfg = _ReconcilerConfig(
                     # Paper mode: no manual broker-side trades possible,
                     # so REMOTE_NEW should never halt new orders.
                     halt_on_remote_new=self.settings.trading_mode != "paper",
                 )
+                # Positions are written to SQLite (trading_bot.db), not Postgres.
+                # Pass the SQLite engine so fetch_local_positions finds actual rows.
                 self.reconciler = _Reconciler(
                     broker=self.paper_broker,
-                    db_engine=self.db_engine,
+                    db_engine=_sqlite_engine,
                     config=_rcfg,
                 )
                 logger.debug("reconciler: OK")

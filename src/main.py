@@ -611,9 +611,9 @@ class TradingBot:
             if _banknifty_key not in feeds:
                 return
 
-            # Extract spot price from tick
-            try:
-                payload = feeds[_banknifty_key]
+            # Extract spot price for every index instrument present in this tick
+            # so each strategy uses its own underlying's price, not just BankNifty.
+            def _extract_ltp(payload: dict) -> float | None:
                 ltpc = payload.get("ltpc") or {}
                 ltp = ltpc.get("ltp")
                 if ltp is None:
@@ -621,26 +621,39 @@ class TradingBot:
                     inner = ff.get("indexFF") or ff.get("marketFF") or {}
                     ltpc = inner.get("ltpc") or {}
                     ltp = ltpc.get("ltp")
-                if ltp is None:
-                    return
-                spot_paisa = int(round(float(ltp) * 100))
-            except Exception as exc:
-                logger.debug("ATM subscription: could not extract spot — {}", exc)
+                return ltp
+
+            spot_map: dict[str, int] = {}
+            for ik, payload in feeds.items():
+                try:
+                    ltp = _extract_ltp(payload)
+                    if ltp is not None:
+                        spot_map[ik] = int(round(float(ltp) * 100))
+                except Exception:
+                    pass
+
+            banknifty_spot = spot_map.get(_banknifty_key)
+            if banknifty_spot is None:
                 return
 
             _options_subscribed[0] = True
             logger.info(
-                "ATM subscription triggered — BankNifty spot: ₹{:.2f}",
-                spot_paisa / 100,
+                "ATM subscription triggered — spots: {}",
+                {k: f"₹{v/100:.2f}" for k, v in spot_map.items()},
             )
 
-            # Resolve ATM option keys for all active option strategies
+            # Resolve ATM option keys for all active option strategies.
+            # Each strategy gets the spot of its own underlying via the getter.
             if not self.strategy_engine or not self.instrument_manager:
                 return
             try:
                 resolver = OptionsResolver(self.instrument_manager)
                 active_strategies = self.strategy_engine.get_active_strategies()
-                option_keys = resolver.resolve_all_strategies(active_strategies, spot_paisa)
+
+                def _spot_getter(underlying_key: str) -> int:
+                    return spot_map.get(underlying_key, banknifty_spot)
+
+                option_keys = resolver.resolve_all_strategies(active_strategies, _spot_getter)
                 if option_keys:
                     self.market_feed.subscribe(option_keys, mode="full")
                     logger.info(

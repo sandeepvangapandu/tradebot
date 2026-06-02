@@ -10,7 +10,8 @@ subscription that previously existed.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Union
 
 from loguru import logger
 
@@ -147,13 +148,16 @@ class OptionsResolver:
     def resolve_all_strategies(
         self,
         strategies: list[object],
-        spot_price: int,
+        spot_price: Union[int, Callable[[str], int]],
     ) -> list[str]:
         """Resolve instruments for all strategies, deduplicating.
 
         Args:
             strategies: List of StrategyConfig objects.
-            spot_price: Current underlying spot price in paisa.
+            spot_price: Either a fixed int (paisa) used for all strategies, or
+                a callable ``(underlying_instrument_key) -> int`` that returns
+                the per-underlying spot price.  Pass a callable when strategies
+                have different underlyings (e.g. BankNifty vs Nifty50).
 
         Returns:
             Deduplicated list of instrument keys to subscribe to.
@@ -161,7 +165,30 @@ class OptionsResolver:
         seen: set[str] = set()
         result: list[str] = []
         for strategy in strategies:
-            keys = self.resolve_strategy_instruments(strategy, spot_price)
+            if callable(spot_price):
+                # Extract the strategy's underlying key so we can look up the
+                # correct spot rather than using a shared BankNifty price.
+                if hasattr(strategy, "underlying"):
+                    underlying_cfg = strategy.underlying or {}
+                elif isinstance(strategy, dict):
+                    underlying_cfg = strategy.get("underlying") or {}
+                else:
+                    underlying_cfg = {}
+                if isinstance(underlying_cfg, dict):
+                    u_key = underlying_cfg.get("instrument_key", "")
+                else:
+                    u_key = getattr(underlying_cfg, "instrument_key", "")
+                resolved_spot = spot_price(u_key) if u_key else 0
+                if resolved_spot <= 0:
+                    logger.debug(
+                        "[OptionsResolver] no spot for underlying_key=%r — skipping strategy %s",
+                        u_key,
+                        getattr(strategy, "name", "?"),
+                    )
+                    continue
+            else:
+                resolved_spot = spot_price
+            keys = self.resolve_strategy_instruments(strategy, resolved_spot)
             for k in keys:
                 if k not in seen:
                     seen.add(k)

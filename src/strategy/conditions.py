@@ -699,10 +699,12 @@ class ConditionEvaluator:
         else:
             result = self._apply_operator(condition.comparison, left_val, right_val)
 
+        right_fmt = f"{right_val:.4f}" if isinstance(right_val, (int, float)) else repr(right_val)
+        left_fmt = f"{left_val:.4f}" if isinstance(left_val, (int, float)) else repr(left_val)
         logger.debug(
-            f"Condition: {condition.indicator} ({left_val:.4f}) "
+            f"Condition: {condition.indicator} ({left_fmt}) "
             f"{condition.comparison.value} "
-            f"{condition.against or condition.value} ({right_val:.4f}) = {result}"
+            f"{condition.against or condition.value} ({right_fmt}) = {result}"
         )
         return result
 

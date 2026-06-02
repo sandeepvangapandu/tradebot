@@ -117,6 +117,8 @@ class PositionReconciler:
                 logger.warning("PositionReconciler: could not create DB engine — %s", exc)
                 self._engine = None
 
+        self._ensure_reconciler_tables()
+
     # ------------------------------------------------------------------
     # Public helpers
     # ------------------------------------------------------------------
@@ -125,6 +127,44 @@ class PositionReconciler:
     def halt_new_orders(self) -> bool:
         """True when a REMOTE_NEW event was detected and halt_on_remote_new is set."""
         return self._halt_new_orders
+
+    # ------------------------------------------------------------------
+    # Private setup
+    # ------------------------------------------------------------------
+
+    def _ensure_reconciler_tables(self) -> None:
+        """Create reconciliation tracking tables if they don't exist (SQLite-compatible DDL)."""
+        if self._engine is None:
+            return
+        from sqlalchemy import text
+        ddl = [
+            """CREATE TABLE IF NOT EXISTS reconciliation_runs (
+                cycle_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                ended_at TEXT,
+                total_local_positions INTEGER NOT NULL DEFAULT 0,
+                total_broker_positions INTEGER NOT NULL DEFAULT 0,
+                events_count INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'RUNNING'
+            )""",
+            """CREATE TABLE IF NOT EXISTS reconciliation_log (
+                log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                cycle_id INTEGER,
+                event_type TEXT,
+                instrument_key TEXT,
+                local_state TEXT,
+                broker_state TEXT,
+                action_taken TEXT,
+                details TEXT
+            )""",
+        ]
+        try:
+            with self._engine.begin() as conn:
+                for stmt in ddl:
+                    conn.execute(text(stmt))
+        except Exception as exc:
+            logger.warning("reconciler: could not create tracking tables: %s", exc)
 
     # ------------------------------------------------------------------
     # Fetch helpers
@@ -144,8 +184,13 @@ class PositionReconciler:
             with self._engine.connect() as conn:
                 rows = conn.execute(
                     text(
-                        "SELECT id, instrument_key, side, entry_qty, exit_qty, "
-                        "entry_avg_price, exit_avg_price, status, realized_pnl "
+                        "SELECT id, instrument_key, side, "
+                        "quantity AS entry_qty, "
+                        "0 AS exit_qty, "
+                        "entry_price AS entry_avg_price, "
+                        "0 AS exit_avg_price, "
+                        "status, "
+                        "0 AS realized_pnl "
                         "FROM positions "
                         "WHERE status IN ('OPEN','PARTIAL') "
                         "ORDER BY opened_at"
@@ -621,17 +666,20 @@ class PositionReconciler:
         if self._engine is None:
             return 0
         from sqlalchemy import text
-        with self._engine.begin() as conn:
-            row = conn.execute(
-                text(
-                    "INSERT INTO reconciliation_runs "
-                    "(started_at, total_local_positions, total_broker_positions, status) "
-                    "VALUES (NOW() AT TIME ZONE 'UTC', :nl, :nb, 'RUNNING') "
-                    "RETURNING cycle_id"
-                ),
-                {"nl": n_local, "nb": n_broker},
-            ).fetchone()
-        return int(row.cycle_id)
+        try:
+            with self._engine.begin() as conn:
+                result = conn.execute(
+                    text(
+                        "INSERT INTO reconciliation_runs "
+                        "(started_at, total_local_positions, total_broker_positions, status) "
+                        "VALUES (CURRENT_TIMESTAMP, :nl, :nb, 'RUNNING')"
+                    ),
+                    {"nl": n_local, "nb": n_broker},
+                )
+                return int(result.lastrowid)
+        except Exception as exc:
+            logger.error("_create_run failed: %s", exc)
+            return 0
 
     def _finish_run(self, cycle_id: int, events_count: int, status: str) -> None:
         """Update reconciliation_runs on cycle completion."""
@@ -643,7 +691,7 @@ class PositionReconciler:
                 conn.execute(
                     text(
                         "UPDATE reconciliation_runs "
-                        "SET ended_at = NOW() AT TIME ZONE 'UTC', "
+                        "SET ended_at = CURRENT_TIMESTAMP, "
                         "    events_count = :ec, "
                         "    status = :st "
                         "WHERE cycle_id = :cid"
@@ -677,26 +725,28 @@ class PositionReconciler:
             except Exception:
                 return str(obj)
 
-        with self._engine.begin() as conn:
-            conn.execute(
-                text(
-                    "INSERT INTO reconciliation_log "
-                    "(ts, cycle_id, event_type, instrument_key, "
-                    " local_state, broker_state, action_taken, details) "
-                    "VALUES (NOW() AT TIME ZONE 'UTC', :cid, :etype, :ikey, "
-                    "        CAST(:ls AS jsonb), CAST(:bs AS jsonb), :at, "
-                    "        CAST(:det AS jsonb))"
-                ),
-                {
-                    "cid":   cycle_id,
-                    "etype": event_type,
-                    "ikey":  instrument_key,
-                    "ls":    _to_json(local_state),
-                    "bs":    _to_json(broker_state),
-                    "at":    action_taken,
-                    "det":   _to_json(details),
-                },
-            )
+        try:
+            with self._engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "INSERT INTO reconciliation_log "
+                        "(ts, cycle_id, event_type, instrument_key, "
+                        " local_state, broker_state, action_taken, details) "
+                        "VALUES (CURRENT_TIMESTAMP, :cid, :etype, :ikey, "
+                        "        :ls, :bs, :at, :det)"
+                    ),
+                    {
+                        "cid":   cycle_id,
+                        "etype": event_type,
+                        "ikey":  instrument_key,
+                        "ls":    _to_json(local_state),
+                        "bs":    _to_json(broker_state),
+                        "at":    action_taken,
+                        "det":   _to_json(details),
+                    },
+                )
+        except Exception as exc:
+            logger.error("_log_event failed: %s", exc)
 
     def _insert_missed_fill(
         self, lp: dict, bp: dict, details: dict, now_ist: datetime
@@ -743,7 +793,7 @@ class PositionReconciler:
                 conn.execute(
                     text(
                         "UPDATE positions "
-                        "SET entry_qty = :newqty, entry_avg_price = :newprice "
+                        "SET quantity = :newqty, entry_price = :newprice "
                         "WHERE id = :pid"
                     ),
                     {"newqty": new_total_qty, "newprice": new_avg, "pid": pos_id},
@@ -762,7 +812,7 @@ class PositionReconciler:
         with self._engine.begin() as conn:
             conn.execute(
                 text(
-                    "UPDATE positions SET entry_qty = :qty WHERE id = :pid"
+                    "UPDATE positions SET quantity = :qty WHERE id = :pid"
                 ),
                 {"qty": broker_qty, "pid": pos_id},
             )
@@ -798,16 +848,11 @@ class PositionReconciler:
                 text(
                     "UPDATE positions "
                     "SET status = 'CLOSED', "
-                    "    exit_qty = entry_qty, "
-                    "    exit_avg_price = :ep, "
-                    "    realized_pnl = :rpnl, "
                     "    closed_at = :ts "
                     "WHERE id = :pid"
                 ),
                 {
-                    "ep":   exit_price,
-                    "rpnl": realized_pnl,
-                    "ts":   now_ist,
-                    "pid":  pos_id,
+                    "ts":  now_ist,
+                    "pid": pos_id,
                 },
             )

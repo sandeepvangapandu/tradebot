@@ -173,23 +173,32 @@ class TradeLogger:
             )
             return record
 
-    def close_position(self, instrument_key: str, status: str = "closed") -> None:
+    def close_position(
+        self,
+        instrument_key: str,
+        status: str = "closed",
+        strategy: str | None = None,
+    ) -> None:
         """Mark a position as closed.
 
         Args:
             instrument_key: The instrument key of the position.
             status: New status, defaults to "closed".
+            strategy: Optional strategy name to disambiguate when multiple
+                strategies hold the same instrument simultaneously.
         """
         from zoneinfo import ZoneInfo
         # opened_at is recorded in IST-naive (matches PositionManager._now()).
         # Use the same convention for closed_at so timeline ordering is sane.
         ist_now = datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None)
         with self._session_factory() as session:
-            record = (
-                session.query(PositionRecord)
-                .filter(PositionRecord.instrument_key == instrument_key, PositionRecord.status == "open")
-                .first()
+            q = session.query(PositionRecord).filter(
+                PositionRecord.instrument_key == instrument_key,
+                PositionRecord.status == "open",
             )
+            if strategy is not None:
+                q = q.filter(PositionRecord.strategy == strategy)
+            record = q.first()
             if record:
                 record.status = status
                 record.closed_at = ist_now

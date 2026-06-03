@@ -461,6 +461,7 @@ class TradingBot:
             pause_minutes=self.settings.pause_minutes,
             per_strategy_daily_loss_cap_pct=0.02,  # 2% of capital per strategy/day
             capital_paisa=self.settings.capital,
+            state_file="data/circuit_breaker_state.json",
         )
         self.circuit_breaker.set_on_halt_callback(self._run_detox_analysis)
         self.strategy_quarantine = StrategyQuarantine()
@@ -1912,9 +1913,10 @@ class TradingBot:
             return
         try:
             equity = self.paper_broker.get_portfolio_value()
+            self.risk_manager.reset_daily()
             self.risk_manager.update_capital(equity)
             self.strategy_engine.update_account_equity(equity)
-            logger.info("[SOD] Equity updated to {} paisa ({:.0f} INR)", equity, equity / 100)
+            logger.info("[SOD] Equity updated to {} paisa ({:.0f} INR); daily counters reset", equity, equity / 100)
         except Exception as exc:
             logger.warning("[SOD] Equity update failed: {}", exc)
 

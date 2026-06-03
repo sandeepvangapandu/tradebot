@@ -110,7 +110,7 @@ class OptionsChainFeed:
                         "ltp": float(md.get("ltp", 0) or 0),
                         "oi": int(md.get("oi", 0) or 0),
                         "volume": int(md.get("volume", 0) or 0),
-                        "iv": float(greek.get("vega", 0) or 0),   # placeholder; Upstox returns iv separately
+                        "iv": float(greek.get("iv", 0) or 0),
                         "delta": float(greek.get("delta", 0) or 0),
                         "gamma": float(greek.get("gamma", 0) or 0),
                         "vega": float(greek.get("vega", 0) or 0),
@@ -476,7 +476,9 @@ class OptionsChainFeed:
                 spot_paisa: int = int(sub.get("spot_paisa", 0))
 
                 try:
-                    self.snapshot(underlying_key, underlying_symbol, expiry, spot_paisa)
+                    await asyncio.to_thread(
+                        self.snapshot, underlying_key, underlying_symbol, expiry, spot_paisa
+                    )
                 except Exception as exc:
                     logger.error(
                         "[OptionsChainFeed] poll_loop error for {} {}: {}",

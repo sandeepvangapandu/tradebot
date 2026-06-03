@@ -13,8 +13,11 @@ All timestamps use IST (``Asia/Kolkata``).
 
 from __future__ import annotations
 
+import json
+import os
 import threading
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 from zoneinfo import ZoneInfo
 
@@ -56,6 +59,7 @@ class CircuitBreaker:
         pause_minutes: int = 30,
         per_strategy_daily_loss_cap_pct: float = 0.02,
         capital_paisa: int = 0,
+        state_file: str | None = None,
     ) -> None:
         self._lock = threading.Lock()
 
@@ -64,6 +68,7 @@ class CircuitBreaker:
         self.pause_minutes: int = pause_minutes
         self.per_strategy_daily_loss_cap_pct: float = per_strategy_daily_loss_cap_pct
         self.capital_paisa: int = capital_paisa
+        self._state_file: Path | None = Path(state_file) if state_file else None
 
         # Mutable state — protected by ``_lock``
         self.consecutive_losses: int = 0
@@ -89,6 +94,48 @@ class CircuitBreaker:
         self._detox_analysis: dict | None = None
         
         self._on_halt_callback = None
+
+        # Restore state from disk (survives restarts)
+        self._load_state()
+
+    # ------------------------------------------------------------------
+    # State persistence
+    # ------------------------------------------------------------------
+
+    def _save_state(self) -> None:
+        """Persist mutable state to JSON so restarts preserve halt status."""
+        if self._state_file is None:
+            return
+        try:
+            self._state_file.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "consecutive_losses": self.consecutive_losses,
+                "halted": self.halted,
+                "halt_until": self.halt_until.isoformat() if self.halt_until else None,
+            }
+            tmp = self._state_file.with_suffix(".tmp")
+            tmp.write_text(json.dumps(payload))
+            os.replace(tmp, self._state_file)
+        except Exception as exc:
+            logger.warning("CircuitBreaker: failed to save state: {}", exc)
+
+    def _load_state(self) -> None:
+        """Restore previously saved state if file exists and is from today."""
+        if self._state_file is None or not self._state_file.exists():
+            return
+        try:
+            payload = json.loads(self._state_file.read_text())
+            self.consecutive_losses = int(payload.get("consecutive_losses", 0))
+            self.halted = bool(payload.get("halted", False))
+            halt_until_str = payload.get("halt_until")
+            if halt_until_str:
+                self.halt_until = datetime.fromisoformat(halt_until_str)
+            logger.info(
+                "CircuitBreaker: restored state — halted={} consecutive_losses={} halt_until={}",
+                self.halted, self.consecutive_losses, self.halt_until,
+            )
+        except Exception as exc:
+            logger.warning("CircuitBreaker: failed to load state: {}", exc)
 
     def set_on_halt_callback(self, callback) -> None:
         """Set a callback to execute when circuit breaker halts."""
@@ -153,6 +200,7 @@ class CircuitBreaker:
             self.consecutive_losses = 0
             self._recent_losses.clear()
 
+        self._save_state()
         logger.debug("Win recorded | consecutive_losses reset to 0")
 
     # ------------------------------------------------------------------
@@ -241,6 +289,7 @@ class CircuitBreaker:
             self.halted = True
             self.halt_until = resume_at
 
+        self._save_state()
         logger.warning(
             "Circuit breaker ACTIVATED after {} consecutive losses | trading paused until {} IST",
             self.max_consecutive_losses,
@@ -276,6 +325,7 @@ class CircuitBreaker:
                 self.halted = False
                 self.halt_until = None
                 self.consecutive_losses = 0
+                self._save_state()
                 logger.info(
                     "Circuit breaker auto-resumed after {} minute pause",
                     self.pause_minutes,
@@ -307,6 +357,7 @@ class CircuitBreaker:
             self.halted = True
             self.halt_until = None  # permanent — manual resume only
 
+        self._save_state()
         logger.critical("KILL SWITCH activated — all trading halted until manual resume")
 
         if order_manager is not None:
@@ -329,6 +380,7 @@ class CircuitBreaker:
             self.halt_until = None
             self.consecutive_losses = 0
 
+        self._save_state()
         logger.info("Circuit breaker manually resumed | consecutive_losses reset")
 
     # ------------------------------------------------------------------

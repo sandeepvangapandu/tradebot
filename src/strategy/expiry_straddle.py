@@ -104,7 +104,7 @@ class StraddlePosition:
     total_premium_collected: int = 0
     ce_quantity: int = 1
     pe_quantity: int = 1
-    lot_size: int = 15  # Bank Nifty lot size
+    lot_size: int = 35  # BankNifty lot size (revised Nov 2024; set via config)
     entry_spot: int = 0
 
     def __post_init__(self) -> None:
@@ -592,7 +592,7 @@ class ExpiryStraddleStrategy:
         self.target_pct = self.config.get("target_pct", 70.0)
         self.stop_loss_pct = self.config.get("stop_loss_pct", 50.0)
         self.emergency_move_pct = self.config.get("emergency_move_pct", 1.5)
-        self.lot_size = self.config.get("lot_size", 15)  # Bank Nifty
+        self.lot_size = self.config.get("lot_size", 35)  # BankNifty (Nov 2024 revision)
 
     def can_trade_today(self, today: Optional[datetime] = None) -> bool:
         """Check if today is a valid trading day for this strategy.

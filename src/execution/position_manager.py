@@ -1243,11 +1243,18 @@ class PositionManager:
                 if self._rl_exit_agent is not None and self._rl_exit_agent.is_trained:
                     try:
                         entry_px = position.entry_price or 1
-                        pnl_pct = (position.unrealized_pnl or 0) / entry_px
+                        _qty = max(position.remaining_quantity or 1, 1)
+                        # pnl_pct: per-unit percentage (not quantity-scaled)
+                        pnl_pct = float((position.unrealized_pnl or 0)) / float(entry_px * _qty)
                         sl_dist = abs((position.stop_loss_price or entry_px) - price) / max(entry_px, 1)
                         tgt_dist = abs((position.target_price or entry_px) - price) / max(entry_px, 1)
                         trailing_on = 1.0 if position.trailing_sl_activated else 0.0
-                        peak_gain = max(0.0, pnl_pct)
+
+                        # Track running peak PnL on position object
+                        if not hasattr(position, "_peak_pnl_pct"):
+                            position._peak_pnl_pct = 0.0
+                        position._peak_pnl_pct = max(position._peak_pnl_pct, pnl_pct)
+                        peak_gain = position._peak_pnl_pct
 
                         # Compute actual bars held (5-min bars, 48 bars = 4h session)
                         _now_ts = self._now()
@@ -1258,24 +1265,57 @@ class PositionManager:
                         _bars_held_norm = float(min(_held_s / (48 * 300), 1.0))
 
                         # Minimum hold time: straddle strategies need 2h; others 15min.
+                        # Do NOT return here — fall through to rule-based SL/target checks.
                         _is_straddle = "straddle" in position.strategy_id.lower()
                         _min_hold_s = 7200.0 if _is_straddle else 900.0
-                        if _held_s < _min_hold_s:
-                            # Too early to allow EXIT regardless of Q-values.
-                            rl_exit_triggered = False
-                            return closed_positions
+                        _rl_gated = _held_s < _min_hold_s
+
+                        # vol_regime from position metadata (set at entry)
+                        _vol_map = {"low": 0.5, "normal": 1.0, "high": 2.0}
+                        _vol_regime_val = _vol_map.get(
+                            getattr(position, "volatility_regime", "normal"), 1.0
+                        )
 
                         rl_state = {
                             "pnl_pct": float(pnl_pct),
                             "bars_held_norm": _bars_held_norm,
                             "momentum": 0.0,
-                            "vol_regime": 1.0,
+                            "vol_regime": _vol_regime_val,
                             "dist_to_sl": float(sl_dist),
                             "dist_to_target": float(tgt_dist),
                             "trailing_active": trailing_on,
                             "peak_gain_norm": float(peak_gain),
                         }
-                        rl_action = self._rl_exit_agent.get_action(rl_state)
+                        rl_action = self._rl_exit_agent.get_action(rl_state) if not _rl_gated else "HOLD"
+
+                        # Online learning: reward previous step with observed PnL delta
+                        _prev_state = getattr(position, "_rl_prev_state", None)
+                        _prev_action = getattr(position, "_rl_prev_action", None)
+                        _prev_pnl = getattr(position, "_rl_prev_pnl_pct", None)
+                        if _prev_state is not None and _prev_action is not None and _prev_pnl is not None:
+                            try:
+                                pnl_delta = pnl_pct - _prev_pnl
+                                reward = self._rl_exit_agent.compute_reward(
+                                    pnl_change_pct=pnl_delta,
+                                    action=_prev_action,
+                                    done=False,
+                                    final_pnl_pct=0.0,
+                                )
+                                self._rl_exit_agent.record_step(
+                                    state=_prev_state,
+                                    action=_prev_action,
+                                    reward=reward,
+                                    next_state=rl_state,
+                                    done=False,
+                                )
+                            except Exception as _rec_exc:
+                                logger.debug("rl record_step failed: {}", _rec_exc)
+
+                        # Store current state/action/pnl for next tick's reward
+                        position._rl_prev_state = rl_state
+                        position._rl_prev_action = rl_action
+                        position._rl_prev_pnl_pct = pnl_pct
+
                         if rl_action == "EXIT":
                             rl_exit_triggered = True
                             position_to_close = position
@@ -1916,10 +1956,41 @@ class PositionManager:
                     f"Partial exits: {len(position.partial_exits)}"
                 )
 
+                # RL terminal step: teach agent the final reward for this episode
+                if self._rl_exit_agent is not None:
+                    _prev_state = getattr(position, "_rl_prev_state", None)
+                    _prev_action = getattr(position, "_rl_prev_action", None)
+                    _prev_pnl = getattr(position, "_rl_prev_pnl_pct", None)
+                    if _prev_state is not None and _prev_action is not None:
+                        try:
+                            entry_px = position.entry_price or 1
+                            _qty = max(position.remaining_quantity or 1, 1)
+                            final_pnl_pct = float(remaining_pnl) / float(entry_px * _qty)
+                            pnl_delta = final_pnl_pct - (_prev_pnl or 0.0)
+                            final_reward = self._rl_exit_agent.compute_reward(
+                                pnl_change_pct=pnl_delta,
+                                action=_prev_action,
+                                done=True,
+                                final_pnl_pct=final_pnl_pct,
+                            )
+                            # next_state = terminal copy (done=True, values irrelevant)
+                            self._rl_exit_agent.record_step(
+                                state=_prev_state,
+                                action=_prev_action,
+                                reward=final_reward,
+                                next_state=_prev_state,
+                                done=True,
+                            )
+                        except Exception as _rl_close_exc:
+                            logger.debug("RL terminal record_step failed: {}", _rl_close_exc)
+
                 # Persist to database
                 if self._trade_logger:
                     try:
-                        self._trade_logger.close_position(position.instrument_key, "closed")
+                        self._trade_logger.close_position(
+                            position.instrument_key, "closed",
+                            strategy=getattr(position, "strategy_name", None),
+                        )
 
                         # Attribute fees (brokerage + STT + GST + exchange + SEBI)
                         # by summing charges from the broker's per-fill history

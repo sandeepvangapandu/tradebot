@@ -104,6 +104,7 @@ class HistoricalDataFetcher:
 
             df = pd.DataFrame(data, columns=["timestamp", "open", "high", "low", "close", "volume"])
             df.set_index("timestamp", inplace=True)
+            df.sort_index(inplace=True)
 
             logger.info("Fetched {} candles for {}", len(df), instrument_key)
             return df

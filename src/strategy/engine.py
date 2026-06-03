@@ -305,15 +305,15 @@ class SetEvaluator(threading.Thread):
         if current_time < trading_hours.start or current_time > trading_hours.end:
             return False
 
+        # Reset daily counter if new day — MUST happen before the max_trades guard
+        if self._last_signal_time:
+            if self._last_signal_time.date() != now.date():
+                self._signals_generated_today = 0
+
         # Check max trades per day
         if self._config.max_trades_per_day:
             if self._signals_generated_today >= self._config.max_trades_per_day:
                 return False
-
-        # Reset daily counter if new day
-        if self._last_signal_time:
-            if self._last_signal_time.date() != now.date():
-                self._signals_generated_today = 0
 
         # VIX regime filter: read from cached value set by the last bars fetch
         # (_evaluate_for_symbol sets _cached_vix so we avoid a double provider call)
@@ -507,15 +507,22 @@ class SetEvaluator(threading.Thread):
         # Normalize symbol to uppercase for comparison
         symbol_upper = symbol.upper()
 
-        # Check for Bank Nifty
+        # Check for Bank Nifty (Wednesday expiry since Nov 2024)
         if "BANKNIFTY" in symbol_upper or "NIFTY BANK" in symbol_upper:
             return weekday == BANKNIFTY_EXPIRY_DAY
 
-        # Check for Nifty (but not Bank Nifty)
+        # FinNifty — Tuesday expiry (must check before generic NIFTY match)
+        if "FINNIFTY" in symbol_upper or "NIFTY FIN" in symbol_upper or "FIN NIFTY" in symbol_upper:
+            return weekday == 1  # Tuesday
+
+        # MidCpNifty — Monday expiry
+        if "MIDCPNIFTY" in symbol_upper or "MIDCAP" in symbol_upper:
+            return weekday == 0  # Monday
+
+        # Nifty 50 — Thursday expiry
         if "NIFTY" in symbol_upper:
             return weekday == NIFTY_EXPIRY_DAY
 
-        # Default to Thursday expiry for other instruments
         return weekday == NIFTY_EXPIRY_DAY
 
     def _check_event_calendar(self, timestamp: datetime) -> tuple[bool, str]:
@@ -1046,15 +1053,18 @@ class SetEvaluator(threading.Thread):
             symbol = symbols[0]
             # Check if it's an F&O instrument by pattern (simplified)
             if any(x in symbol for x in ["FUT", "CE", "PE", "OPT"]):
-                # Default lot sizes for major indices (would come from instrument master)
-                if "NIFTY" in symbol and "BANKNIFTY" not in symbol:
-                    return 75  # NIFTY lot size
-                elif "BANKNIFTY" in symbol:
-                    return 30  # BANKNIFTY lot size
-                elif "FINNIFTY" in symbol:
-                    return 65  # FINNIFTY lot size
-                elif "SENSEX" in symbol:
-                    return 20  # SENSEX lot size
+                # NSE lot sizes (as of Nov 2024 SEBI revision)
+                sym_up = symbol.upper()
+                if "BANKNIFTY" in sym_up or "NIFTY BANK" in sym_up:
+                    return 35   # BankNifty (revised Nov 2024)
+                elif "FINNIFTY" in sym_up or "FIN NIFTY" in sym_up:
+                    return 40   # FinNifty (revised 2022)
+                elif "MIDCPNIFTY" in sym_up or "MIDCAP" in sym_up:
+                    return 50   # MidCpNifty
+                elif "SENSEX" in sym_up:
+                    return 20
+                elif "NIFTY" in sym_up:
+                    return 75   # Nifty 50
         return 1  # Default for equity
 
     def _get_account_equity(self) -> int:
@@ -1329,11 +1339,12 @@ class SetEvaluator(threading.Thread):
             return None
 
         if isinstance(sl_rule, (int, float)):
-            points = int(sl_rule)
+            # sl_rule is a percentage (e.g. 35.0 = 35%); convert to price offset
+            pct = float(sl_rule) / 100.0
             if self._resolved_signal_type in (SignalType.BUY, SignalType.BUY_CE):
-                return entry_price - points
+                return int(entry_price * (1.0 - pct))
             else:
-                return entry_price + points
+                return int(entry_price * (1.0 + pct))
 
         elif isinstance(sl_rule, str) and "xatr" in sl_rule.lower():
             try:

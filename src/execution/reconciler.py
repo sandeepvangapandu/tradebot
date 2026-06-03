@@ -103,16 +103,19 @@ class PositionReconciler:
         else:
             db_url = os.environ.get(
                 "LOCAL_DB_URL",
-                "postgresql://sandeepvangapandu@localhost:5432/tradebot",
+                "sqlite:///data/trading_bot.db",
             )
-            # Ensure SQLAlchemy driver suffix
-            if "+psycopg" not in db_url:
-                db_url = db_url.replace("postgresql://", "postgresql+psycopg://", 1).replace(
-                    "postgres://", "postgresql+psycopg://", 1
-                )
             try:
                 from sqlalchemy import create_engine as _ce
-                self._engine = _ce(db_url, pool_pre_ping=True)
+                if db_url.startswith("postgresql"):
+                    # Ensure SQLAlchemy driver suffix for PostgreSQL
+                    if "+psycopg" not in db_url:
+                        db_url = db_url.replace("postgresql://", "postgresql+psycopg://", 1).replace(
+                            "postgres://", "postgresql+psycopg://", 1
+                        )
+                    self._engine = _ce(db_url, pool_pre_ping=True)
+                else:
+                    self._engine = _ce(db_url)
             except Exception as exc:  # pragma: no cover
                 logger.warning("PositionReconciler: could not create DB engine — %s", exc)
                 self._engine = None
@@ -158,6 +161,15 @@ class PositionReconciler:
                 action_taken TEXT,
                 details TEXT
             )""",
+            """CREATE TABLE IF NOT EXISTS fills (
+                fill_id TEXT PRIMARY KEY,
+                order_id TEXT,
+                instrument_key TEXT NOT NULL,
+                side TEXT NOT NULL,
+                quantity INTEGER NOT NULL,
+                price INTEGER NOT NULL,
+                filled_at TEXT NOT NULL
+            )""",
         ]
         try:
             with self._engine.begin() as conn:
@@ -192,7 +204,7 @@ class PositionReconciler:
                         "status, "
                         "0 AS realized_pnl "
                         "FROM positions "
-                        "WHERE status IN ('OPEN','PARTIAL') "
+                        "WHERE status IN ('open','partial') "
                         "ORDER BY opened_at"
                     )
                 ).fetchall()
@@ -767,10 +779,9 @@ class PositionReconciler:
         with self._engine.begin() as conn:
             conn.execute(
                 text(
-                    "INSERT INTO fills (fill_id, order_id, instrument_key, side, "
+                    "INSERT OR IGNORE INTO fills (fill_id, order_id, instrument_key, side, "
                     "quantity, price, filled_at) "
-                    "VALUES (:fid, NULL, :ikey, :side, :qty, :price, :ts) "
-                    "ON CONFLICT (fill_id) DO NOTHING"
+                    "VALUES (:fid, NULL, :ikey, :side, :qty, :price, :ts)"
                 ),
                 {
                     "fid":   fill_id,

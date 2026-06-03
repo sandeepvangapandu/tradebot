@@ -236,7 +236,9 @@ class PaperBroker(BaseBroker):
 
         # Determine segment and calculate charges
         is_fno = (
-            "NFO|" in instrument_key
+            "NSE_FO|" in instrument_key        # Upstox NSE F&O instruments
+            or "BSE_FO|" in instrument_key     # Upstox BSE F&O instruments
+            or "NFO|" in instrument_key        # legacy prefix fallback
             or "BFO|" in instrument_key
             or "MCX|" in instrument_key
             or "NSE_INDEX|" in instrument_key  # index straddles use F&O fee structure
@@ -284,7 +286,7 @@ class PaperBroker(BaseBroker):
                 stamp_rate = PaperBrokerConfig.STAMP_DUTY_EQUITY_DELIVERY
             else:
                 stamp_rate = PaperBrokerConfig.STAMP_DUTY_EQUITY_INTRADAY
-            charges["stamp_duty"] = int(turnover * stamp_rate)
+            charges["stamp_duty"] = int(turnover * stamp_rate / 100)
         else:
             charges["stamp_duty"] = 0
 
@@ -654,7 +656,9 @@ class PaperBroker(BaseBroker):
                 if position.quantity != 0:
                     ltp = self._get_ltp(position.instrument_key)
                     position_value += abs(position.quantity) * ltp
-            return self._available_cash + self._used_margin + position_value
+            # available_cash already excludes deployed margin; adding position_value
+            # (current market value) gives total portfolio worth without double-counting.
+            return self._available_cash + position_value
 
     def reset(self) -> None:
         """Reset the paper broker to initial state."""

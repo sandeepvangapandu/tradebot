@@ -128,7 +128,7 @@ class OptionsResolver:
             option_types = [single] if single else ["CE", "PE"]
 
         atm_rows = chain[
-            (chain["strike_price"] == atm_strike_rupees)
+            ((chain["strike_price"] - atm_strike_rupees).abs() < 0.5)
             & (chain["option_type"].isin(option_types))
         ]
 

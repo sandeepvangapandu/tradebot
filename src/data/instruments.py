@@ -297,7 +297,8 @@ class InstrumentManager:
         if options.empty:
             return None
 
-        today_str = date.today().strftime("%Y-%m-%d")
+        from datetime import datetime
+        today_str = datetime.now(IST).date().strftime("%Y-%m-%d")
         future_expiries = options.loc[options["expiry"] >= today_str, "expiry"].unique()
         if len(future_expiries) == 0:
             return None

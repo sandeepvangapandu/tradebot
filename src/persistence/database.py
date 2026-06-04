@@ -12,6 +12,7 @@ from typing import Generator
 from loguru import logger
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from src.persistence.models import Base
 
@@ -44,11 +45,19 @@ def init_db(database_url: str) -> Engine:
 
     logger.info("Initialising database engine: {}", database_url)
 
-    engine = create_engine(
-        database_url,
-        echo=False,
-        pool_pre_ping=True,
-    )
+    if database_url.startswith("sqlite"):
+        engine = create_engine(
+            database_url,
+            echo=False,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+    else:
+        engine = create_engine(
+            database_url,
+            echo=False,
+            pool_pre_ping=True,
+        )
 
     Base.metadata.create_all(bind=engine)
     logger.info("All tables created / verified.")

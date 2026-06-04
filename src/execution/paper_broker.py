@@ -8,7 +8,7 @@ All monetary values are in PAISA (integer) - 1 Rupee = 100 paisa.
 import threading
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 from loguru import logger
@@ -369,6 +369,9 @@ class PaperBroker(BaseBroker):
                 # Deduct funds
                 self._available_cash -= required_funds
                 self._used_margin += required_funds
+            else:
+                # SELL order: deduct charges (proceeds flow through position P&L on close)
+                self._available_cash -= total_charges
 
             # Create position key
             product_val = order.product_type.value if hasattr(order.product_type, 'value') else str(order.product_type)

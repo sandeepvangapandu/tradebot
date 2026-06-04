@@ -455,6 +455,7 @@ class TradingBot:
             max_open_positions=self.settings.max_open_positions,
             max_position_size_pct=self.settings.max_position_size_pct,
             max_capital_deployment_pct=self.settings.max_capital_deployment_pct,
+            max_trades_per_day=getattr(self.settings, "max_trades_per_day", 5),
         )
         self.circuit_breaker = CircuitBreaker(
             max_consecutive_losses=self.settings.consecutive_loss_pause,
@@ -1761,7 +1762,7 @@ class TradingBot:
         def _risk_snapshot_eod() -> None:
             from datetime import date as _date
             today = _date.today()
-            capital_paisa = self.settings.capital * 100
+            capital_paisa = self.settings.capital
             if self.portfolio_risk is not None:
                 try:
                     self.portfolio_risk.compute_var(today, capital_paisa)

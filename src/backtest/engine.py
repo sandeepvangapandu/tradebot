@@ -411,7 +411,7 @@ def calculate_trade_fees(
         stamp_rate = FEES["stamp_duty_equity_delivery_pct"]
     else:
         stamp_rate = FEES["stamp_duty_equity_intraday_pct"]
-    stamp = buy_value * stamp_rate
+    stamp = buy_value * stamp_rate / 100  # stamp_rate is percentage form
     total_fees += int(round(stamp))
 
     return total_fees
@@ -868,13 +868,42 @@ class BacktestEngine:
             return 0
         sizing = strategy.position_sizing
         if sizing and sizing.quantity:
-            return sizing.quantity
-        risk_amount = int(self.current_capital * 0.01)
-        sl_pct = strategy.exit_rules.stop_loss_pct if strategy.exit_rules else 2.0
-        sl_per_unit = int(price * sl_pct / 100)
-        if sl_per_unit <= 0:
-            return 1
-        return max(1, risk_amount // sl_per_unit)
+            qty = sizing.quantity
+        else:
+            risk_amount = int(self.current_capital * 0.01)
+            sl_pct = strategy.exit_rules.stop_loss_pct if strategy.exit_rules else 2.0
+            sl_per_unit = int(price * sl_pct / 100)
+            if sl_per_unit <= 0:
+                qty = 1
+            else:
+                qty = max(1, risk_amount // sl_per_unit)
+
+        # Round to lot size so backtest matches live execution
+        lot_size = self._get_lot_size_for_strategy(strategy)
+        if lot_size > 1:
+            qty = max(lot_size, (qty // lot_size) * lot_size)
+        return qty
+
+    def _get_lot_size_for_strategy(self, strategy: StrategyConfig) -> int:
+        """Resolve lot size from strategy config or instrument name."""
+        # Try explicit lot_size param first
+        if hasattr(strategy, "params") and isinstance(strategy.params, dict):
+            ls = strategy.params.get("lot_size")
+            if ls:
+                return int(ls)
+        # Infer from instrument name
+        inst = getattr(strategy, "name", "").upper()
+        if "BANKNIFTY" in inst:
+            return 35
+        if "FINNIFTY" in inst:
+            return 40
+        if "MIDCPNIFTY" in inst:
+            return 50
+        if "SENSEX" in inst:
+            return 20
+        if "NIFTY" in inst:
+            return 75
+        return 1
 
     def _compute_pnl_pct(self, position: dict, current_price: int) -> float:
         """Compute P&L percentage for a position (options-aware)."""

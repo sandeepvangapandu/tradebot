@@ -1146,8 +1146,22 @@ class PositionManager:
             if instrument_key not in self._instrument_to_position:
                 return closed_positions
 
-            position_id = self._instrument_to_position[instrument_key]
-            position = self._positions[position_id]
+            raw = self._instrument_to_position[instrument_key]
+            position_ids = raw if isinstance(raw, list) else [raw]
+
+        for position_id in position_ids:
+            closed_positions.extend(self._on_tick_single(instrument_key, position_id, price))
+
+        return closed_positions
+
+    def _on_tick_single(self, instrument_key: str, position_id: str, price: int) -> list["ManagedPosition"]:
+        """Process a tick for one position ID."""
+        closed_positions = []
+
+        with self._lock:
+            position = self._positions.get(position_id)
+            if position is None:
+                return closed_positions
 
             if position.is_closed:
                 return closed_positions
@@ -1224,13 +1238,8 @@ class PositionManager:
 
         # Re-acquire lock to check other exit conditions
         with self._lock:
-            if instrument_key not in self._instrument_to_position:
-                return closed_positions
-
-            position_id = self._instrument_to_position[instrument_key]
-            position = self._positions[position_id]
-
-            if position.is_closed:
+            position = self._positions.get(position_id)
+            if position is None or position.is_closed:
                 return closed_positions
 
             # Check if Tier 4 trailing stop was hit
@@ -1929,7 +1938,7 @@ class PositionManager:
                     position.exit_time = self._now()
                     position.exit_price = exit_price
                     position.exit_reason = reason
-                    position.realized_pnl = remaining_pnl
+                    position.realized_pnl += remaining_pnl
 
                     # Clean up tracking (handle list when multiple positions per instrument)
                     existing = self._instrument_to_position.get(position.instrument_key)
@@ -1989,7 +1998,7 @@ class PositionManager:
                     try:
                         self._trade_logger.close_position(
                             position.instrument_key, "closed",
-                            strategy=getattr(position, "strategy_name", None),
+                            strategy=position.strategy_id,
                         )
 
                         # Attribute fees (brokerage + STT + GST + exchange + SEBI)

@@ -151,11 +151,12 @@ class RiskManager:
         """
         with self._lock:
             total_pnl = self.realized_pnl + self.unrealized_pnl
+            max_loss = self.max_daily_loss  # snapshot under lock — avoid race with update_capital
 
-        if total_pnl <= -self.max_daily_loss:
+        if total_pnl <= -max_loss:
             reason = (
                 f"Daily loss limit breached: current P&L {total_pnl} paisa "
-                f"exceeds max allowed loss of -{self.max_daily_loss} paisa"
+                f"exceeds max allowed loss of -{max_loss} paisa"
             )
             logger.critical(reason)
             # Hard kill switch — trip circuit breaker so existing

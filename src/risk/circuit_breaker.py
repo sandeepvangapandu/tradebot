@@ -120,11 +120,19 @@ class CircuitBreaker:
             logger.warning("CircuitBreaker: failed to save state: {}", exc)
 
     def _load_state(self) -> None:
-        """Restore previously saved state if file exists and is from today."""
+        """Restore previously saved state only if the file is from today (IST)."""
         if self._state_file is None or not self._state_file.exists():
             return
         try:
             payload = json.loads(self._state_file.read_text())
+            saved_date = payload.get("date")
+            today_str = datetime.now(IST).date().isoformat()
+            if saved_date != today_str:
+                logger.info(
+                    "CircuitBreaker: state file is from {} (today is {}) — ignoring",
+                    saved_date, today_str,
+                )
+                return
             self.consecutive_losses = int(payload.get("consecutive_losses", 0))
             self.halted = bool(payload.get("halted", False))
             halt_until_str = payload.get("halt_until")
@@ -176,7 +184,7 @@ class CircuitBreaker:
         with self._lock:
             self.consecutive_losses += 1
             count = self.consecutive_losses
-            
+
             # Store loss details for detox analysis (keep last N)
             if trade_details:
                 self._recent_losses.append(trade_details)
@@ -185,6 +193,7 @@ class CircuitBreaker:
                 if len(self._recent_losses) > max_stored:
                     self._recent_losses = self._recent_losses[-max_stored:]
 
+        self._save_state()
         logger.debug(
             "Loss recorded | consecutive_losses={}/{}",
             count,
@@ -282,10 +291,9 @@ class CircuitBreaker:
         Sets :attr:`halted` to ``True`` and schedules an automatic
         resume after :attr:`pause_minutes`.
         """
-        now = self._now()
-        resume_at = now + timedelta(minutes=self.pause_minutes)
-
         with self._lock:
+            now = self._now()
+            resume_at = now + timedelta(minutes=self.pause_minutes)
             self.halted = True
             self.halt_until = resume_at
 

@@ -1391,7 +1391,7 @@ class SetEvaluator(threading.Thread):
             return None
 
         if isinstance(target_rule, (int, float)):
-            points = int(target_rule)
+            points = int(entry_price * float(target_rule) / 100.0)
             if self._resolved_signal_type in (SignalType.BUY, SignalType.BUY_CE):
                 return entry_price + points
             else:
@@ -2034,7 +2034,7 @@ class StrategyEngine:
             True if strategy was found and deactivated.
         """
         if name in self._strategies:
-            self._strategies[name].active = False
+            self._strategies[name].enabled = False
             logger.info(f"Deactivated strategy: {name}")
             return True
         return False
@@ -2049,7 +2049,7 @@ class StrategyEngine:
             True if strategy was found and activated.
         """
         if name in self._strategies:
-            self._strategies[name].active = True
+            self._strategies[name].enabled = True
             logger.info(f"Activated strategy: {name}")
             return True
         return False
@@ -2224,7 +2224,7 @@ class StrategyEngine:
         # PE / short-straddle signals need non-elevated bearish bias either.
         # Graceful degrade: on any error, allow the signal through.
         try:
-            underlying_key: str | None = getattr(signal, "underlying_key", None)
+            underlying_key: str | None = getattr(signal, "underlying", None)
             sig_val: str = signal.signal_type.value if signal.signal_type else ""
             if underlying_key and sig_val:
                 from src.strategy.conditions_options import pcr_above, pcr_below

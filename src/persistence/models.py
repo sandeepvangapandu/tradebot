@@ -7,6 +7,7 @@ to avoid floating-point precision issues.
 from datetime import date, datetime, timezone
 
 from sqlalchemy import (
+    BigInteger,
     Column,
     Date,
     DateTime,
@@ -37,11 +38,11 @@ class OrderRecord(Base):
     transaction_type = Column(String(8), nullable=False)
     order_type = Column(String(16), nullable=False)
     quantity = Column(Integer, nullable=False)
-    price = Column(Integer, nullable=False)
-    trigger_price = Column(Integer, nullable=True)
+    price = Column(BigInteger, nullable=False)
+    trigger_price = Column(BigInteger, nullable=True)
     status = Column(String(24), nullable=False, default="PENDING")
     filled_qty = Column(Integer, nullable=False, default=0)
-    avg_fill_price = Column(Integer, nullable=False, default=0)
+    avg_fill_price = Column(BigInteger, nullable=False, default=0)
     placed_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow)
     tag = Column(String(64), nullable=True)
@@ -57,11 +58,11 @@ class TradeRecord(Base):
     strategy = Column(String(128), nullable=False)
     instrument_key = Column(String(64), nullable=False)
     side = Column(String(8), nullable=False)
-    entry_price = Column(Integer, nullable=False)
-    exit_price = Column(Integer, nullable=False)
+    entry_price = Column(BigInteger, nullable=False)
+    exit_price = Column(BigInteger, nullable=False)
     quantity = Column(Integer, nullable=False)
-    realized_pnl = Column(Integer, nullable=False)
-    fees = Column(Integer, nullable=False)
+    realized_pnl = Column(BigInteger, nullable=False)
+    fees = Column(BigInteger, nullable=False)
     entry_time = Column(DateTime(timezone=True), nullable=False)
     exit_time = Column(DateTime(timezone=True), nullable=False)
     holding_duration_seconds = Column(Integer, nullable=False)
@@ -76,7 +77,7 @@ class PositionRecord(Base):
     strategy = Column(String(128), nullable=False)
     instrument_key = Column(String(64), nullable=False)
     side = Column(String(8), nullable=False)
-    entry_price = Column(Integer, nullable=False)
+    entry_price = Column(BigInteger, nullable=False)
     quantity = Column(Integer, nullable=False)
     status = Column(String(16), nullable=False, default="open")
     opened_at = Column(DateTime(timezone=True), nullable=False)
@@ -89,12 +90,15 @@ class DailyPnL(Base):
     __tablename__ = "daily_pnl"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    date = Column(Date, unique=True, nullable=False)
-    realized_pnl = Column(Integer, nullable=False)
-    unrealized_pnl = Column(Integer, nullable=False)
-    total_pnl = Column(Integer, nullable=False)
+    date = Column(Date, nullable=False)
+    strategy = Column(String(128), nullable=False, default="__total__")
+    realized_pnl = Column(BigInteger, nullable=False)
+    unrealized_pnl = Column(BigInteger, nullable=False)
+    total_pnl = Column(BigInteger, nullable=False)
     trades_count = Column(Integer, nullable=False)
     win_count = Column(Integer, nullable=False)
+
+    __table_args__ = (UniqueConstraint("date", "strategy", name="uq_daily_pnl_date_strategy"),)
 
 
 class StrategyState(Base):

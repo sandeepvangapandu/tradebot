@@ -306,7 +306,7 @@ class PositionReconciler:
             lp = local_by_key[key]
             bp = broker_by_key[key]
 
-            local_net_qty: int = lp.get("entry_qty", 0) - lp.get("exit_qty", 0)
+            local_net_qty: int = abs(lp.get("entry_qty", 0) - lp.get("exit_qty", 0))
             broker_qty: int = abs(int(bp.get("quantity", 0)))
             local_avg_price: int = int(lp.get("entry_avg_price", 0))
             broker_avg_price: int = int(bp.get("average_price", 0))
@@ -858,12 +858,12 @@ class PositionReconciler:
             conn.execute(
                 text(
                     "UPDATE positions "
-                    "SET status = 'CLOSED', "
+                    "SET status = 'closed', "
                     "    closed_at = :ts "
                     "WHERE id = :pid"
                 ),
                 {
-                    "ts":  now_ist,
+                    "ts":  now_ist.isoformat(),
                     "pid": pos_id,
                 },
             )

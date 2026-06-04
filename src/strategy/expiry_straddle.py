@@ -140,15 +140,20 @@ def is_expiry_day(symbol: str, today: Optional[datetime] = None) -> bool:
         True
     """
     if today is None:
-        today = datetime.now()
+        from zoneinfo import ZoneInfo
+        today = datetime.now(ZoneInfo("Asia/Kolkata"))
 
     weekday = today.weekday()
     symbol_upper = symbol.upper()
 
     if symbol_upper == "BANKNIFTY":
         return weekday == 2  # Wednesday
-    elif symbol_upper == "NIFTY":
+    elif symbol_upper in ("NIFTY", "NIFTY50"):
         return weekday == 3  # Thursday
+    elif symbol_upper == "FINNIFTY":
+        return weekday == 1  # Tuesday
+    elif symbol_upper == "MIDCPNIFTY":
+        return weekday == 0  # Monday
 
     logger.warning(f"Unknown symbol for expiry check: {symbol}")
     return False
@@ -167,7 +172,8 @@ def is_monthly_expiry(today: Optional[datetime] = None) -> bool:
         True if today is the last Thursday of the month
     """
     if today is None:
-        today = datetime.now()
+        from zoneinfo import ZoneInfo
+        today = datetime.now(ZoneInfo("Asia/Kolkata"))
 
     # Check if it's a Thursday
     if today.weekday() != 3:

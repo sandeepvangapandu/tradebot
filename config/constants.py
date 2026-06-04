@@ -30,7 +30,7 @@ FEES: dict[str, float] = {
     "stt_futures_buy_pct": 0.0,              # No STT on futures buy
     "stt_futures_sell_pct": 0.0002,          # 0.02% on futures sell (on contract value)
     "stt_options_buy_pct": 0.0,              # No STT on options buy
-    "stt_options_sell_pct": 0.0125,          # 0.0125% on options sell (on premium)
+    "stt_options_sell_pct": 0.000125,         # 0.0125% on options sell (on premium)
 
     # Exchange transaction charges - as decimal (on turnover)
     "exchange_charge_nse_eq_pct": 0.00053,   # 0.053% NSE equity
@@ -41,7 +41,7 @@ FEES: dict[str, float] = {
     "gst_pct": 0.18,                         # 18% GST
 
     # SEBI charges - Rs 10 per crore = 0.0000001 as decimal
-    "sebi_charge_rate_pct": 0.0000001,       # As decimal on turnover in rupees
+    "sebi_charge_rate_pct": 0.000001,         # As decimal on turnover in rupees (Rs 10/crore)
     "sebi_charges_per_crore": 1000,          # Rs 10 per crore turnover (paisa)
 
     # Stamp duty (buy side only) - varies by state, using average rates

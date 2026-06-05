@@ -772,8 +772,8 @@ class PositionReconciler:
         instrument_key = lp.get("instrument_key", "")
         side = lp.get("side", "BUY")
 
-        # Build a synthetic fill_id
-        fill_id = f"RECON_{now_ist.strftime('%Y%m%d%H%M%S')}_{instrument_key.replace('|','_')}"
+        # Build a synthetic fill_id (include microseconds to avoid collision within same second)
+        fill_id = f"RECON_{now_ist.strftime('%Y%m%d%H%M%S%f')}_{instrument_key.replace('|','_')}"
 
         # We need a corresponding order_id — use None (nullable FK)
         with self._engine.begin() as conn:

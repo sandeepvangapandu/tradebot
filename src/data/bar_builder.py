@@ -132,17 +132,17 @@ class BarBuilder:
             bars_closed = False
             for instrument_key, feed in feeds.items():
                 ltp_paisa, vol, ts_ms = self._extract_ltp_v3(feed)
-                if ltp_paisa is None:
+                if ltp_paisa is None or ltp_paisa <= 0:
                     continue
                 ts_source = ts_ms or top_ts
                 timestamp = self._parse_timestamp(ts_source)
                 if timestamp.year < 2000 and top_ts:
                     # Upstox sends negative magic numbers (like -6050019840) for ltt if no trades happened
                     timestamp = self._parse_timestamp(top_ts)
-                
-                # If still invalid, fallback to current time
+
+                # If still invalid after using top_ts, skip — don't fabricate wall-clock time
                 if timestamp.year < 2000:
-                    timestamp = datetime.now(IST)
+                    continue
 
                 for tf in TIMEFRAMES:
                     if self._update_bar(instrument_key, tf, ltp_paisa, vol, timestamp):

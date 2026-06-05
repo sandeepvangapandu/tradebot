@@ -430,6 +430,7 @@ class BacktestHarness:
         self._circuit_breaker = CircuitBreaker(
             max_consecutive_losses=settings.consecutive_loss_pause,
             pause_minutes=settings.pause_minutes,
+            state_file=None,  # no disk persistence in backtest
         )
         self._strategy_quarantine = StrategyQuarantine(backtest_mode=True)
 
@@ -676,7 +677,7 @@ class BacktestHarness:
 
             # --- Phase 2: Skip pre-market bars ---
             if bar_time_ist.time() < MARKET_OPEN:
-                results.equity_curve.append(self._paper_broker.get_funds())
+                results.equity_curve.append(self._paper_broker.get_portfolio_value())
                 continue
 
             # --- Phase 3: Position exits (SL, target, trailing SL, partial profit) ---
@@ -726,12 +727,12 @@ class BacktestHarness:
             # Advance circuit breaker time to bar time for accurate backtest pauses
             self._circuit_breaker.set_backtest_time(bar_time_ist)
             if bar_t >= NO_NEW_ENTRY_AFTER:
-                results.equity_curve.append(self._paper_broker.get_funds())
+                results.equity_curve.append(self._paper_broker.get_portfolio_value())
                 results.bars_processed += 1
                 continue
 
             if self._circuit_breaker.is_halted():
-                results.equity_curve.append(self._paper_broker.get_funds())
+                results.equity_curve.append(self._paper_broker.get_portfolio_value())
                 results.bars_processed += 1
                 continue
 
@@ -757,7 +758,7 @@ class BacktestHarness:
                 logger.error(f"[BACKTEST] Signal generation error at bar {i}: {exc}")
 
             # --- Phase 6: Equity snapshot ---
-            results.equity_curve.append(self._paper_broker.get_funds())
+            results.equity_curve.append(self._paper_broker.get_portfolio_value())
 
             # --- Progress callback ---
             if progress_callback and i % 100 == 0:

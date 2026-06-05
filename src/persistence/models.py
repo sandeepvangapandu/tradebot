@@ -33,14 +33,14 @@ class OrderRecord(Base):
     __tablename__ = "orders"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    strategy = Column(String(128), nullable=False)
-    instrument_key = Column(String(64), nullable=False)
+    strategy = Column(String(128), nullable=False, index=True)
+    instrument_key = Column(String(64), nullable=False, index=True)
     transaction_type = Column(String(8), nullable=False)
     order_type = Column(String(16), nullable=False)
     quantity = Column(Integer, nullable=False)
     price = Column(BigInteger, nullable=False)
     trigger_price = Column(BigInteger, nullable=True)
-    status = Column(String(24), nullable=False, default="PENDING")
+    status = Column(String(24), nullable=False, default="PENDING", index=True)
     filled_qty = Column(Integer, nullable=False, default=0)
     avg_fill_price = Column(BigInteger, nullable=False, default=0)
     placed_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
@@ -55,8 +55,8 @@ class TradeRecord(Base):
     __tablename__ = "trades"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    strategy = Column(String(128), nullable=False)
-    instrument_key = Column(String(64), nullable=False)
+    strategy = Column(String(128), nullable=False, index=True)
+    instrument_key = Column(String(64), nullable=False, index=True)
     side = Column(String(8), nullable=False)
     entry_price = Column(BigInteger, nullable=False)
     exit_price = Column(BigInteger, nullable=False)
@@ -74,12 +74,12 @@ class PositionRecord(Base):
     __tablename__ = "positions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    strategy = Column(String(128), nullable=False)
-    instrument_key = Column(String(64), nullable=False)
+    strategy = Column(String(128), nullable=False, index=True)
+    instrument_key = Column(String(64), nullable=False, index=True)
     side = Column(String(8), nullable=False)
     entry_price = Column(BigInteger, nullable=False)
     quantity = Column(Integer, nullable=False)
-    status = Column(String(16), nullable=False, default="open")
+    status = Column(String(16), nullable=False, default="open", index=True)
     opened_at = Column(DateTime(timezone=True), nullable=False)
     closed_at = Column(DateTime(timezone=True), nullable=True)
 

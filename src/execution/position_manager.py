@@ -1152,6 +1152,9 @@ class PositionManager:
         for position_id in position_ids:
             closed_positions.extend(self._on_tick_single(instrument_key, position_id, price))
 
+        if closed_positions or self._risk_manager:
+            self._sync_risk_manager()
+
         return closed_positions
 
     def _on_tick_single(self, instrument_key: str, position_id: str, price: int) -> list["ManagedPosition"]:

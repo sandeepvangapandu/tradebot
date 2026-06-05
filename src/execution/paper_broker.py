@@ -160,6 +160,8 @@ class PaperBroker(BaseBroker):
 
     def update_ltp(self, instrument_key: str, price: int) -> None:
         """Update LTP + timestamp for an instrument (called by market data feed)."""
+        if price <= 0:
+            return
         from datetime import datetime
         from zoneinfo import ZoneInfo
         self._ltp_cache[instrument_key] = price

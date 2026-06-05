@@ -196,7 +196,7 @@ class SetEvaluator(threading.Thread):
             "BUY_CE": SignalType.BUY_CE,
             "PE": SignalType.BUY_PE,
             "BUY_PE": SignalType.BUY_PE,
-            "STRADDLE": SignalType.SELL,  # STRADDLE → SELL (split into CE+PE by OrderManager)
+            "STRADDLE": SignalType.STRADDLE,
         }
         self._resolved_signal_type: SignalType = _SIGNAL_MAP.get(
             str(entry_set.signal).upper(), SignalType.SELL
@@ -616,7 +616,15 @@ class SetEvaluator(threading.Thread):
                 return False
 
         # 2. Expiry day filter
-        if avoid_expiry_day:
+        require_expiry_day = self._config.params.get("require_expiry_day", False)
+        if require_expiry_day:
+            underlying = self._instr_sel_get("underlying") or symbol
+            if not self._is_expiry_day(underlying, timestamp):
+                logger.debug(
+                    f"[{symbol}] require_expiry_day blocked: not expiry day for {underlying}"
+                )
+                return False
+        elif avoid_expiry_day:
             underlying = self._instr_sel_get("underlying") or symbol
             if self._is_expiry_day(underlying, timestamp):
                 logger.info(
@@ -2228,14 +2236,14 @@ class StrategyEngine:
             sig_val: str = signal.signal_type.value if signal.signal_type else ""
             if underlying_key and sig_val:
                 from src.strategy.conditions_options import pcr_above, pcr_below
-                if sig_val in ("CE", "BUY"):
+                if sig_val in ("CE", "BUY", "BUY CE"):
                     if pcr_above(underlying_key, threshold=1.3):
                         logger.info(
                             "PCR gate blocked %s CE/BUY: PCR > 1.3 for %s",
                             signal.strategy_name, underlying_key,
                         )
                         return False
-                elif sig_val in ("PE", "SELL"):
+                elif sig_val in ("PE", "SELL", "BUY PE"):
                     if pcr_below(underlying_key, threshold=0.7):
                         logger.info(
                             "PCR gate blocked %s PE/SELL: PCR < 0.7 for %s",

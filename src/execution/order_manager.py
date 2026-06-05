@@ -16,6 +16,8 @@ from queue import Empty, Queue
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
+import pandas as pd
+
 from loguru import logger
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker

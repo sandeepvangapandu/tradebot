@@ -109,6 +109,7 @@ class CircuitBreaker:
         try:
             self._state_file.parent.mkdir(parents=True, exist_ok=True)
             payload = {
+                "date": datetime.now(IST).date().isoformat(),
                 "consecutive_losses": self.consecutive_losses,
                 "halted": self.halted,
                 "halt_until": self.halt_until.isoformat() if self.halt_until else None,
@@ -305,10 +306,12 @@ class CircuitBreaker:
         )
         
         if getattr(self, "_on_halt_callback", None):
-            try:
-                self._on_halt_callback()
-            except Exception as e:
-                logger.error(f"Error in circuit breaker halt callback: {e}")
+            def _run_callback():
+                try:
+                    self._on_halt_callback()
+                except Exception as e:
+                    logger.error(f"Error in circuit breaker halt callback: {e}")
+            threading.Thread(target=_run_callback, daemon=True).start()
 
     def is_halted(self) -> bool:
         """Check whether trading is currently halted.

@@ -1484,11 +1484,11 @@ class TradingBot:
             minute=0,
             job_id="ai_playbook",
         )
-        # 9:15 AM SOD: update risk limits and position sizing to current equity
+        # 9:14 AM SOD: update risk limits before first signals at 9:15
         self.scheduler.add_daily_job(
             func=self._scheduled_sod_equity_update,
             hour=9,
-            minute=15,
+            minute=14,
             job_id="sod_equity_update",
         )
         # 9:35 AM ORB Dynamic Update (Scheme 1)
@@ -1909,7 +1909,7 @@ class TradingBot:
             logger.error("Scheduled daily summary failed: {}", exc)
 
     def _scheduled_sod_equity_update(self) -> None:
-        """SOD 9:15: compound risk limits and position sizing to current portfolio equity."""
+        """SOD 9:14: compound risk limits and position sizing to current portfolio equity."""
         if not (self.paper_broker and self.risk_manager and self.strategy_engine):
             return
         try:
@@ -1917,6 +1917,17 @@ class TradingBot:
             self.risk_manager.reset_daily()
             self.risk_manager.update_capital(equity)
             self.strategy_engine.update_account_equity(equity)
+            # Reset circuit breaker consecutive loss streak for new day
+            if self.circuit_breaker:
+                with self.circuit_breaker._lock:
+                    self.circuit_breaker.consecutive_losses = 0
+                    self.circuit_breaker._recent_losses.clear()
+                    # Only clear halt if it was a timed pause (not a manual kill switch)
+                    if self.circuit_breaker.halt_until is not None:
+                        self.circuit_breaker.halted = False
+                        self.circuit_breaker.halt_until = None
+                self.circuit_breaker._save_state()
+                logger.info("[SOD] Circuit breaker reset for new day")
             logger.info("[SOD] Equity updated to {} paisa ({:.0f} INR); daily counters reset", equity, equity / 100)
         except Exception as exc:
             logger.warning("[SOD] Equity update failed: {}", exc)

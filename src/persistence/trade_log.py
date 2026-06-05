@@ -215,8 +215,9 @@ class TradeLogger:
         unrealized: int,
         trades: int,
         wins: int,
+        strategy: str = "__total__",
     ) -> None:
-        """Insert or update the daily P&L summary for *date*.
+        """Insert or update the daily P&L summary for *date* and *strategy*.
 
         Args:
             date: Calendar date for the summary.
@@ -224,11 +225,14 @@ class TradeLogger:
             unrealized: Unrealised (mark-to-market) P&L in paisa.
             trades: Total number of completed trades.
             wins: Number of winning trades.
+            strategy: Strategy identifier; defaults to aggregate "__total__".
         """
         total = realized + unrealized
         with self._session_factory() as session:
             existing: DailyPnL | None = (
-                session.query(DailyPnL).filter(DailyPnL.date == date).first()
+                session.query(DailyPnL)
+                .filter(DailyPnL.date == date, DailyPnL.strategy == strategy)
+                .first()
             )
             if existing is not None:
                 existing.realized_pnl = realized
@@ -236,10 +240,11 @@ class TradeLogger:
                 existing.total_pnl = total
                 existing.trades_count = trades
                 existing.win_count = wins
-                logger.debug("Updated DailyPnL for {}.", date)
+                logger.debug("Updated DailyPnL for {} / {}.", date, strategy)
             else:
                 record = DailyPnL(
                     date=date,
+                    strategy=strategy,
                     realized_pnl=realized,
                     unrealized_pnl=unrealized,
                     total_pnl=total,
@@ -247,7 +252,7 @@ class TradeLogger:
                     win_count=wins,
                 )
                 session.add(record)
-                logger.debug("Inserted DailyPnL for {}.", date)
+                logger.debug("Inserted DailyPnL for {} / {}.", date, strategy)
 
     # ------------------------------------------------------------------
     # Strategy State

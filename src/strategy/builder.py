@@ -50,6 +50,8 @@ class SignalType(str, Enum):
 
     BUY_CE = "BUY CE"  # Buy Call Option
     BUY_PE = "BUY PE"  # Buy Put Option
+    SELL_CE = "SELL CE"  # Sell (short) Call Option
+    SELL_PE = "SELL PE"  # Sell (short) Put Option
     BUY = "BUY"  # Buy Equity/Futures
     SELL = "SELL"  # Sell Equity/Futures
     STRADDLE = "STRADDLE"  # Sell Option Straddle

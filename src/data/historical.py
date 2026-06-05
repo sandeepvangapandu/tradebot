@@ -194,7 +194,7 @@ class HistoricalDataFetcher:
         for key in instrument_keys:
             result[key] = {}
             for tf in timeframes:
-                interval = f"{tf}minute" if tf < 60 else "1hour"
+                interval = f"{tf}minute" if tf < 60 else "hour"
                 df = self.fetch_candles(key, interval=interval, days=days)
                 result[key][tf] = df
 

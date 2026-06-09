@@ -33,9 +33,10 @@ FEES: dict[str, float] = {
     "stt_options_sell_pct": 0.000125,         # 0.0125% on options sell (on premium)
 
     # Exchange transaction charges - as decimal (on turnover)
-    "exchange_charge_nse_eq_pct": 0.00053,   # 0.053% NSE equity
-    "exchange_charge_nse_fo_pct": 0.00053,   # 0.053% NSE F&O (on premium for options)
-    "exchange_charge_bse_eq_pct": 0.00053,   # 0.053% BSE equity
+    "exchange_charge_nse_eq_pct": 0.0000345, # 0.00345% NSE equity (Rs 3.45/lakh)
+    "exchange_charge_nse_fo_pct": 0.00053,   # 0.053% NSE F&O options (Rs 53/lakh on premium)
+    "exchange_charge_nse_fut_pct": 0.0002,   # 0.02% NSE F&O futures (Rs 20/lakh)
+    "exchange_charge_bse_eq_pct": 0.0000345, # 0.00345% BSE equity
 
     # GST - 18% on (brokerage + exchange charges)
     "gst_pct": 0.18,                         # 18% GST
@@ -44,11 +45,10 @@ FEES: dict[str, float] = {
     "sebi_charge_rate_pct": 0.000001,         # As decimal on turnover in rupees (Rs 10/crore)
     "sebi_charges_per_crore": 1000,          # Rs 10 per crore turnover (paisa)
 
-    # Stamp duty (buy side only) - varies by state, using average rates
-    # Values are percentages (like other _pct fields); divide by 100 to get decimal.
-    "stamp_duty_equity_delivery_pct": 0.015,  # 0.015% on delivery buy
-    "stamp_duty_equity_intraday_pct": 0.003,  # 0.003% on intraday buy
-    "stamp_duty_fno_pct": 0.002,              # 0.002% on F&O buy
+    # Stamp duty (buy side only) - as decimal
+    "stamp_duty_equity_delivery_pct": 0.00015,  # 0.015% on delivery buy
+    "stamp_duty_equity_intraday_pct": 0.00003,  # 0.003% on intraday buy
+    "stamp_duty_fno_pct": 0.00002,              # 0.002% on F&O buy
 
     # DP charges (for delivery sell) - Rs 13.5 per scrip per day
     "dp_charges_paisa": 1350,                # Rs 13.50 in paisa

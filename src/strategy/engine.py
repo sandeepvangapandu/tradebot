@@ -23,6 +23,7 @@ from src.strategy.builder import (
     StrategyConfig,
     TradingHours,
 )
+from src.utils.sim_clock import now_ist as _now_ist
 from src.strategy.conditions import (
     ADX_THRESHOLD_TRENDING,
     ConditionEvaluator,
@@ -291,7 +292,7 @@ class SetEvaluator(threading.Thread):
         if not self._config.active:
             return False
 
-        now = datetime.now(IST)
+        now = _now_ist()
 
         # Check trading hours
         trading_hours = self._config.trading_hours

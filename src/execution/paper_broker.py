@@ -53,7 +53,8 @@ class PaperBrokerConfig:
     STT_FNO_SELL: float = FEES["stt_options_sell_pct"]
 
     # Exchange transaction charges - as decimal
-    EXCHANGE_CHARGE_NSE: float = FEES["exchange_charge_nse_fo_pct"]
+    EXCHANGE_CHARGE_NSE_EQ: float = FEES["exchange_charge_nse_eq_pct"]   # equity
+    EXCHANGE_CHARGE_NSE_FO: float = FEES["exchange_charge_nse_fo_pct"]   # options/F&O
     EXCHANGE_CHARGE_BSE: float = FEES["exchange_charge_bse_eq_pct"]
 
     # GST - 18% on (brokerage + exchange charges)
@@ -269,8 +270,11 @@ class PaperBroker(BaseBroker):
 
         charges["stt"] = int(turnover * stt_rate)
 
-        # Exchange charges
-        exchange_rate = PaperBrokerConfig.EXCHANGE_CHARGE_NSE
+        # Exchange charges (equity and F&O have different rates)
+        if is_fno:
+            exchange_rate = PaperBrokerConfig.EXCHANGE_CHARGE_NSE_FO
+        else:
+            exchange_rate = PaperBrokerConfig.EXCHANGE_CHARGE_NSE_EQ
         charges["exchange"] = int(turnover * exchange_rate)
 
         # GST on brokerage + exchange charges
@@ -288,7 +292,7 @@ class PaperBroker(BaseBroker):
                 stamp_rate = PaperBrokerConfig.STAMP_DUTY_EQUITY_DELIVERY
             else:
                 stamp_rate = PaperBrokerConfig.STAMP_DUTY_EQUITY_INTRADAY
-            charges["stamp_duty"] = int(turnover * stamp_rate / 100)
+            charges["stamp_duty"] = int(turnover * stamp_rate)
         else:
             charges["stamp_duty"] = 0
 

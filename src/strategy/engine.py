@@ -1485,6 +1485,12 @@ class StrategyEngine:
         self._backtest_last_signal: dict[str, datetime] = {}
         self._backtest_signal_count: dict[str, int] = {}  # strategy -> signals today
 
+        # Resample cache for evaluate_bar_sync: (instrument_key, tf_minutes) → resampled_df
+        # Keyed per bar_time; cleared when bar advances. Prevents O(N_strategies) resamples
+        # per bar when multiple strategies share the same timeframe.
+        self._resample_cache: dict[tuple, pd.DataFrame] = {}
+        self._resample_cache_bar_time: datetime | None = None
+
         # Initialize confluence analyzer if available
         self._confluence_analyzer: Optional[StrategyConfluenceAnalyzer] = None
         if enable_confluence and StrategyConfluenceAnalyzer is not None:
@@ -1628,6 +1634,11 @@ class StrategyEngine:
         weekday = bar_time.weekday()
         signals: list[Signal] = []
 
+        # Clear resample cache when bar advances (new timestamp)
+        if bar_time != self._resample_cache_bar_time:
+            self._resample_cache.clear()
+            self._resample_cache_bar_time = bar_time
+
         for strategy in self._strategies.values():
             if not strategy.enabled:
                 continue
@@ -1752,7 +1763,8 @@ class StrategyEngine:
                 continue
 
             # Resample 1-min bars to the strategy's primary timeframe so
-            # crossover/indicator checks operate on the correct candle resolution
+            # crossover/indicator checks operate on the correct candle resolution.
+            # Cache by (instrument_key, tf_minutes) — reset each bar above.
             raw_df = bars[instrument_key]
             tf_str = strategy.timeframe  # e.g. "5min", "15min"
             try:
@@ -1760,9 +1772,13 @@ class StrategyEngine:
             except (ValueError, AttributeError):
                 tf_minutes = 5
             if tf_minutes > 1:
-                _agg = {"open": "first", "high": "max", "low": "min",
-                        "close": "last", "volume": "sum"}
-                resampled = raw_df.resample(f"{tf_minutes}min").agg(_agg).dropna()
+                _cache_key = (instrument_key, tf_minutes)
+                resampled = self._resample_cache.get(_cache_key)
+                if resampled is None:
+                    _agg = {"open": "first", "high": "max", "low": "min",
+                            "close": "last", "volume": "sum"}
+                    resampled = raw_df.resample(f"{tf_minutes}min").agg(_agg).dropna()
+                    self._resample_cache[_cache_key] = resampled
                 window = {instrument_key: resampled if len(resampled) >= 2 else raw_df}
             else:
                 window = {instrument_key: raw_df}

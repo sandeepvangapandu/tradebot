@@ -15,9 +15,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
+import multiprocessing
 import queue
 import sys
 import threading
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -31,7 +34,6 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from config.settings import get_settings
-from src.data.bar_builder import BarBuilder
 from src.execution.order_manager import OrderManager
 from src.execution.paper_broker import PaperBroker
 from src.execution.partial_profit import PartialProfitManager
@@ -148,11 +150,23 @@ class RunResult:
         return wins / losses if losses else float("inf")
 
 
+def _run_instrument_worker(args: tuple) -> RunResult:
+    """Top-level wrapper for ProcessPoolExecutor (must be picklable)."""
+    target, settings, start_date, end_date, db_url_override = args
+    # Each worker process re-imports and gets a fresh sim_clock
+    from src.utils.sim_clock import reset_sim_time as _rst
+    _rst()
+    result = run_instrument(target, settings, start_date, end_date, db_url_override)
+    _rst()
+    return result
+
+
 def run_instrument(
     target: ReplayTarget,
     settings,
     start_date: date | None,
     end_date: date | None,
+    db_url_override: str | None = None,
 ) -> RunResult:
     import time as _time
     t0 = _time.perf_counter()
@@ -194,7 +208,8 @@ def run_instrument(
     logger.info("Loaded {} bars ({} → {})", total_bars, df.index[0].date(), df.index[-1].date())
 
     # ── init components (same as BacktestHarness) ─────────────────────────
-    init_db(settings.database_url)
+    _db_url = db_url_override or settings.database_url
+    init_db(_db_url)
     capital = settings.capital
 
     broker = PaperBroker(
@@ -249,29 +264,37 @@ def run_instrument(
         signal_queue=signal_q,
         broker=broker,
         trading_mode="paper",
-        db_url=settings.database_url,
+        db_url=_db_url,
         risk_manager=risk_manager,
         position_manager=position_manager,
         strategy_quarantine=quarantine,
+        research_enabled=False,  # no LLM calls during replay
     )
 
-    # BarBuilder (real, same as live) driven by tick_queue
-    tick_queue: queue.Queue = queue.Queue()
-    bar_close_event = threading.Event()
-    bar_builder = BarBuilder(
-        tick_queue=tick_queue,
-        bar_close_event=bar_close_event,
-    )
-    bar_builder.start()
+    # Rolling deque of the last MAX_BARS bars — keeps DataFrame construction
+    # O(1) per bar regardless of total history length. Indicators need at
+    # most ~200 bars (slowest: MACD 26 + signal 9 + Supertrend ATR 14).
+    MAX_BARS = 500
+    _bar_deque: deque = deque(maxlen=MAX_BARS)
+    _cached_df: pd.DataFrame = pd.DataFrame()
+    _df_dirty: bool = False  # rebuilt only when deque changes
 
-    # StrategyEngine — bars_provider reads from BarBuilder
+    def _append_bar(ts_: datetime, o: int, h: int, lo: int, c: int, v: int) -> None:
+        nonlocal _cached_df, _df_dirty
+        _bar_deque.append((ts_, o, h, lo, c, v))
+        _df_dirty = True
+
     def _bars_provider() -> dict[str, pd.DataFrame]:
-        out = {}
-        for ik in bar_builder.get_all_instrument_keys():
-            df_b = bar_builder.get_bars(ik, timeframe=1)
-            if df_b is not None and not df_b.empty:
-                out[ik] = df_b
-        return out
+        nonlocal _cached_df, _df_dirty
+        if not _bar_deque:
+            return {}
+        if _df_dirty:
+            _cached_df = pd.DataFrame(
+                list(_bar_deque),
+                columns=["timestamp", "open", "high", "low", "close", "volume"],
+            ).set_index("timestamp")
+            _df_dirty = False
+        return {target.instrument_key: _cached_df}
 
     strategy_engine = StrategyEngine(
         strategies_dir="config/strategies",
@@ -280,6 +303,36 @@ def run_instrument(
     )
     strategy_engine.load_strategies()
     logger.info("Loaded {} strategies", len(strategy_engine.strategies))
+
+    # Timeframe gate: skip evaluate_bar_sync on bars where no strategy has a new candle.
+    # 5-min and 15-min strategies only produce new signals at their candle boundaries.
+    # Calling every 1-min bar wastes 80-93% of compute.
+    _fast_tf_minutes = 5  # coarse evaluation stride (floor at 5min)
+    _has_any_intraday = False
+    _1min_window_end = time(9, 15)  # latest end of any 1min-strategy window
+
+    for _s in strategy_engine._strategies.values():
+        if not _s.enabled:
+            continue
+        try:
+            _tf = int(_s.timeframe.lower().replace("min", "").replace("m", ""))
+        except (ValueError, AttributeError):
+            _tf = 5
+        if _tf >= 1440:
+            continue  # skip daily strategies
+        _has_any_intraday = True
+        # Sub-5min strategies get full 1min evaluation during their window only
+        if _tf < 5:
+            try:
+                _s_end = _s.trading_hours.end
+                _1min_window_end = max(_1min_window_end, _s_end)
+            except Exception:
+                _1min_window_end = time(10, 30)  # fallback for gap-fade-style strategies
+
+    logger.info(
+        "Evaluation gate: {}min boundaries (1min strats until {})",
+        _fast_tf_minutes, _1min_window_end,
+    )
 
     # ── synthetic option price tracking ──────────────────────────────────
     # For proxy instruments, we track a "virtual" option key per expiry.
@@ -391,19 +444,7 @@ def run_instrument(
 
         ik = target.instrument_key
 
-        # 1. Put close tick into tick_queue → BarBuilder accumulates bars
-        ts_ms = str(int(ts.timestamp() * 1000))
-        tick_dict = {
-            "feeds": {
-                ik: {
-                    "ltpc": {"ltp": close_rs, "v": volume, "cp": close_rs},
-                }
-            },
-            "currentTs": ts_ms,
-        }
-        tick_queue.put(tick_dict)
-
-        # 2. Update paper broker quote (tick-by-tick for SL/TP check)
+        # 1. Update paper broker quote (tick-by-tick for SL/TP check)
         # Replay OHLC as: open → high → low → close (worst-case ordering for shorts)
         for price in (open_paisa, high_paisa, low_paisa, close_paisa):
             if price <= 0:
@@ -420,20 +461,32 @@ def run_instrument(
                 except Exception:
                     pass
 
-        # 3. Update synthetic option prices (proxy instruments)
+        # 3. Append bar to rolling buffer and update synthetic option prices
+        _append_bar(ts, open_paisa, high_paisa, low_paisa, close_paisa, volume)
         _update_proxy_option_prices(close_paisa, high_paisa, low_paisa, ts)
 
-        # 4. Evaluate bar synchronously using bar_time (not wall clock)
-        #    give BarBuilder a moment to process the tick we just put in
-        bar_close_event.wait(timeout=0.01)
-        bar_close_event.clear()
+        # 4. Evaluate bar synchronously at timeframe candle boundaries only.
+        # Strategies using 5min or 15min bars produce no new signals between
+        # candle closes — evaluating at every 1min bar wastes 80-93% of compute.
+        # Boundary: last 1min bar of each N-min candle, aligned to IST open (9:15).
+        # Formula: (minute - 15) % N == N - 1  →  minutes 19, 24, 29... for N=5.
+        # During early window (e.g. 9:15-10:30): also evaluate every 1min bar
+        # to support gap-fade and other sub-5min strategies.
+        if _has_any_intraday:
+            _at_5min_boundary = (ts.minute - 15) % _fast_tf_minutes == (_fast_tf_minutes - 1)
+            _in_1min_window = t <= _1min_window_end
+            _at_boundary = _at_5min_boundary or _in_1min_window
+        else:
+            _at_boundary = False
 
-        current_bars = _bars_provider()
-        try:
-            signals = strategy_engine.evaluate_bar_sync(current_bars, ts)
-        except Exception as exc:
-            logger.debug("evaluate_bar_sync error at {}: {}", ts, exc)
-            signals = []
+        signals: list = []
+        if _at_boundary:
+            current_bars = _bars_provider()
+            try:
+                signals = strategy_engine.evaluate_bar_sync(current_bars, ts)
+            except Exception as exc:
+                logger.debug("evaluate_bar_sync error at {}: {}", ts, exc)
+                signals = []
 
         for sig in signals:
             logger.info(
@@ -478,7 +531,6 @@ def run_instrument(
     except Exception:
         pass
 
-    bar_builder.stop()
     result.bars_processed = bars_done
     result.peak_equity = peak_equity
     result._trade_list = trade_list
@@ -515,6 +567,7 @@ def main() -> None:
     parser.add_argument("--start", type=lambda s: date.fromisoformat(s), default=None)
     parser.add_argument("--end",   type=lambda s: date.fromisoformat(s), default=None)
     parser.add_argument("--instrument", default=None, help="Run only one label (BankNifty/Nifty50/FinNifty/ADANIENT)")
+    parser.add_argument("--sequential", action="store_true", help="Force sequential (no parallel) execution")
     args = parser.parse_args()
 
     # configure loguru to stderr + file
@@ -544,12 +597,36 @@ def main() -> None:
     results: list[RunResult] = []
     grand_t0 = _time.perf_counter()
 
-    for target in targets:
+    if len(targets) == 1 or args.sequential:
+        # Single instrument or forced sequential — run in-process
+        for target in targets:
+            reset_sim_time()
+            r = run_instrument(target, settings, args.start, args.end)
+            results.append(r)
         reset_sim_time()
-        r = run_instrument(target, settings, args.start, args.end)
-        results.append(r)
+    else:
+        # Parallel: each instrument in its own process with its own SQLite DB
+        # to avoid concurrent write conflicts. Use in-memory DBs for speed.
+        workers = min(len(targets), multiprocessing.cpu_count())
+        logger.info("Running {} instruments in parallel ({} workers)", len(targets), workers)
+        worker_args = [
+            (t, settings, args.start, args.end, f"sqlite:///logs/replay_{t.label}.db")
+            for t in targets
+        ]
+        with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as pool:
+            futs = {pool.submit(_run_instrument_worker, a): a[0].label for a in worker_args}
+            for fut in concurrent.futures.as_completed(futs):
+                lbl = futs[fut]
+                try:
+                    r = fut.result()
+                    results.append(r)
+                    logger.info("Parallel worker done: {}", lbl)
+                except Exception as exc:
+                    logger.error("Worker {} failed: {}", lbl, exc)
+        # Restore original instrument order for summary table
+        order = {t.label: i for i, t in enumerate(targets)}
+        results.sort(key=lambda r: order.get(r.label, 99))
 
-    reset_sim_time()
     total_elapsed = _time.perf_counter() - grand_t0
 
     # ── final summary ──────────────────────────────────────────────────────

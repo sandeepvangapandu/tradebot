@@ -376,6 +376,9 @@ def run_instrument(
     trade_list: list[dict] = []
     bars_done = 0
     last_log_pct = 0
+    # Snapshot/delta fee tracking: maps instrument_key → cumulative fees charged
+    # before the current open position for that key. Reset after each trade close.
+    _fees_baseline: dict[str, int] = {}
 
     def _sod(d: date) -> None:
         eq = broker.get_portfolio_value()
@@ -405,9 +408,14 @@ def run_instrument(
         gross = getattr(pos, "total_realized_pnl", None)
         if gross is None:
             gross = getattr(pos, "realized_pnl", 0)
-        # fees from broker's trade history for this instrument
+        # Per-trade fees via snapshot delta: cumulative_now - cumulative_at_position_open.
+        # broker.sum_fees_for_instrument() accumulates across the entire run, so we track
+        # a per-instrument baseline that advances after each recorded trade.
         ik = getattr(pos, "instrument_key", "")
-        fees = int(broker.sum_fees_for_instrument(ik)) if ik else 0
+        cumulative_now = int(broker.sum_fees_for_instrument(ik)) if ik else 0
+        baseline = _fees_baseline.get(ik, 0)
+        fees = max(0, cumulative_now - baseline)
+        _fees_baseline[ik] = cumulative_now  # advance baseline for next trade
         net = gross - fees
         trade_list.append({"gross": gross, "fees": fees, "net": net})
         result.trades += 1
@@ -482,8 +490,11 @@ def run_instrument(
         signals: list = []
         if _at_boundary:
             current_bars = _bars_provider()
+            # During the 1min sub-window, restrict evaluation to sub-5min strategies.
+            # Heavy 5min/15min strategies skip — their candle hasn't closed yet.
+            _max_tf = 1 if (_in_1min_window and not _at_5min_boundary) else None
             try:
-                signals = strategy_engine.evaluate_bar_sync(current_bars, ts)
+                signals = strategy_engine.evaluate_bar_sync(current_bars, ts, max_tf_minutes=_max_tf)
             except Exception as exc:
                 logger.debug("evaluate_bar_sync error at {}: {}", ts, exc)
                 signals = []

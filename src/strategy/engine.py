@@ -1611,6 +1611,7 @@ class StrategyEngine:
         self,
         bars: dict[str, pd.DataFrame],
         bar_time: datetime,
+        max_tf_minutes: int | None = None,
     ) -> list["Signal"]:
         """Evaluate all loaded strategies for one bar (no threads).
 
@@ -1621,6 +1622,9 @@ class StrategyEngine:
         Args:
             bars: Mapping instrument_key -> OHLCV DataFrame (bars up to current).
             bar_time: Timestamp of the bar being evaluated (must be IST-aware).
+            max_tf_minutes: When set, skip strategies whose primary timeframe
+                exceeds this value. Used by the replay loop to restrict
+                evaluation to short-tf strategies during the 1min window.
 
         Returns:
             List of Signal objects generated this bar (may be empty).
@@ -1642,6 +1646,15 @@ class StrategyEngine:
         for strategy in self._strategies.values():
             if not strategy.enabled:
                 continue
+
+            # Timeframe filter: skip heavy strategies during 1min evaluation windows
+            if max_tf_minutes is not None:
+                try:
+                    strat_tf = int(strategy.timeframe.lower().replace("min", "").replace("m", ""))
+                except (ValueError, AttributeError):
+                    strat_tf = 5
+                if strat_tf > max_tf_minutes:
+                    continue
 
             # Trading hours filter (mirrors SetEvaluator._should_evaluate)
             th = strategy.trading_hours

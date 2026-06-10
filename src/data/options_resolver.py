@@ -64,6 +64,10 @@ class OptionsResolver:
         if not selection:
             return []
 
+        # No instrument master available (e.g. replay mode without live data)
+        if self._im is None:
+            return []
+
         # InstrumentSelection may be a Pydantic model or a plain dict.
         # Use a helper to access attributes safely in both cases.
         def _sel_get(attr: str, default=None):

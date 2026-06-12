@@ -1613,74 +1613,75 @@ class PositionManager:
         if sl_distance <= 0:
             return False
 
-        # Update extreme prices for Tier 4
-        with self._lock:
-            if position.side == OrderSide.BUY:
-                # Update highest price
-                if position.tier_4_highest_price is None or price > position.tier_4_highest_price:
-                    position.tier_4_highest_price = price
+        # Update extreme prices for Tier 4.
+        # NOTE: no `with self._lock:` here — the sole caller (_on_tick_single)
+        # already holds self._lock (non-reentrant) when calling this method.
+        if position.side == OrderSide.BUY:
+            # Update highest price
+            if position.tier_4_highest_price is None or price > position.tier_4_highest_price:
+                position.tier_4_highest_price = price
 
-                # Calculate current R:R
-                current_rr = (price - position.entry_price) / sl_distance if sl_distance > 0 else 0
+            # Calculate current R:R
+            current_rr = (price - position.entry_price) / sl_distance if sl_distance > 0 else 0
 
-                # Trailing stop activates after 1:1 R:R
-                if current_rr >= 1.0:
-                    # Calculate trailing stop price (trail below highest by SL distance)
-                    trailing_sl = position.tier_4_highest_price - sl_distance
+            # Trailing stop activates after 1:1 R:R
+            if current_rr >= 1.0:
+                # Calculate trailing stop price (trail below highest by SL distance)
+                trailing_sl = position.tier_4_highest_price - sl_distance
 
-                    # Don't trail below entry
-                    trailing_sl = max(trailing_sl, position.entry_price)
+                # Don't trail below entry
+                trailing_sl = max(trailing_sl, position.entry_price)
 
-                    # Update stored trailing SL
-                    if position.tier_4_trailing_sl_price is None or trailing_sl > position.tier_4_trailing_sl_price:
-                        old_sl = position.tier_4_trailing_sl_price
-                        position.tier_4_trailing_sl_price = trailing_sl
-                        if old_sl != trailing_sl:
-                            logger.debug(
-                                f"Tier 4 trailing SL updated for {position.position_id}: "
-                                f"{trailing_sl/100:.2f} (highest={position.tier_4_highest_price/100:.2f})"
-                            )
-
-                    # Check if trailing stop is hit
-                    if position.tier_4_trailing_sl_price and price <= position.tier_4_trailing_sl_price:
-                        logger.info(
-                            f"Tier 4 trailing stop hit for {position.position_id}: "
-                            f"price={price/100:.2f}, trailing_sl={position.tier_4_trailing_sl_price/100:.2f}"
+                # Update stored trailing SL
+                if position.tier_4_trailing_sl_price is None or trailing_sl > position.tier_4_trailing_sl_price:
+                    old_sl = position.tier_4_trailing_sl_price
+                    position.tier_4_trailing_sl_price = trailing_sl
+                    if old_sl != trailing_sl:
+                        logger.debug(
+                            f"Tier 4 trailing SL updated for {position.position_id}: "
+                            f"{trailing_sl/100:.2f} (highest={position.tier_4_highest_price/100:.2f})"
                         )
-                        return True
-            else:  # SELL (short)
-                # Update lowest price
-                if position.tier_4_lowest_price is None or price < position.tier_4_lowest_price:
-                    position.tier_4_lowest_price = price
 
-                # Calculate current R:R
-                current_rr = (position.entry_price - price) / sl_distance if sl_distance > 0 else 0
+                # Check if trailing stop is hit
+                if position.tier_4_trailing_sl_price and price <= position.tier_4_trailing_sl_price:
+                    logger.info(
+                        f"Tier 4 trailing stop hit for {position.position_id}: "
+                        f"price={price/100:.2f}, trailing_sl={position.tier_4_trailing_sl_price/100:.2f}"
+                    )
+                    return True
+        else:  # SELL (short)
+            # Update lowest price
+            if position.tier_4_lowest_price is None or price < position.tier_4_lowest_price:
+                position.tier_4_lowest_price = price
 
-                # Trailing stop activates after 1:1 R:R
-                if current_rr >= 1.0:
-                    # Calculate trailing stop price (trail above lowest by SL distance)
-                    trailing_sl = position.tier_4_lowest_price + sl_distance
+            # Calculate current R:R
+            current_rr = (position.entry_price - price) / sl_distance if sl_distance > 0 else 0
 
-                    # Don't trail above entry
-                    trailing_sl = min(trailing_sl, position.entry_price)
+            # Trailing stop activates after 1:1 R:R
+            if current_rr >= 1.0:
+                # Calculate trailing stop price (trail above lowest by SL distance)
+                trailing_sl = position.tier_4_lowest_price + sl_distance
 
-                    # Update stored trailing SL
-                    if position.tier_4_trailing_sl_price is None or trailing_sl < position.tier_4_trailing_sl_price:
-                        old_sl = position.tier_4_trailing_sl_price
-                        position.tier_4_trailing_sl_price = trailing_sl
-                        if old_sl != trailing_sl:
-                            logger.debug(
-                                f"Tier 4 trailing SL updated for {position.position_id}: "
-                                f"{trailing_sl/100:.2f} (lowest={position.tier_4_lowest_price/100:.2f})"
-                            )
+                # Don't trail above entry
+                trailing_sl = min(trailing_sl, position.entry_price)
 
-                    # Check if trailing stop is hit
-                    if position.tier_4_trailing_sl_price and price >= position.tier_4_trailing_sl_price:
-                        logger.info(
-                            f"Tier 4 trailing stop hit for {position.position_id}: "
-                            f"price={price/100:.2f}, trailing_sl={position.tier_4_trailing_sl_price/100:.2f}"
+                # Update stored trailing SL
+                if position.tier_4_trailing_sl_price is None or trailing_sl < position.tier_4_trailing_sl_price:
+                    old_sl = position.tier_4_trailing_sl_price
+                    position.tier_4_trailing_sl_price = trailing_sl
+                    if old_sl != trailing_sl:
+                        logger.debug(
+                            f"Tier 4 trailing SL updated for {position.position_id}: "
+                            f"{trailing_sl/100:.2f} (lowest={position.tier_4_lowest_price/100:.2f})"
                         )
-                        return True
+
+                # Check if trailing stop is hit
+                if position.tier_4_trailing_sl_price and price >= position.tier_4_trailing_sl_price:
+                    logger.info(
+                        f"Tier 4 trailing stop hit for {position.position_id}: "
+                        f"price={price/100:.2f}, trailing_sl={position.tier_4_trailing_sl_price/100:.2f}"
+                    )
+                    return True
 
         return False
 

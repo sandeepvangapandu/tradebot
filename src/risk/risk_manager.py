@@ -10,7 +10,7 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass
 from datetime import datetime, time
-from typing import Optional
+from typing import Callable, Optional
 from zoneinfo import ZoneInfo
 
 from loguru import logger
@@ -81,6 +81,7 @@ class RiskManager:
 
         # Daily trade tracking: symbol -> list of trade timestamps
         self._daily_trades: dict[str, list[datetime]] = {}
+        self._daily_loss_breach_callback: Callable[[], None] | None = None
 
         logger.info(
             "RiskManager initialised | capital={} paisa | max_daily_loss={} paisa | "
@@ -161,13 +162,7 @@ class RiskManager:
             logger.critical(reason)
             # Hard kill switch — trip circuit breaker so existing
             # positions get exited too, not just future orders blocked.
-            try:
-                cb = getattr(self, "circuit_breaker", None)
-                if cb and hasattr(cb, "kill_switch") and not getattr(cb, "halted", False):
-                    logger.critical("HARD KILL — daily loss limit breached, activating kill switch")
-                    cb.kill_switch()
-            except Exception as exc:
-                logger.error(f"Could not auto-trip kill_switch: {exc}")
+            self._trigger_daily_loss_breach()
             return RiskCheckResult(approved=False, reason=reason)
 
         return RiskCheckResult(approved=True)
@@ -299,6 +294,33 @@ class RiskManager:
             realized,
             unrealized,
         )
+        self.check_daily_loss_limit()
+
+    def set_daily_loss_breach_callback(self, callback: Callable[[], None]) -> None:
+        """Set a callback that flattens/cancels exposure on daily loss breach."""
+        self._daily_loss_breach_callback = callback
+
+    def _trigger_daily_loss_breach(self) -> None:
+        """Trip the hard halt and invoke the exposure-flattening callback once."""
+        try:
+            cb = getattr(self, "circuit_breaker", None)
+            if cb and getattr(cb, "halted", False):
+                return
+            if cb and hasattr(cb, "kill_switch") and not getattr(cb, "halted", False):
+                logger.critical("HARD KILL — daily loss limit breached, activating kill switch")
+                if self._daily_loss_breach_callback is not None:
+                    self._daily_loss_breach_callback()
+                else:
+                    cb.kill_switch()
+                return
+        except Exception as exc:
+            logger.error(f"Could not auto-trip kill_switch: {exc}")
+
+        if self._daily_loss_breach_callback is not None:
+            try:
+                self._daily_loss_breach_callback()
+            except Exception as exc:
+                logger.error(f"Daily loss breach callback failed: {exc}")
 
     def update_positions(self, count: int, deployed: int) -> None:
         """Update position-tracking counters.

@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from typing import Generator
 
 from loguru import logger
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -60,11 +60,60 @@ def init_db(database_url: str) -> Engine:
         )
 
     Base.metadata.create_all(bind=engine)
+    _run_sqlite_compat_migrations(engine)
     logger.info("All tables created / verified.")
 
     SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
     return engine
+
+
+def _run_sqlite_compat_migrations(db_engine: Engine) -> None:
+    """Apply small SQLite migrations that ``create_all`` cannot perform.
+
+    SQLite does not alter existing tables when ORM models gain columns. Keep
+    this deliberately narrow and additive so live paper-trading data is not
+    dropped during startup.
+    """
+    if db_engine.dialect.name != "sqlite":
+        return
+
+    inspector = inspect(db_engine)
+    if not inspector.has_table("daily_pnl"):
+        return
+
+    columns = {col["name"] for col in inspector.get_columns("daily_pnl")}
+    if "strategy" in columns:
+        return
+
+    with db_engine.begin() as conn:
+        conn.execute(text("ALTER TABLE daily_pnl RENAME TO daily_pnl_legacy"))
+        conn.execute(
+            text(
+                "CREATE TABLE daily_pnl ("
+                "id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, "
+                "date DATE NOT NULL, "
+                "strategy VARCHAR(128) NOT NULL DEFAULT '__total__', "
+                "realized_pnl BIGINT NOT NULL, "
+                "unrealized_pnl BIGINT NOT NULL, "
+                "total_pnl BIGINT NOT NULL, "
+                "trades_count INTEGER NOT NULL, "
+                "win_count INTEGER NOT NULL, "
+                "CONSTRAINT uq_daily_pnl_date_strategy UNIQUE (date, strategy)"
+                ")"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO daily_pnl "
+                "(id, date, strategy, realized_pnl, unrealized_pnl, total_pnl, trades_count, win_count) "
+                "SELECT id, date, '__total__', realized_pnl, unrealized_pnl, total_pnl, trades_count, win_count "
+                "FROM daily_pnl_legacy"
+            )
+        )
+        conn.execute(text("DROP TABLE daily_pnl_legacy"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_pnl_strategy ON daily_pnl(strategy)"))
+    logger.info("SQLite migration applied: daily_pnl rebuilt with per-strategy uniqueness.")
 
 
 @contextmanager

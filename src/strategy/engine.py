@@ -1683,6 +1683,11 @@ class StrategyEngine:
                 except (ValueError, AttributeError):
                     tf_mins = 5
                 cooldown_bars = max(tf_mins, 5)  # at least 5 minutes between signals
+                if strategy.risk_management and isinstance(strategy.risk_management, dict):
+                    cooldown_bars = max(
+                        cooldown_bars,
+                        strategy.risk_management.get("signal_cooldown_minutes", 0),
+                    )
                 elapsed_mins = (bar_time - last_sig).total_seconds() / 60
                 if elapsed_mins < cooldown_bars:
                     continue

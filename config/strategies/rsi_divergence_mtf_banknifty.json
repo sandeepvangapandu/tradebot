@@ -44,14 +44,17 @@
           "value": "bullish",
           "timeframe": "5min",
           "parameters": {
-            "lookback": 10,
-            "rsi_length": 14
+            "lookback": 20,
+            "rsi_length": 14,
+            "min_swing_pct": 0.0005,
+            "order": 2,
+            "require_confirmation": false
           }
         },
         {
           "indicator": "RSI",
           "comparison": "<",
-          "value": 40,
+          "value": 45,
           "timeframe": "5min",
           "parameters": {
             "length": 14
@@ -59,7 +62,7 @@
         },
         {
           "indicator": "Price",
-          "comparison": ">",
+          "comparison": "<",
           "against": "EMA_20",
           "timeframe": "15min"
         },
@@ -84,14 +87,17 @@
           "value": "bearish",
           "timeframe": "5min",
           "parameters": {
-            "lookback": 10,
-            "rsi_length": 14
+            "lookback": 20,
+            "rsi_length": 14,
+            "min_swing_pct": 0.0005,
+            "order": 2,
+            "require_confirmation": false
           }
         },
         {
           "indicator": "RSI",
           "comparison": ">",
-          "value": 60,
+          "value": 55,
           "timeframe": "5min",
           "parameters": {
             "length": 14
@@ -99,7 +105,7 @@
         },
         {
           "indicator": "Price",
-          "comparison": "<",
+          "comparison": ">",
           "against": "EMA_20",
           "timeframe": "15min"
         },
@@ -138,11 +144,11 @@
     "require_htf_alignment": true
   },
   "params": {
-    "divergence_lookback": 10,
+    "divergence_lookback": 20,
     "min_swing_points": 2,
-    "htf_trend_alignment": true,
-    "rsi_oversold": 40,
-    "rsi_overbought": 60,
+    "htf_trend_alignment": false,
+    "rsi_oversold": 45,
+    "rsi_overbought": 55,
     "support_resistance_lookback": 20,
     "proximity_threshold_pct": 0.3
   }

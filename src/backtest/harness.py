@@ -176,6 +176,7 @@ class BacktestHarness:
         prices_in_rupees: bool = False,
         options_proxy: bool = False,
         straddle_proxy: bool = False,
+        allow_directional_proxy: bool = False,
         option_premium_pct: float = 0.5,
         option_delta: float = 0.5,
         strategy_only: Optional[str] = None,
@@ -189,6 +190,7 @@ class BacktestHarness:
         self._end_date = end_date
         self._options_proxy = options_proxy
         self._straddle_proxy = straddle_proxy
+        self._allow_directional_proxy = allow_directional_proxy
         self._option_premium_pct = option_premium_pct
         self._option_delta = option_delta
         self._strategy_only = strategy_only
@@ -571,7 +573,7 @@ class BacktestHarness:
 
         # In straddle/options proxy mode, disable directional strategies (CE/PE buys)
         # because the synthetic premium model is not valid for directional option legs.
-        if self._straddle_proxy or self._options_proxy:
+        if (self._straddle_proxy or self._options_proxy) and not self._allow_directional_proxy:
             _DIRECTIONAL_SIGNALS = {"CE", "PE", "BUY", "SELL_FUTURE"}
             disabled_dir = []
             for name, cfg in self._strategy_engine._strategies.items():
@@ -721,6 +723,52 @@ class BacktestHarness:
                     })
             except Exception as exc:
                 logger.error(f"[BACKTEST] PositionManager.on_tick error at bar {i}: {exc}")
+
+            # --- Phase 3.5: Intraday square-off (15:15 IST) ---
+            # Straddle/option-leg positions are tracked under their own
+            # instrument keys and never receive on_tick() in proxy mode (no
+            # synthetic per-leg price feed), so they're never checked by the
+            # block above. check_intraday_square_off() iterates all open MIS
+            # positions directly and force-closes them at 15:15 regardless of
+            # instrument key, preventing naked short exposure from bleeding
+            # past EOD.
+            try:
+                eod_closed = self._position_manager.check_intraday_square_off()
+                for pos in (eod_closed or []):
+                    trade_fees = 0
+                    try:
+                        segment = "NSE_FO" if "NFO" in pos.instrument_key or "FO" in pos.instrument_key else "NSE_EQ"
+                        trade_fees = calculate_trade_fees(
+                            pos.entry_price,
+                            pos.blended_exit_price or pos.exit_price or pos.entry_price,
+                            abs(pos.quantity),
+                            pos.side.value,
+                            segment,
+                            "MIS",
+                        )
+                    except Exception:
+                        trade_fees = 0
+                    _entry_dt = pos.entry_time
+                    _exit_dt = pos.exit_time
+                    _dur_s = int((_exit_dt - _entry_dt).total_seconds()) if (_entry_dt and _exit_dt) else 0
+                    results.trades.append({
+                        "instrument_key": pos.instrument_key,
+                        "strategy_id": pos.strategy_id,
+                        "side": pos.side.value,
+                        "entry_price": pos.entry_price,
+                        "exit_price": pos.blended_exit_price or pos.entry_price,
+                        "stop_loss_price": pos.stop_loss_price,
+                        "target_price": pos.target_price,
+                        "quantity": pos.quantity,
+                        "net_pnl": pos.total_realized_pnl,
+                        "fees": trade_fees,
+                        "entry_time": str(_entry_dt),
+                        "exit_time": str(_exit_dt) if _exit_dt else None,
+                        "duration_seconds": _dur_s,
+                        "exit_reason": getattr(pos, "exit_reason", "unknown"),
+                    })
+            except Exception as exc:
+                logger.error(f"[BACKTEST] check_intraday_square_off error at bar {i}: {exc}")
 
             # --- Phase 4: Session gate ---
             bar_t = bar_time_ist.time()

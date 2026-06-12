@@ -205,6 +205,7 @@ class ManagedPosition:
     underlying_instrument_key: Optional[str] = None
     underlying_entry_price: Optional[int] = None  # in paisa
     emergency_exit_move_pct: Optional[float] = None  # e.g. 2.0 = 2%
+    price_exits_enabled: bool = True
 
     # Partial profit booking tracking
     partial_exits: list[PartialExitRecord] = field(default_factory=list)
@@ -745,6 +746,15 @@ class PositionManager:
         """Set simulated time for backtest mode (overrides datetime.now)."""
         self._backtest_time = t
 
+    def on_position_update(self, update: dict[str, Any]) -> None:
+        """Accept broker portfolio updates without crashing the feed callback.
+
+        Broker position updates are reconciliation hints today. The
+        authoritative managed-position lifecycle still comes from fills and
+        price ticks so this adapter intentionally avoids mutating local state.
+        """
+        logger.debug("Broker position update received: {}", update)
+
     def _now(self) -> datetime:
         """Return current time — backtest bar time if set, else real time."""
         if self._backtest_time is not None:
@@ -772,6 +782,7 @@ class PositionManager:
         underlying_instrument_key: Optional[str] = None,
         underlying_entry_price: Optional[int] = None,
         emergency_exit_move_pct: Optional[float] = None,
+        enable_price_exits: bool = True,
     ) -> ManagedPosition:
         """Add a new position to track.
 
@@ -807,7 +818,9 @@ class PositionManager:
             atr_multiplier = self._get_atr_multiplier(volatility_regime)
 
             # Calculate stop-loss using ATR if enabled and ATR provided
-            if stop_loss_price is None and self._config.use_atr_based_sl and entry_atr is not None:
+            if not enable_price_exits:
+                stop_loss_price = None
+            elif stop_loss_price is None and self._config.use_atr_based_sl and entry_atr is not None:
                 if side == OrderSide.BUY:
                     stop_loss_price = int(entry_price - (entry_atr * atr_multiplier))
                 else:  # SELL (short)
@@ -826,7 +839,9 @@ class PositionManager:
                     stop_loss_price = int(entry_price * (1 + sl_pct))
 
             # Calculate target with volatility adjustment
-            if target_price is None:
+            if not enable_price_exits:
+                target_price = None
+            elif target_price is None:
                 tgt_pct = target_pct if target_pct is not None else self._config.target_pct
 
                 # Adjust target based on volatility regime
@@ -865,6 +880,7 @@ class PositionManager:
                 underlying_instrument_key=underlying_instrument_key,
                 underlying_entry_price=underlying_entry_price,
                 emergency_exit_move_pct=emergency_exit_move_pct,
+                price_exits_enabled=enable_price_exits,
                 original_quantity=quantity,
                 remaining_quantity=quantity,
             )
@@ -894,10 +910,12 @@ class PositionManager:
                     f"T1@1R, T2@2R, T3@3R, T4=Trailing"
                 )
 
+            sl_display = f"{stop_loss_price/100:.2f}" if stop_loss_price is not None else "OFF"
+            target_display = f"{target_price/100:.2f}" if target_price is not None else "OFF"
             logger.info(
                 f"Position added: {position.position_id} | {strategy_id} | "
                 f"{side.value} {quantity} {instrument_key} @ {entry_price/100:.2f} | "
-                f"SL: {stop_loss_price/100:.2f} | Target: {target_price/100:.2f} | "
+                f"SL: {sl_display} | Target: {target_display} | "
                 f"ATR: {entry_atr} | VolRegime: {volatility_regime}"
             )
 
@@ -1428,7 +1446,7 @@ class PositionManager:
 
             response = self._broker.place_order(exit_order)
 
-            if (getattr(response.status, 'value', response.status)) in ("COMPLETE", "OPEN", "PARTIAL_FILL"):
+            if (getattr(response.status, 'value', response.status)) == "COMPLETE":
                 # Calculate realized P&L for this partial exit
                 realized_pnl = position.get_unrealized_pnl_for_quantity(price, exit_qty)
 
@@ -1512,7 +1530,7 @@ class PositionManager:
 
             response = self._broker.place_order(exit_order)
 
-            if (getattr(response.status, 'value', response.status)) in ("COMPLETE", "OPEN", "PARTIAL_FILL"):
+            if (getattr(response.status, 'value', response.status)) == "COMPLETE":
                 # Calculate realized P&L for this tier exit
                 realized_pnl = position.get_unrealized_pnl_for_quantity(price, exit_qty)
 
@@ -1929,7 +1947,7 @@ class PositionManager:
 
             response = self._broker.place_order(exit_order)
 
-            if (getattr(response.status, 'value', response.status)) in ("COMPLETE", "OPEN", "PARTIAL_FILL"):
+            if (getattr(response.status, 'value', response.status)) == "COMPLETE":
                 # Calculate realized P&L for remaining quantity
                 remaining_pnl = position.get_unrealized_pnl_for_quantity(
                     exit_price, position.remaining_quantity
@@ -1996,6 +2014,9 @@ class PositionManager:
                         except Exception as _rl_close_exc:
                             logger.debug("RL terminal record_step failed: {}", _rl_close_exc)
 
+                fees_paisa = 0
+                net_total_pnl = total_pnl
+
                 # Persist to database
                 if self._trade_logger:
                     try:
@@ -2007,7 +2028,6 @@ class PositionManager:
                         # Attribute fees (brokerage + STT + GST + exchange + SEBI)
                         # by summing charges from the broker's per-fill history
                         # for this instrument since position entry.
-                        fees_paisa = 0
                         try:
                             if hasattr(self._broker, "sum_fees_for_instrument"):
                                 fees_paisa = int(self._broker.sum_fees_for_instrument(
@@ -2017,7 +2037,11 @@ class PositionManager:
                         except Exception as fe:
                             logger.warning(f"Fee attribution failed for {position.instrument_key}: {fe}")
 
-                        # Add a TradeRecord
+                        net_total_pnl = total_pnl - fees_paisa
+
+                        # Add a TradeRecord. Persist net P&L so reports,
+                        # Kelly sizing, and daily summaries do not overstate
+                        # profits by ignoring brokerage/statutory charges.
                         self._trade_logger.log_trade({
                             "strategy": position.strategy_id,
                             "instrument_key": position.instrument_key,
@@ -2025,7 +2049,7 @@ class PositionManager:
                             "entry_price": position.entry_price,
                             "exit_price": blended_price or exit_price,
                             "quantity": position.original_quantity,
-                            "realized_pnl": total_pnl,
+                            "realized_pnl": net_total_pnl,
                             "fees": fees_paisa,
                             "entry_time": position.entry_time,
                             "exit_time": position.exit_time,
@@ -2043,11 +2067,11 @@ class PositionManager:
                     try:
                         if hasattr(self._risk_manager.circuit_breaker, "record_strategy_pnl"):
                             self._risk_manager.circuit_breaker.record_strategy_pnl(
-                                position.strategy_id, int(total_pnl)
+                                position.strategy_id, int(net_total_pnl)
                             )
                     except Exception as exc:
                         logger.debug(f"record_strategy_pnl failed: {exc}")
-                    if total_pnl < 0:
+                    if net_total_pnl < 0:
                         trade_details = {
                             "direction": "BUY" if position.side.value == "BUY" else "SELL",
                             "strategy": position.strategy_id,
@@ -2056,7 +2080,7 @@ class PositionManager:
                             "hour": position.entry_time.hour if position.entry_time else -1,
                         }
                         self._risk_manager.circuit_breaker.record_loss(trade_details)
-                    elif total_pnl > 0:
+                    elif net_total_pnl > 0:
                         self._risk_manager.circuit_breaker.record_win()
 
                 # Call callback if set
@@ -2145,9 +2169,15 @@ class PositionManager:
             ManagedPosition if found, None otherwise
         """
         with self._lock:
-            position_id = self._instrument_to_position.get(instrument_key)
-            if position_id:
-                return self._positions.get(position_id)
+            position_ref = self._instrument_to_position.get(instrument_key)
+            if isinstance(position_ref, list):
+                for position_id in position_ref:
+                    position = self._positions.get(position_id)
+                    if position is not None and not position.is_closed:
+                        return position
+                return None
+            if position_ref:
+                return self._positions.get(position_ref)
             return None
 
     def get_open_positions(self) -> list[ManagedPosition]:

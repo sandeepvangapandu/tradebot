@@ -411,7 +411,7 @@ def calculate_trade_fees(
         stamp_rate = FEES["stamp_duty_equity_delivery_pct"]
     else:
         stamp_rate = FEES["stamp_duty_equity_intraday_pct"]
-    stamp = buy_value * stamp_rate / 100  # stamp_rate is percentage form
+    stamp = buy_value * stamp_rate  # stamp_rate is decimal (e.g. 0.00015)
     total_fees += int(round(stamp))
 
     return total_fees

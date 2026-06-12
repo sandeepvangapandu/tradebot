@@ -30,6 +30,11 @@ IST = ZoneInfo("Asia/Kolkata")
 Base = declarative_base()
 
 
+def _status_value(status: OrderStatus | str) -> str:
+    """Return a stable string value for enum-or-string order statuses."""
+    return getattr(status, "value", status)
+
+
 class OrderUpdateRecord(Base):
     """Database model for order status updates."""
 
@@ -96,7 +101,7 @@ class OrderTracker:
         self._on_order_fill = on_order_fill
         self._on_order_reject = on_order_reject
         self._on_order_cancel = on_order_cancel
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
         # Order state tracking
         self._orders: dict[str, OrderUpdate] = {}  # order_id -> latest update
@@ -154,7 +159,7 @@ class OrderTracker:
                 # New order
                 self._pending_orders.add(order_id)
                 logger.info(
-                    f"New order tracked: {order_id} | Status: {update.status.value}"
+                    f"New order tracked: {order_id} | Status: {_status_value(update.status)}"
                 )
 
                 if update.status == OrderStatus.COMPLETE:
@@ -163,6 +168,89 @@ class OrderTracker:
                     self._handle_reject(update)
                 elif update.status == OrderStatus.CANCELLED:
                     self._handle_cancel(update)
+
+    def on_order_update(self, update: dict | OrderUpdate) -> None:
+        """Adapter used by portfolio-feed callbacks.
+
+        Upstox websocket payloads are not guaranteed to arrive as our internal
+        ``OrderUpdate`` model, so normalize common field names here before
+        feeding the regular tracker lifecycle.
+        """
+        if isinstance(update, OrderUpdate):
+            self.handle_websocket_update(update)
+            return
+
+        if not isinstance(update, dict):
+            logger.warning("Ignoring non-dict order update: {}", type(update).__name__)
+            return
+
+        payload = update.get("data") if isinstance(update.get("data"), dict) else update
+
+        order_id = (
+            payload.get("order_id")
+            or payload.get("orderId")
+            or payload.get("order_reference_id")
+            or payload.get("exchange_order_id")
+        )
+        if not order_id:
+            logger.warning("Ignoring order update without order_id: {}", update)
+            return
+
+        raw_status = str(payload.get("status") or payload.get("order_status") or "").upper()
+        status = self._map_status(raw_status)
+        filled_quantity = int(
+            payload.get("filled_quantity")
+            or payload.get("filledQuantity")
+            or payload.get("filled_qty")
+            or 0
+        )
+        quantity = int(payload.get("quantity") or payload.get("order_quantity") or 0)
+        pending_quantity = int(
+            payload.get("pending_quantity")
+            or payload.get("pendingQuantity")
+            or max(quantity - filled_quantity, 0)
+            or 0
+        )
+        avg_price_raw = (
+            payload.get("average_price")
+            or payload.get("averagePrice")
+            or payload.get("avg_fill_price")
+        )
+        average_price = None
+        if avg_price_raw not in (None, ""):
+            avg_float = float(avg_price_raw)
+            # Upstox sends rupees; internal tests/paths often send paisa.
+            average_price = int(avg_float if avg_float > 10_000 else avg_float * 100)
+
+        self.handle_websocket_update(
+            OrderUpdate(
+                order_id=str(order_id),
+                status=status,
+                filled_quantity=filled_quantity,
+                average_price=average_price,
+                pending_quantity=pending_quantity,
+                message=payload.get("status_message") or payload.get("message"),
+                exchange_order_id=payload.get("exchange_order_id"),
+            )
+        )
+
+    @staticmethod
+    def _map_status(status: str) -> OrderStatus:
+        """Map broker status strings into internal order statuses."""
+        mapping = {
+            "COMPLETE": OrderStatus.COMPLETE,
+            "TRADED": OrderStatus.COMPLETE,
+            "FILLED": OrderStatus.COMPLETE,
+            "OPEN": OrderStatus.OPEN,
+            "PENDING": OrderStatus.PENDING,
+            "PLACED": OrderStatus.PLACED,
+            "PARTIAL": OrderStatus.PARTIAL_FILL,
+            "PARTIAL_FILL": OrderStatus.PARTIAL_FILL,
+            "CANCELLED": OrderStatus.CANCELLED,
+            "CANCELED": OrderStatus.CANCELLED,
+            "REJECTED": OrderStatus.REJECTED,
+        }
+        return mapping.get(status, OrderStatus.PENDING)
 
     def _handle_complete_fill(self, update: OrderUpdate) -> None:
         """Handle complete order fill.
@@ -214,7 +302,10 @@ class OrderTracker:
         order_id = update.order_id
         new_status = update.status
 
-        logger.info(f"Order status change: {order_id} | {previous_status.value} -> {new_status.value}")
+        logger.info(
+            f"Order status change: {order_id} | "
+            f"{_status_value(previous_status)} -> {_status_value(new_status)}"
+        )
 
         if new_status == OrderStatus.REJECTED:
             self._handle_reject(update)
@@ -271,7 +362,7 @@ class OrderTracker:
             with self._SessionLocal() as session:
                 record = OrderUpdateRecord(
                     order_id=update.order_id,
-                    status=update.status.value,
+                    status=_status_value(update.status),
                     filled_quantity=update.filled_quantity,
                     average_price=update.average_price,
                     pending_quantity=update.pending_quantity,
@@ -419,7 +510,7 @@ class OrderTracker:
         return {
             "found": True,
             "order_id": order_id,
-            "status": update.status.value,
+            "status": _status_value(update.status),
             "filled_quantity": update.filled_quantity,
             "pending_quantity": update.pending_quantity,
             "average_price": update.average_price,

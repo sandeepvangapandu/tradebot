@@ -23,8 +23,8 @@
       "priority": 2,
       "conditions": [
         {
-          "indicator": "Supertrend",
-          "comparison": "crosses_below",
+          "indicator": "Spot_Price",
+          "comparison": "crosses_above",
           "against": "Supertrend",
           "parameters": {
             "period": 10,

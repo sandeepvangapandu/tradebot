@@ -828,6 +828,7 @@ class ConditionEvaluator:
                 "calculation failed" in msg
                 or "No data loaded" in msg
                 or "insufficient" in msg.lower()
+                or "out of bounds" in msg.lower()
             ):
                 logger.debug(f"Indicator '{name}' unavailable (warmup): {e}")
             else:
@@ -1002,6 +1003,8 @@ class ConditionEvaluator:
                     lookback=parameters.get("lookback", 10),
                     rsi_length=parameters.get("rsi_length", 14),
                     min_swing_pct=parameters.get("min_swing_pct", 0.001),
+                    order=parameters.get("order", 2),
+                    require_confirmation=parameters.get("require_confirmation", True),
                 )
                 # Return a series with the divergence type encoded as numeric
                 # 1 = bullish, -1 = bearish, 0 = none
@@ -1044,6 +1047,9 @@ class ConditionEvaluator:
                     is_near, distance, _ = calculate_proximity_to_level(
                         current_price, levels, proximity_pct
                     )
+
+                if not is_near:
+                    distance = max(distance, proximity_pct + 1.0)
 
                 # Return series with proximity distance as percentage
                 return pd.Series([distance] * len(df), index=df.index)

@@ -187,6 +187,7 @@ class OrderManager:
         self._order_validator = order_validator
         self._lock = threading.Lock()
         self._pending_instruments: set[str] = set()  # Instruments currently being processed
+        self._submitted_order_contexts: dict[str, tuple[Order, Signal]] = {}
         self._is_running = False
         self._worker_thread: Optional[threading.Thread] = None
 
@@ -1031,19 +1032,24 @@ class OrderManager:
                             leg_price = leg.price or (self._broker.get_ltp(leg.instrument_key) if hasattr(self._broker, 'get_ltp') else 0)
                             if leg_price == 0 and hasattr(self._broker, '_ltp_cache'):
                                 leg_price = self._broker._ltp_cache.get(leg.instrument_key, 0)
-                            # If we still don't have a price for the option, just estimate or fallback
-                            # For safety, if option price is missing, fallback to a reasonable premium estimate or 0
-                            # Real implementations need robust market data fetch
+                            if leg_price <= 0:
+                                self._order_logger.warning(
+                                    f"RISK_BLOCK | {signal.signal_id} | Missing LTP for {leg.instrument_key}; "
+                                    "cannot compute combo risk notional"
+                                )
+                                return None
                             total_order_value += leg.quantity * leg_price
                     else:
                         leg_price = order.price or (self._broker.get_ltp(order.instrument_key) if hasattr(self._broker, 'get_ltp') else 0)
                         if leg_price == 0 and hasattr(self._broker, '_ltp_cache'):
                             leg_price = self._broker._ltp_cache.get(order.instrument_key, 0)
+                        if leg_price <= 0:
+                            self._order_logger.warning(
+                                f"RISK_BLOCK | {signal.signal_id} | Missing LTP for {order.instrument_key}; "
+                                "cannot compute risk notional"
+                            )
+                            return None
                         total_order_value = order.quantity * leg_price
-                        
-                    # Wait, if we use market order for options, leg.price is 0! 
-                    # If LTP is not available, order_value becomes 0.
-                    # That will bypass capital check, but it's paper trading and won't reject erroneously!
                     
                     risk_result = self._risk_manager.pre_trade_check(total_order_value, instrument_key)
                     if not risk_result.approved:
@@ -1126,6 +1132,7 @@ class OrderManager:
                     for i, resp in enumerate(responses):
                         leg_order = combo_order.legs[i]
                         self._log_order_to_db(leg_order, resp, signal, research_report)
+                        self._track_submitted_order(resp, leg_order, signal)
                         side_str = getattr(leg_order.side, "value", leg_order.side)
                         self._order_logger.info(
                             f"COMBO_LEG_PLACED | {resp.order_id} | {resp.status} | "
@@ -1161,6 +1168,7 @@ class OrderManager:
                                     underlying_instrument_key=underlying_key,
                                     underlying_entry_price=int(underlying_entry) if underlying_entry else None,
                                     emergency_exit_move_pct=float(emergency_pct) if emergency_pct else None,
+                                    enable_price_exits=False,
                                 )
                                 self._order_logger.info(
                                     f"POSITION_CREATED | {leg_order.instrument_key} | {side_str} "
@@ -1176,6 +1184,7 @@ class OrderManager:
 
                     # Log to database
                     self._log_order_to_db(order, response, signal, research_report)
+                    self._track_submitted_order(response, order, signal)
 
                     # Log order result
                     self._order_logger.info(
@@ -1230,6 +1239,65 @@ class OrderManager:
                 f"SIGNAL_FAILED | {signal.signal_id} | {signal.strategy_name} | Error: {e}"
             )
             return None
+
+    def _track_submitted_order(self, response: OrderResponse, order: Order, signal: Signal) -> None:
+        """Remember submitted order context for asynchronous live fill updates."""
+        status = getattr(response.status, "value", response.status)
+        if status in ("PLACED", "OPEN", "PENDING", "PARTIAL_FILL", "COMPLETE"):
+            with self._lock:
+                self._submitted_order_contexts[response.order_id] = (order, signal)
+
+    def on_order_fill(self, update: Any) -> None:
+        """Create a managed position from an asynchronous broker fill update."""
+        order_id = getattr(update, "order_id", None)
+        if not order_id:
+            return
+
+        with self._lock:
+            context = self._submitted_order_contexts.get(order_id)
+
+        if context is None:
+            logger.debug("Fill update for untracked order_id={}", order_id)
+            return
+
+        order, signal = context
+        filled_qty = int(getattr(update, "filled_quantity", 0) or order.quantity)
+        fill_price = getattr(update, "average_price", None) or order.price or 0
+        status = getattr(update, "status", None)
+        status_value = getattr(status, "value", status)
+
+        if filled_qty <= 0 or not fill_price:
+            return
+
+        if self._position_manager is not None:
+            order_side = OrderSide(order.side) if isinstance(order.side, str) else order.side
+            product_type = ProductType(order.product_type) if isinstance(order.product_type, str) else order.product_type
+            existing = None
+            get_by_instr = getattr(self._position_manager, "get_position_by_instrument", None)
+            if callable(get_by_instr):
+                try:
+                    existing = get_by_instr(order.instrument_key)
+                except Exception:
+                    existing = None
+            if existing is None:
+                self._position_manager.add_position(
+                    instrument_key=order.instrument_key,
+                    side=order_side,
+                    quantity=filled_qty,
+                    entry_price=int(fill_price),
+                    strategy_id=signal.strategy_name,
+                    stop_loss_price=signal.stop_loss,
+                    target_price=signal.target,
+                    product_type=product_type,
+                )
+                self._order_logger.info(
+                    f"ASYNC_POSITION_CREATED | {order.instrument_key} | {order.side} "
+                    f"{filled_qty} @ {fill_price} | order_id={order_id}"
+                )
+
+        if status_value == "COMPLETE":
+            with self._lock:
+                self._submitted_order_contexts.pop(order_id, None)
 
     def _apply_research_adjustments(self, signal: Signal, report: "TradeResearchReport") -> Signal:
         """Apply research-driven adjustments to the signal.

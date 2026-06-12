@@ -24,7 +24,7 @@
       "conditions": [
         {
           "indicator": "MACD",
-          "comparison": "crosses_above",
+          "comparison": ">",
           "against": "MACD_Signal",
           "parameters": {
             "fast": 12,
@@ -63,7 +63,7 @@
       "conditions": [
         {
           "indicator": "MACD",
-          "comparison": "crosses_below",
+          "comparison": "<",
           "against": "MACD_Signal",
           "parameters": {
             "fast": 12,

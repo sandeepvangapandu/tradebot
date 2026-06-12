@@ -21,8 +21,9 @@ from loguru import logger
 
 try:
     import pandas_ta  # noqa: F401 — registers df.ta accessor
-except ImportError:
+except Exception as exc:
     pandas_ta = None  # type: ignore[assignment]
+    logger.warning("pandas_ta unavailable; using fallback indicators where possible: {}", exc)
 
 # Add parent directory to path for imports
 sys.path.insert(0, "/Users/sandeepvangapandu/Downloads/Trading")

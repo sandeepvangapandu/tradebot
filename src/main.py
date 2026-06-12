@@ -63,7 +63,7 @@ from src.data.portfolio_feed import PortfolioFeed
 from src.data.websocket_feed import MarketDataFeed
 from src.execution.order_manager import OrderManager
 from src.execution.order_tracker import OrderTracker
-from src.execution.paper_broker import PaperBroker
+from src.execution.broker_factory import create_broker
 from src.execution.partial_profit import PartialProfitManager
 from src.execution.position_manager import PositionManager
 from src.persistence.database import get_session, init_db
@@ -275,7 +275,7 @@ class TradingBot:
         self.risk_manager: RiskManager | None = None
         self.circuit_breaker: CircuitBreaker | None = None
         self.strategy_quarantine: StrategyQuarantine | None = None
-        self.paper_broker: PaperBroker | None = None
+        self.paper_broker: Any = None
         self.order_manager: OrderManager | None = None
         self.position_manager: PositionManager | None = None
         self.partial_profit_manager: PartialProfitManager | None = None
@@ -341,6 +341,7 @@ class TradingBot:
         self.reconciler: Any = None
         self.slippage_monitor: Any = None
         self.archiver: Any = None
+        self.broker: Any = None
 
     def startup(self) -> None:
         """Execute startup sequence."""
@@ -477,24 +478,33 @@ class TradingBot:
             raise TradingBotError("Circuit breaker is halted. Please resume manually.")
 
         # 6. Initialize broker, partial profit manager, and order/position managers
-        self.paper_broker = PaperBroker(
-            initial_capital=self.settings.capital,
-            slippage_pct=self.settings.slippage_pct / 100,  # settings stores percent; broker needs decimal
+        self.broker = create_broker(
+            mode=self.settings.trading_mode,
+            config={
+                "capital": self.settings.capital,
+                "initial_capital": self.settings.capital,
+                "slippage_pct": self.settings.slippage_pct / 100,
+                "token_manager": self.token_manager,
+                "active_broker": getattr(self.settings, "active_broker", "upstox"),
+                "dhan_client_id": getattr(self.settings, "dhan_client_id", ""),
+                "dhan_access_token": getattr(self.settings, "dhan_access_token", ""),
+            },
+            require_confirmation=self.settings.trading_mode == "live",
         )
+        # Compatibility alias for older phase modules/tests. In live mode this
+        # intentionally points at the selected live broker so all modules share
+        # one execution state.
+        self.paper_broker = self.broker
         self.partial_profit_manager = PartialProfitManager()
         self.position_manager = PositionManager(
-            broker=self.paper_broker,
+            broker=self.broker,
             risk_manager=self.risk_manager,
             partial_profit_manager=self.partial_profit_manager,
             trade_logger=getattr(self, 'trade_log', None),
         )
-        self.order_tracker = OrderTracker(
-            broker=self.paper_broker,
-            db_url=self.settings.database_url,
-        )
         self.order_manager = OrderManager(
             signal_queue=self.signal_queue,
-            broker=self.paper_broker,
+            broker=self.broker,
             trading_mode=self.settings.trading_mode,
             instrument_manager=self.instrument_manager,
             risk_manager=self.risk_manager,
@@ -504,6 +514,14 @@ class TradingBot:
             kelly_sizer=getattr(self, "kelly_sizer", None),
             smart_router=getattr(self, "smart_router", None),
             order_validator=getattr(self, "order_validator", None),
+        )
+        self.risk_manager.set_daily_loss_breach_callback(
+            lambda: self.circuit_breaker.kill_switch(self.order_manager)
+        )
+        self.order_tracker = OrderTracker(
+            broker=self.broker,
+            db_url=self.settings.database_url,
+            on_order_fill=self.order_manager.on_order_fill,
         )
         logger.info("Order and position managers initialized")
 
@@ -1283,7 +1301,7 @@ class TradingBot:
         try:
             if _SmartRouter is not None:
                 self.smart_router = _SmartRouter(
-                    broker=self.paper_broker,
+                    broker=self.broker,
                     db_engine=self.db_engine,
                 )
                 logger.debug("smart_router: OK")
@@ -1294,7 +1312,7 @@ class TradingBot:
             if _OrderValidator is not None:
                 self.order_validator = _OrderValidator(
                     instrument_manager=self.instrument_manager,
-                    broker=self.paper_broker,
+                    broker=self.broker,
                     db_engine=self.db_engine,
                 )
                 logger.debug("order_validator: OK")
@@ -1313,7 +1331,7 @@ class TradingBot:
                 # Positions are written to SQLite (trading_bot.db), not Postgres.
                 # Pass the SQLite engine so fetch_local_positions finds actual rows.
                 self.reconciler = _Reconciler(
-                    broker=self.paper_broker,
+                    broker=self.broker,
                     db_engine=_sqlite_engine,
                     config=_rcfg,
                 )
@@ -2130,9 +2148,9 @@ class TradingBot:
                     continue
                 # Convert rupees → paisa (PositionManager expects paisa int)
                 price_paisa = int(round(float(ltp) * 100))
-                self.position_manager.on_tick(instrument_key, price_paisa)
 
                 # Feed live quote into paper broker so fills use actual bid/ask
+                # before PositionManager can trigger an exit order on this tick.
                 if self.paper_broker is not None:
                     try:
                         self.paper_broker.update_quote(
@@ -2140,6 +2158,8 @@ class TradingBot:
                         )
                     except Exception:
                         pass
+
+                self.position_manager.on_tick(instrument_key, price_paisa)
 
                 # When the underlying index ticks, check emergency-exit on any
                 # option positions tracking it (e.g. short straddle legs).

@@ -103,13 +103,13 @@ class FeeCalculator:
         # STT (only on sell side for options)
         stt = 0
         if transaction_type == TransactionType.SELL and is_fno:
-            stt = int(turnover * FEES["stt_options_sell_pct"] / 100)
+            stt = int(turnover * FEES["stt_options_sell_pct"])
 
         # Exchange charges
         if is_fno:
-            exchange_charges = int(turnover * FEES["exchange_charge_nse_fo_pct"] / 100)
+            exchange_charges = int(turnover * FEES["exchange_charge_nse_fo_pct"])
         else:
-            exchange_charges = int(turnover * FEES["exchange_charge_nse_fo_pct"] / 100)
+            exchange_charges = int(turnover * FEES["exchange_charge_nse_fo_pct"])
 
         # SEBI charges
         sebi_charges = int(turnover_crores * FEES["sebi_charges_per_crore"])
@@ -117,11 +117,11 @@ class FeeCalculator:
         # Stamp duty (only on buy side)
         stamp_duty = 0
         if transaction_type == TransactionType.BUY:
-            stamp_duty = int(turnover * FEES["stamp_duty_fno_pct"] / 100)
+            stamp_duty = int(turnover * FEES["stamp_duty_fno_pct"])
 
         # GST on brokerage + exchange charges
         gst_base = brokerage + exchange_charges
-        gst = int(gst_base * FEES["gst_pct"] / 100)
+        gst = int(gst_base * FEES["gst_pct"])
 
         total_fees = brokerage + stt + exchange_charges + sebi_charges + stamp_duty + gst
         return total_fees
@@ -501,7 +501,7 @@ class TestFeeCalculation:
 
         # Buy fees should include stamp duty component
         turnover = 15 * 50000
-        expected_stamp_duty = int(turnover * FEES["stamp_duty_fno_pct"] / 100)
+        expected_stamp_duty = int(turnover * FEES["stamp_duty_fno_pct"])
         assert expected_stamp_duty > 0
 
     def test_gst_calculation(self) -> None:
@@ -511,9 +511,9 @@ class TestFeeCalculation:
         turnover = quantity * fill_price
 
         brokerage = FEES["brokerage_fno"]
-        exchange_charges = int(turnover * FEES["exchange_charge_nse_fo_pct"] / 100)
+        exchange_charges = int(turnover * FEES["exchange_charge_nse_fo_pct"])
         expected_gst_base = brokerage + exchange_charges
-        expected_gst = int(expected_gst_base * FEES["gst_pct"] / 100)
+        expected_gst = int(expected_gst_base * FEES["gst_pct"])
 
         assert expected_gst > 0
 

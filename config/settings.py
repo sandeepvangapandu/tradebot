@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     )
 
     # Broker selection ("upstox" or "dhan")
-    active_broker: str = "dhan"
+    active_broker: str = "upstox"
 
     # Upstox credentials
     upstox_username: str = ""

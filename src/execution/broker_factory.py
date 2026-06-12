@@ -57,7 +57,10 @@ def create_broker(
 def _create_paper_broker(config: dict[str, Any]) -> PaperBroker:
     """Create a paper trading broker instance."""
     initial_capital = config.get("initial_capital", 1_000_000_00)  # 10L paisa
-    return PaperBroker(initial_capital=initial_capital)
+    slippage_pct = config.get("slippage_pct")
+    if slippage_pct is None:
+        return PaperBroker(initial_capital=initial_capital)
+    return PaperBroker(initial_capital=initial_capital, slippage_pct=float(slippage_pct))
 
 
 def _create_live_broker(
@@ -118,7 +121,7 @@ def _create_live_broker(
 
     logger.warning("🚨 CREATING LIVE BROKER - REAL ORDERS WILL BE PLACED!")
 
-    active_broker = os.getenv("ACTIVE_BROKER", "upstox").lower()
+    active_broker = (config.get("active_broker") or os.getenv("ACTIVE_BROKER", "upstox")).lower()
 
     if active_broker == "dhan":
         return _create_dhan_broker(config)
@@ -174,6 +177,7 @@ class BrokerFactory:
 
     @staticmethod
     def create_dhan(config: dict[str, Any] | None = None) -> BaseBroker:
-        """Create Dhan live broker directly (bypasses mode env var)."""
+        """Create Dhan live broker through the standard live safety gates."""
         config = config or {}
-        return _create_dhan_broker(config)
+        config["active_broker"] = "dhan"
+        return create_broker("live", config, require_confirmation=True)

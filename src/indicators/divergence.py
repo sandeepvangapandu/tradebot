@@ -193,8 +193,13 @@ def detect_rsi_divergence(
 
     result = DivergenceResult()
 
-    # Check for bullish divergence (price LL, RSI HL)
-    if len(price_lows) >= 2 and len(rsi_lows) >= 2:
+    # Check for bullish divergence (price LL, RSI HL).
+    #
+    # The trading strategy needs a timely signal at the two relevant price
+    # swing lows. Requiring separate RSI swing lows caused legitimate
+    # price/RSI disagreement to be missed when RSI rose smoothly instead of
+    # forming a local extremum in the same small lookback window.
+    if len(price_lows) >= 2:
         # Get the two most recent swing lows
         price_ll_idx = price_lows[-1]  # Most recent lower low
         price_ll_idx_prev = price_lows[-2]  # Previous low
@@ -202,48 +207,42 @@ def detect_rsi_divergence(
         price_ll = recent_df["close"].iloc[price_ll_idx]
         price_ll_prev = recent_df["close"].iloc[price_ll_idx_prev]
 
-        # Find corresponding RSI lows
         rsi_at_price_ll = recent_rsi.iloc[price_ll_idx]
+        rsi_at_price_ll_prev = recent_rsi.iloc[price_ll_idx_prev]
 
-        # Look for RSI higher low near the price low
-        for rsi_low_idx in reversed(rsi_lows):
-            if rsi_low_idx <= price_ll_idx + 2:  # Within 2 bars
-                rsi_hl = recent_rsi.iloc[rsi_low_idx]
+        # Check if price made lower low but RSI made higher low
+        price_lower = price_ll < price_ll_prev * 0.999  # Allow small tolerance
+        rsi_higher = rsi_at_price_ll > rsi_at_price_ll_prev + 1.0
 
-                # Check if price made lower low but RSI made higher low
-                price_lower = price_ll < price_ll_prev * 0.999  # Allow small tolerance
-                rsi_higher = rsi_hl > recent_rsi.iloc[max(0, rsi_low_idx - 3)] * 1.01
+        if price_lower and rsi_higher:
+            # Calculate strength based on divergence magnitude
+            price_drop_pct = (price_ll_prev - price_ll) / price_ll_prev
+            rsi_rise = rsi_at_price_ll - rsi_at_price_ll_prev
 
-                if price_lower and rsi_higher:
-                    # Calculate strength based on divergence magnitude
-                    price_drop_pct = (price_ll_prev - price_ll) / price_ll_prev
-                    rsi_rise = rsi_hl - recent_rsi.iloc[max(0, rsi_low_idx - 3)]
+            strength = min(1.0, (price_drop_pct * 100) * (rsi_rise / 10))
+            strength = max(0.3, min(1.0, strength))  # Clamp between 0.3 and 1.0
 
-                    strength = min(1.0, (price_drop_pct * 100) * (rsi_rise / 10))
-                    strength = max(0.3, min(1.0, strength))  # Clamp between 0.3 and 1.0
+            # Check for confirmation (recent price action)
+            confirmation = False
+            if require_confirmation and price_ll_idx < len(recent_df) - 1:
+                # Price should show some reversal signs
+                next_close = recent_df["close"].iloc[price_ll_idx + 1]
+                confirmation = next_close > price_ll * 1.001
 
-                    # Check for confirmation (recent price action)
-                    confirmation = False
-                    if require_confirmation and price_ll_idx < len(recent_df) - 1:
-                        # Price should show some reversal signs
-                        next_close = recent_df["close"].iloc[price_ll_idx + 1]
-                        confirmation = next_close > price_ll * 1.001
-
-                    result = DivergenceResult(
-                        type="bullish",
-                        strength=strength,
-                        price_swing_low=float(price_ll),
-                        price_swing_high=None,
-                        rsi_swing_low=float(rsi_hl),
-                        rsi_swing_high=None,
-                        swing_low_idx=price_ll_idx,
-                        swing_high_idx=None,
-                        confirmation=confirmation if require_confirmation else True,
-                    )
-                    break
+            result = DivergenceResult(
+                type="bullish",
+                strength=strength,
+                price_swing_low=float(price_ll),
+                price_swing_high=None,
+                rsi_swing_low=float(rsi_at_price_ll),
+                rsi_swing_high=None,
+                swing_low_idx=price_ll_idx,
+                swing_high_idx=None,
+                confirmation=confirmation if require_confirmation else True,
+            )
 
     # Check for bearish divergence (price HH, RSI LH) if no bullish found
-    if result.type is None and len(price_highs) >= 2 and len(rsi_highs) >= 2:
+    if result.type is None and len(price_highs) >= 2:
         # Get the two most recent swing highs
         price_hh_idx = price_highs[-1]  # Most recent higher high
         price_hh_idx_prev = price_highs[-2]  # Previous high
@@ -251,45 +250,39 @@ def detect_rsi_divergence(
         price_hh = recent_df["close"].iloc[price_hh_idx]
         price_hh_prev = recent_df["close"].iloc[price_hh_idx_prev]
 
-        # Find corresponding RSI highs
         rsi_at_price_hh = recent_rsi.iloc[price_hh_idx]
+        rsi_at_price_hh_prev = recent_rsi.iloc[price_hh_idx_prev]
 
-        # Look for RSI lower high near the price high
-        for rsi_high_idx in reversed(rsi_highs):
-            if rsi_high_idx <= price_hh_idx + 2:  # Within 2 bars
-                rsi_lh = recent_rsi.iloc[rsi_high_idx]
+        # Check if price made higher high but RSI made lower high
+        price_higher = price_hh > price_hh_prev * 1.001  # Allow small tolerance
+        rsi_lower = rsi_at_price_hh < rsi_at_price_hh_prev - 1.0
 
-                # Check if price made higher high but RSI made lower high
-                price_higher = price_hh > price_hh_prev * 1.001  # Allow small tolerance
-                rsi_lower = rsi_lh < recent_rsi.iloc[max(0, rsi_high_idx - 3)] * 0.99
+        if price_higher and rsi_lower:
+            # Calculate strength based on divergence magnitude
+            price_rise_pct = (price_hh - price_hh_prev) / price_hh_prev
+            rsi_drop = rsi_at_price_hh_prev - rsi_at_price_hh
 
-                if price_higher and rsi_lower:
-                    # Calculate strength based on divergence magnitude
-                    price_rise_pct = (price_hh - price_hh_prev) / price_hh_prev
-                    rsi_drop = recent_rsi.iloc[max(0, rsi_high_idx - 3)] - rsi_lh
+            strength = min(1.0, (price_rise_pct * 100) * (rsi_drop / 10))
+            strength = max(0.3, min(1.0, strength))  # Clamp between 0.3 and 1.0
 
-                    strength = min(1.0, (price_rise_pct * 100) * (rsi_drop / 10))
-                    strength = max(0.3, min(1.0, strength))  # Clamp between 0.3 and 1.0
+            # Check for confirmation (recent price action)
+            confirmation = False
+            if require_confirmation and price_hh_idx < len(recent_df) - 1:
+                # Price should show some reversal signs
+                next_close = recent_df["close"].iloc[price_hh_idx + 1]
+                confirmation = next_close < price_hh * 0.999
 
-                    # Check for confirmation (recent price action)
-                    confirmation = False
-                    if require_confirmation and price_hh_idx < len(recent_df) - 1:
-                        # Price should show some reversal signs
-                        next_close = recent_df["close"].iloc[price_hh_idx + 1]
-                        confirmation = next_close < price_hh * 0.999
-
-                    result = DivergenceResult(
-                        type="bearish",
-                        strength=strength,
-                        price_swing_low=None,
-                        price_swing_high=float(price_hh),
-                        rsi_swing_low=None,
-                        rsi_swing_high=float(rsi_lh),
-                        swing_low_idx=None,
-                        swing_high_idx=price_hh_idx,
-                        confirmation=confirmation if require_confirmation else True,
-                    )
-                    break
+            result = DivergenceResult(
+                type="bearish",
+                strength=strength,
+                price_swing_low=None,
+                price_swing_high=float(price_hh),
+                rsi_swing_low=None,
+                rsi_swing_high=float(rsi_at_price_hh),
+                swing_low_idx=None,
+                swing_high_idx=price_hh_idx,
+                confirmation=confirmation if require_confirmation else True,
+            )
 
     return result
 

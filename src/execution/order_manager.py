@@ -188,6 +188,12 @@ class OrderManager:
         self._lock = threading.Lock()
         self._pending_instruments: set[str] = set()  # Instruments currently being processed
         self._submitted_order_contexts: dict[str, tuple[Order, Signal]] = {}
+        # Maps order_id -> instrument_key for positions created from a PARTIAL_FILL
+        # callback, so a later COMPLETE callback for the SAME order can reconcile
+        # the managed position's quantity up to the cumulative filled_quantity
+        # without mistaking a genuinely new position on the same instrument for
+        # a reconciliation target (P1-4 fix).
+        self._partial_fill_positions: dict[str, str] = {}
         self._is_running = False
         self._worker_thread: Optional[threading.Thread] = None
 
@@ -1294,6 +1300,46 @@ class OrderManager:
                     f"ASYNC_POSITION_CREATED | {order.instrument_key} | {order.side} "
                     f"{filled_qty} @ {fill_price} | order_id={order_id}"
                 )
+                if status_value != "COMPLETE":
+                    # Remember that THIS order created the position on this
+                    # instrument, so a later COMPLETE callback for the same
+                    # order_id can reconcile the managed quantity up to the
+                    # cumulative filled_quantity (P1-4).
+                    with self._lock:
+                        self._partial_fill_positions[order_id] = order.instrument_key
+            else:
+                # A position already exists for this instrument. update.filled_quantity
+                # is CUMULATIVE, so if this callback belongs to an order we know
+                # created (via a prior PARTIAL_FILL) the existing position, the
+                # broker has filled MORE than what PositionManager is tracking —
+                # reconcile the managed quantity up to filled_qty.
+                with self._lock:
+                    tracked_instrument = self._partial_fill_positions.get(order_id)
+
+                if tracked_instrument == order.instrument_key:
+                    delta = filled_qty - existing.original_quantity
+                    if delta > 0:
+                        existing.original_quantity += delta
+                        existing.remaining_quantity += delta
+                        self._order_logger.info(
+                            "PARTIAL_FILL_RECONCILE | order_id=%s | +%d units "
+                            "(broker filled %d total, managed now %d)",
+                            order_id, delta, filled_qty, existing.original_quantity,
+                        )
+                    if status_value == "COMPLETE":
+                        with self._lock:
+                            self._partial_fill_positions.pop(order_id, None)
+                elif filled_qty > existing.original_quantity:
+                    # Existing position was NOT confirmed to originate from this
+                    # order_id (e.g. tracking dict missed the partial-fill event,
+                    # or restart lost in-memory state). We cannot safely assume
+                    # this position belongs to this order without risking
+                    # double-counting a genuinely separate position on the same
+                    # instrument, so only warn for manual reconciliation.
+                    self._order_logger.warning(
+                        "PARTIAL_FILL_RECONCILE_NEEDED | order_id=%s | broker_filled=%d managed=%d",
+                        order_id, filled_qty, existing.original_quantity,
+                    )
 
         if status_value == "COMPLETE":
             with self._lock:

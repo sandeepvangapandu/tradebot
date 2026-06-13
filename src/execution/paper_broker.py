@@ -115,6 +115,7 @@ class PaperBroker(BaseBroker):
         self._ltp_timestamp: dict[str, Any] = {}
         self._bid_cache: dict[str, int] = {}  # best bid in paisa
         self._ask_cache: dict[str, int] = {}  # best ask in paisa
+        self._quote_timestamp: dict[str, datetime] = {}  # last bid/ask update time
 
         logger.info(f"PaperBroker initialized with capital: {self._paisa_to_rupees(initial_capital):.2f} INR")
 
@@ -179,15 +180,47 @@ class PaperBroker(BaseBroker):
         self.update_ltp(instrument_key, price)
         if bid and bid > 0:
             self._bid_cache[instrument_key] = bid
+            self._quote_timestamp[instrument_key] = datetime.now(IST)
         if ask and ask > 0:
             self._ask_cache[instrument_key] = ask
+            self._quote_timestamp[instrument_key] = datetime.now(IST)
+
+    def _get_fresh_quote(self, instrument_key: str) -> tuple[Optional[int], Optional[int]]:
+        """Get bid/ask only if the cached quote is fresh (<=60s old).
+
+        Mirrors the staleness guard in `_get_ltp` so a stale bid/ask cache
+        cannot be used to fill an order even when LTP rejection would have
+        caught it.
+
+        Returns:
+            (bid, ask) tuple, each None if the quote is missing or stale.
+        """
+        ts = self._quote_timestamp.get(instrument_key)
+        if ts is None:
+            return None, None
+        age_secs = (datetime.now(IST) - ts).total_seconds()
+        if age_secs > 60:
+            logger.warning(
+                "Stale bid/ask quote for {} ({}s old) — falling back to LTP±slippage",
+                instrument_key, int(age_secs),
+            )
+            return None, None
+        bid = self._bid_cache.get(instrument_key)
+        ask = self._ask_cache.get(instrument_key)
+        return bid, ask
 
     def _calculate_fill_price(self, instrument_key: str, side: OrderSide, order_type: OrderType, limit_price: Optional[int] = None) -> int:
         """Calculate simulated fill price with slippage.
 
-        When live bid/ask data is present, use it directly — the spread IS the
-        transaction cost. Adding slippage on top of an ask price double-penalizes
-        the trade. Slippage is only added when falling back to LTP (no quote data).
+        When live bid/ask data is present AND fresh (<=60s old), use it
+        directly — the spread IS the transaction cost. Adding slippage on
+        top of an ask price double-penalizes the trade. Slippage is only
+        added when falling back to LTP (no quote data, or stale quote).
+
+        For LIMIT orders, the fill is capped at the limit price: it is only
+        honored if the current LTP has actually reached/crossed it, otherwise
+        the order fills at the prevailing LTP (a marketable assumption) so
+        paper trading never assumes a better-than-market price.
 
         Args:
             instrument_key: The instrument identifier
@@ -201,16 +234,42 @@ class PaperBroker(BaseBroker):
         ltp = self._get_ltp(instrument_key)
 
         if order_type == OrderType.LIMIT and limit_price is not None:
-            return limit_price
+            if ltp <= 0:
+                # No LTP data to compare against (e.g. first tick not yet
+                # received). Fall back to the order's own limit price rather
+                # than filling at 0 — preserves prior behavior for this edge
+                # case while the BUY/SELL realism checks below only apply
+                # once an LTP is available.
+                return limit_price
+            if side == OrderSide.BUY:
+                # A BUY limit is reached when the market trades down to/below it.
+                if ltp <= limit_price:
+                    return limit_price
+                # Limit not (yet) reached — don't assume a better-than-market
+                # fill; treat as marketable at the prevailing LTP instead.
+                logger.debug(
+                    "BUY LIMIT {} not reached (ltp={}, limit={}) — filling at LTP",
+                    instrument_key, ltp, limit_price,
+                )
+                return ltp
+            else:
+                # A SELL limit is reached when the market trades up to/above it.
+                if ltp >= limit_price:
+                    return limit_price
+                logger.debug(
+                    "SELL LIMIT {} not reached (ltp={}, limit={}) — filling at LTP",
+                    instrument_key, ltp, limit_price,
+                )
+                return ltp
+
+        bid, ask = self._get_fresh_quote(instrument_key)
 
         if side == OrderSide.BUY:
-            ask = self._ask_cache.get(instrument_key, 0)
-            if ask > 0:
+            if ask is not None and ask > 0:
                 return ask  # spread already captures cost; no additional slippage
             return ltp + int(ltp * self._slippage_pct)
         else:
-            bid = self._bid_cache.get(instrument_key, 0)
-            if bid > 0:
+            if bid is not None and bid > 0:
                 return bid  # spread already captures cost; no additional slippage
             return max(0, ltp - int(ltp * self._slippage_pct))
 

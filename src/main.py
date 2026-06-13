@@ -2287,10 +2287,20 @@ class TradingBot:
             logger.info("Stopping order manager...")
             self.order_manager.stop()
 
-        # 3. Exit open positions (if configured)
-        if self.position_manager and self.settings.trading_mode == "paper":
-            logger.info("Exiting open positions...")
-            self.position_manager.close_all_positions(reason="Bot shutdown")
+        # 3. Flatten open positions (paper and live) to avoid unmanaged
+        # exposure after a SIGTERM/crash/redeploy with no in-process
+        # SL/trailing running.
+        if self.position_manager:
+            open_count = len(self.position_manager.get_open_positions())
+            if open_count > 0:
+                if self.settings.trading_mode == "paper":
+                    logger.info("Exiting {} open paper position(s)...", open_count)
+                else:
+                    logger.warning(
+                        "LIVE shutdown: force-flattening {} open position(s) to avoid unmanaged exposure",
+                        open_count,
+                    )
+                self.position_manager.close_all_positions(reason="Bot shutdown")
 
         # 4. Stop WebSocket feeds
         if self.market_feed:

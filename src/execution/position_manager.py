@@ -239,6 +239,12 @@ class ManagedPosition:
     exit_price: Optional[int] = None  # Final exit price (blended if partial exits)
     is_closed: bool = False
 
+    # Fees (brokerage + STT + GST + exchange + SEBI) attributed to this
+    # position at finalize time, in paisa. 0 until the position closes.
+    # Subtracted from total_realized_pnl so the daily-loss governor and
+    # Kelly sizing see net-of-fees P&L.
+    fees_paisa: int = 0
+
     def __post_init__(self):
         """Initialize tracking variables."""
         if self.highest_price_since_entry is None:
@@ -284,15 +290,19 @@ class ManagedPosition:
 
     @property
     def total_realized_pnl(self) -> int:
-        """Get total realized P&L including partial exits.
+        """Get total realized P&L including partial exits, net of fees.
+
+        Fees are attributed once at finalize time (see `fees_paisa`), so this
+        is gross P&L until the position closes and net-of-fees afterward.
+        The unrealized P&L path is unaffected.
 
         Returns:
-            Total realized P&L in paisa.
+            Total realized P&L in paisa, minus attributed fees.
         """
         pnl = self.realized_pnl
         for partial in self.partial_exits:
             pnl += partial.realized_pnl
-        return pnl
+        return pnl - self.fees_paisa
 
     def get_current_rr_ratio(self, current_price: int) -> float:
         """Calculate current risk-reward ratio.
@@ -1232,6 +1242,13 @@ class PositionManager:
                     remaining_quantity=position.remaining_quantity,
                 )
                 tier_exits_to_execute = self._partial_profit_manager.check_tiers(snapshot, position.exit_tiers)
+                # Single source of truth for the Tier-4 (trailing) exit:
+                # _check_tier_4_trailing_stop below is the authority for the
+                # final runner. check_tiers() already skips rr_level=None
+                # (tier 4) entries internally, but we filter defensively here
+                # too so the two detectors can never both fire for the same
+                # exit (avoids double-booking / double-finalization of tier 4).
+                tier_exits_to_execute = [t for t in tier_exits_to_execute if t.tier != 4]
 
             # Check for legacy partial profit booking (if 4-tier not enabled)
             position_to_partial = None
@@ -1447,12 +1464,16 @@ class PositionManager:
             response = self._broker.place_order(exit_order)
 
             if (getattr(response.status, 'value', response.status)) == "COMPLETE":
+                # Use the broker's actual fill price for P&L, not the requested tick price.
+                # Falls back to the tick price if the broker doesn't report average_price.
+                fill_px = int(getattr(response, "average_price", None) or price)
+
                 # Calculate realized P&L for this partial exit
-                realized_pnl = position.get_unrealized_pnl_for_quantity(price, exit_qty)
+                realized_pnl = position.get_unrealized_pnl_for_quantity(fill_px, exit_qty)
 
                 # Record partial exit
                 partial_record = PartialExitRecord(
-                    exit_price=price,
+                    exit_price=fill_px,
                     quantity=exit_qty,
                     exit_time=self._now(),
                     exit_reason=reason,
@@ -1469,7 +1490,7 @@ class PositionManager:
 
                 logger.info(
                     f"Partial exit executed: {position.position_id} | "
-                    f"Qty: {exit_qty} @ {price/100:.2f} | P&L: {realized_pnl/100:.2f} | "
+                    f"Qty: {exit_qty} @ {fill_px/100:.2f} | P&L: {realized_pnl/100:.2f} | "
                     f"Remaining: {position.remaining_quantity}"
                 )
 
@@ -1531,17 +1552,21 @@ class PositionManager:
             response = self._broker.place_order(exit_order)
 
             if (getattr(response.status, 'value', response.status)) == "COMPLETE":
+                # Use the broker's actual fill price for P&L, not the requested tick price.
+                # Falls back to the tick price if the broker doesn't report average_price.
+                fill_px = int(getattr(response, "average_price", None) or price)
+
                 # Calculate realized P&L for this tier exit
-                realized_pnl = position.get_unrealized_pnl_for_quantity(price, exit_qty)
+                realized_pnl = position.get_unrealized_pnl_for_quantity(fill_px, exit_qty)
 
                 # Mark tier as exited
                 tier = next((t for t in position.exit_tiers if t.tier == tier_exit.tier), None)
                 if tier and self._partial_profit_manager:
-                    self._partial_profit_manager.mark_tier_exited(tier, price, realized_pnl)
+                    self._partial_profit_manager.mark_tier_exited(tier, fill_px, realized_pnl)
 
                 # Record partial exit
                 partial_record = PartialExitRecord(
-                    exit_price=price,
+                    exit_price=fill_px,
                     quantity=exit_qty,
                     exit_time=self._now(),
                     exit_reason=f"TIER_{tier_exit.tier}_{tier_exit.exit_reason}",
@@ -1554,20 +1579,32 @@ class PositionManager:
 
                 logger.info(
                     f"PARTIAL_EXIT | Tier {tier_exit.tier} | {position.position_id} | "
-                    f"{position.instrument_key} | Qty: {exit_qty} @ ₹{price/100:.2f} | "
+                    f"{position.instrument_key} | Qty: {exit_qty} @ ₹{fill_px/100:.2f} | "
                     f"P&L: ₹{realized_pnl/100:.2f} | Remaining: {position.remaining_quantity}"
                 )
 
                 # Check if all tiers are exited
-                if self._partial_profit_manager and self._partial_profit_manager.is_complete(position.exit_tiers):
+                tiers_complete = (
+                    self._partial_profit_manager
+                    and self._partial_profit_manager.is_complete(position.exit_tiers)
+                )
+                if tiers_complete:
                     with self._lock:
                         position.is_closed = True
                         position.exit_time = self._now()
-                        position.exit_price = price
+                        position.exit_price = fill_px
                         position.exit_reason = "ALL_TIERS_EXITED"
                         if position.instrument_key in self._instrument_to_position:
                             del self._instrument_to_position[position.instrument_key]
                     logger.info(f"Position fully closed via tier exits: {position.position_id}")
+
+                    # Position is closed and removed from active tracking — finalize
+                    # outside the lock (DB logging, fee attribution, circuit breaker,
+                    # callback). _on_tick_single will see is_closed=True on its next
+                    # lock re-acquire and will NOT call _close_position again, so this
+                    # finalizes exactly once.
+                    self._finalize_close(position, fill_px, "ALL_TIERS_EXITED")
+                    return True
 
                 # Sync with risk manager
                 self._sync_risk_manager()
@@ -1933,6 +1970,11 @@ class PositionManager:
                             del self._instrument_to_position[position.instrument_key]
                     elif position.instrument_key in self._instrument_to_position:
                         del self._instrument_to_position[position.instrument_key]
+
+                # Position drained entirely by partial/tier exits — still finalize
+                # so DB logging, fee attribution, circuit breaker, and the
+                # position-close callback run for this trade.
+                self._finalize_close(position, exit_price, reason)
                 return True
 
             # Place exit order for remaining quantity
@@ -1949,16 +1991,20 @@ class PositionManager:
             response = self._broker.place_order(exit_order)
 
             if (getattr(response.status, 'value', response.status)) == "COMPLETE":
+                # Use the broker's actual fill price for P&L, not the requested tick price.
+                # Falls back to the tick price if the broker doesn't report average_price.
+                fill_px = int(getattr(response, "average_price", None) or exit_price)
+
                 # Calculate realized P&L for remaining quantity
                 remaining_pnl = position.get_unrealized_pnl_for_quantity(
-                    exit_price, position.remaining_quantity
+                    fill_px, position.remaining_quantity
                 )
 
                 # Update position
                 with self._lock:
                     position.is_closed = True
                     position.exit_time = self._now()
-                    position.exit_price = exit_price
+                    position.exit_price = fill_px
                     position.exit_reason = reason
                     position.realized_pnl += remaining_pnl
 
@@ -1974,123 +2020,7 @@ class PositionManager:
                     elif position.instrument_key in self._instrument_to_position:
                         del self._instrument_to_position[position.instrument_key]
 
-                # Calculate blended exit price if partial exits exist
-                blended_price = position.blended_exit_price
-
-                # Calculate total realized P&L including partials
-                total_pnl = position.total_realized_pnl
-
-                logger.info(
-                    f"Position closed: {position.position_id} | Reason: {reason} | "
-                    f"Exit: {exit_price/100:.2f} | Blended: {f'{blended_price/100:.2f}' if blended_price else 'N/A'} | "
-                    f"Final P&L: {remaining_pnl/100:.2f} | Total P&L: {total_pnl/100:.2f} | "
-                    f"Partial exits: {len(position.partial_exits)}"
-                )
-
-                # RL terminal step: teach agent the final reward for this episode
-                if self._rl_exit_agent is not None:
-                    _prev_state = getattr(position, "_rl_prev_state", None)
-                    _prev_action = getattr(position, "_rl_prev_action", None)
-                    _prev_pnl = getattr(position, "_rl_prev_pnl_pct", None)
-                    if _prev_state is not None and _prev_action is not None:
-                        try:
-                            entry_px = position.entry_price or 1
-                            _qty = max(position.remaining_quantity or 1, 1)
-                            final_pnl_pct = float(remaining_pnl) / float(entry_px * _qty)
-                            pnl_delta = final_pnl_pct - (_prev_pnl or 0.0)
-                            final_reward = self._rl_exit_agent.compute_reward(
-                                pnl_change_pct=pnl_delta,
-                                action=_prev_action,
-                                done=True,
-                                final_pnl_pct=final_pnl_pct,
-                            )
-                            # next_state = terminal copy (done=True, values irrelevant)
-                            self._rl_exit_agent.record_step(
-                                state=_prev_state,
-                                action=_prev_action,
-                                reward=final_reward,
-                                next_state=_prev_state,
-                                done=True,
-                            )
-                        except Exception as _rl_close_exc:
-                            logger.debug("RL terminal record_step failed: {}", _rl_close_exc)
-
-                fees_paisa = 0
-                net_total_pnl = total_pnl
-
-                # Persist to database
-                if self._trade_logger:
-                    try:
-                        self._trade_logger.close_position(
-                            position.instrument_key, "closed",
-                            strategy=position.strategy_id,
-                        )
-
-                        # Attribute fees (brokerage + STT + GST + exchange + SEBI)
-                        # by summing charges from the broker's per-fill history
-                        # for this instrument since position entry.
-                        try:
-                            if hasattr(self._broker, "sum_fees_for_instrument"):
-                                fees_paisa = int(self._broker.sum_fees_for_instrument(
-                                    position.instrument_key,
-                                    since=position.entry_time,
-                                ))
-                        except Exception as fe:
-                            logger.warning(f"Fee attribution failed for {position.instrument_key}: {fe}")
-
-                        net_total_pnl = total_pnl - fees_paisa
-
-                        # Add a TradeRecord. Persist net P&L so reports,
-                        # Kelly sizing, and daily summaries do not overstate
-                        # profits by ignoring brokerage/statutory charges.
-                        self._trade_logger.log_trade({
-                            "strategy": position.strategy_id,
-                            "instrument_key": position.instrument_key,
-                            "side": position.side.value,
-                            "entry_price": position.entry_price,
-                            "exit_price": blended_price or exit_price,
-                            "quantity": position.original_quantity,
-                            "realized_pnl": net_total_pnl,
-                            "fees": fees_paisa,
-                            "entry_time": position.entry_time,
-                            "exit_time": position.exit_time,
-                            "holding_duration_seconds": int((position.exit_time - position.entry_time).total_seconds()),
-                        })
-                    except Exception as e:
-                        logger.error(f"Failed to log trade to database: {e}")
-
-                # Sync with risk manager after position close
-                self._sync_risk_manager()
-
-                # Wire CircuitBreaker (Scheme 4)
-                if getattr(self, "_risk_manager", None) and getattr(self._risk_manager, "circuit_breaker", None):
-                    # Per-strategy daily-loss cap (Tier 2.6)
-                    try:
-                        if hasattr(self._risk_manager.circuit_breaker, "record_strategy_pnl"):
-                            self._risk_manager.circuit_breaker.record_strategy_pnl(
-                                position.strategy_id, int(net_total_pnl)
-                            )
-                    except Exception as exc:
-                        logger.debug(f"record_strategy_pnl failed: {exc}")
-                    if net_total_pnl < 0:
-                        trade_details = {
-                            "direction": "BUY" if position.side.value == "BUY" else "SELL",
-                            "strategy": position.strategy_id,
-                            "sl_distance_pct": abs((position.entry_price - (position.stop_loss_price or 0)) / position.entry_price * 100) if position.entry_price else 0,
-                            "holding_time_min": (position.exit_time - position.entry_time).total_seconds() / 60 if position.exit_time and position.entry_time else 0,
-                            "hour": position.entry_time.hour if position.entry_time else -1,
-                        }
-                        self._risk_manager.circuit_breaker.record_loss(trade_details)
-                    elif net_total_pnl > 0:
-                        self._risk_manager.circuit_breaker.record_win()
-
-                # Call callback if set
-                if self._on_position_close:
-                    try:
-                        self._on_position_close(position)
-                    except Exception as e:
-                        logger.error(f"Error in position close callback: {e}")
-
+                self._finalize_close(position, fill_px, reason)
                 return True
             else:
                 logger.error(f"Failed to close position {position.position_id}: {response.message}")
@@ -2099,6 +2029,156 @@ class PositionManager:
         except Exception as e:
             logger.exception(f"Error closing position {position.position_id}: {e}")
             return False
+
+    def _finalize_close(self, position: ManagedPosition, exit_price: int, reason: str) -> None:
+        """Run post-close finalization for a position that is already marked closed.
+
+        Must be called AFTER `position.is_closed = True` has been set and the
+        position removed from `_instrument_to_position`, and OUTSIDE
+        `self._lock` (this method does not acquire the lock itself — it only
+        reads position state and calls the broker/logger/risk manager, which
+        manage their own locking). `self._lock` is non-reentrant, so calling
+        this while still holding it would deadlock.
+
+        Covers: blended-price/total-P&L logging, the RL terminal step, fee
+        attribution, trade-log persistence, risk-manager sync, circuit
+        breaker win/loss + per-strategy P&L recording, and the
+        on_position_close callback.
+
+        Args:
+            position: The position being closed (already marked is_closed=True).
+            exit_price: The final fill price for the last leg, in paisa. Used
+                for RL reward calc and as a fallback for the trade-log exit
+                price when no partial exits exist.
+            reason: Exit reason string for logging/circuit-breaker context.
+        """
+        # remaining_pnl is the P&L booked for the final leg of this position
+        # (position.realized_pnl). For positions fully drained by partial/tier
+        # exits, this is 0 and the P&L lives entirely in partial_exits, which
+        # total_realized_pnl already includes.
+        remaining_pnl = position.realized_pnl
+
+        # Calculate blended exit price if partial exits exist
+        blended_price = position.blended_exit_price
+
+        # Calculate total realized P&L including partials
+        total_pnl = position.total_realized_pnl
+
+        logger.info(
+            f"Position closed: {position.position_id} | Reason: {reason} | "
+            f"Exit: {exit_price/100:.2f} | Blended: {f'{blended_price/100:.2f}' if blended_price else 'N/A'} | "
+            f"Final P&L: {remaining_pnl/100:.2f} | Total P&L: {total_pnl/100:.2f} | "
+            f"Partial exits: {len(position.partial_exits)}"
+        )
+
+        # RL terminal step: teach agent the final reward for this episode
+        if self._rl_exit_agent is not None:
+            _prev_state = getattr(position, "_rl_prev_state", None)
+            _prev_action = getattr(position, "_rl_prev_action", None)
+            _prev_pnl = getattr(position, "_rl_prev_pnl_pct", None)
+            if _prev_state is not None and _prev_action is not None:
+                try:
+                    entry_px = position.entry_price or 1
+                    _qty = max(position.remaining_quantity or 1, 1)
+                    final_pnl_pct = float(remaining_pnl) / float(entry_px * _qty)
+                    pnl_delta = final_pnl_pct - (_prev_pnl or 0.0)
+                    final_reward = self._rl_exit_agent.compute_reward(
+                        pnl_change_pct=pnl_delta,
+                        action=_prev_action,
+                        done=True,
+                        final_pnl_pct=final_pnl_pct,
+                    )
+                    # next_state = terminal copy (done=True, values irrelevant)
+                    self._rl_exit_agent.record_step(
+                        state=_prev_state,
+                        action=_prev_action,
+                        reward=final_reward,
+                        next_state=_prev_state,
+                        done=True,
+                    )
+                except Exception as _rl_close_exc:
+                    logger.debug("RL terminal record_step failed: {}", _rl_close_exc)
+
+        fees_paisa = 0
+        net_total_pnl = total_pnl
+
+        # Persist to database
+        if self._trade_logger:
+            try:
+                self._trade_logger.close_position(
+                    position.instrument_key, "closed",
+                    strategy=position.strategy_id,
+                )
+
+                # Attribute fees (brokerage + STT + GST + exchange + SEBI)
+                # by summing charges from the broker's per-fill history
+                # for this instrument since position entry.
+                try:
+                    if hasattr(self._broker, "sum_fees_for_instrument"):
+                        fees_paisa = int(self._broker.sum_fees_for_instrument(
+                            position.instrument_key,
+                            since=position.entry_time,
+                        ))
+                except Exception as fe:
+                    logger.warning(f"Fee attribution failed for {position.instrument_key}: {fe}")
+
+                # Record fees on the position so total_realized_pnl (and
+                # therefore the daily-loss governor and Kelly sizing) are
+                # net of fees once the position closes.
+                position.fees_paisa = fees_paisa
+
+                net_total_pnl = total_pnl - fees_paisa
+
+                # Add a TradeRecord. Persist net P&L so reports,
+                # Kelly sizing, and daily summaries do not overstate
+                # profits by ignoring brokerage/statutory charges.
+                self._trade_logger.log_trade({
+                    "strategy": position.strategy_id,
+                    "instrument_key": position.instrument_key,
+                    "side": position.side.value,
+                    "entry_price": position.entry_price,
+                    "exit_price": blended_price or exit_price,
+                    "quantity": position.original_quantity,
+                    "realized_pnl": net_total_pnl,
+                    "fees": fees_paisa,
+                    "entry_time": position.entry_time,
+                    "exit_time": position.exit_time,
+                    "holding_duration_seconds": int((position.exit_time - position.entry_time).total_seconds()),
+                })
+            except Exception as e:
+                logger.error(f"Failed to log trade to database: {e}")
+
+        # Sync with risk manager after position close
+        self._sync_risk_manager()
+
+        # Wire CircuitBreaker (Scheme 4)
+        if getattr(self, "_risk_manager", None) and getattr(self._risk_manager, "circuit_breaker", None):
+            # Per-strategy daily-loss cap (Tier 2.6)
+            try:
+                if hasattr(self._risk_manager.circuit_breaker, "record_strategy_pnl"):
+                    self._risk_manager.circuit_breaker.record_strategy_pnl(
+                        position.strategy_id, int(net_total_pnl)
+                    )
+            except Exception as exc:
+                logger.debug(f"record_strategy_pnl failed: {exc}")
+            if net_total_pnl < 0:
+                trade_details = {
+                    "direction": "BUY" if position.side.value == "BUY" else "SELL",
+                    "strategy": position.strategy_id,
+                    "sl_distance_pct": abs((position.entry_price - (position.stop_loss_price or 0)) / position.entry_price * 100) if position.entry_price else 0,
+                    "holding_time_min": (position.exit_time - position.entry_time).total_seconds() / 60 if position.exit_time and position.entry_time else 0,
+                    "hour": position.entry_time.hour if position.entry_time else -1,
+                }
+                self._risk_manager.circuit_breaker.record_loss(trade_details)
+            elif net_total_pnl > 0:
+                self._risk_manager.circuit_breaker.record_win()
+
+        # Call callback if set
+        if self._on_position_close:
+            try:
+                self._on_position_close(position)
+            except Exception as e:
+                logger.error(f"Error in position close callback: {e}")
 
     def close_position_manual(self, position_id: str, reason: str = "MANUAL") -> bool:
         """Manually close a position.
@@ -2215,13 +2295,24 @@ class PositionManager:
             return sum(pos.unrealized_pnl for pos in self._positions.values() if not pos.is_closed)
 
     def get_total_realized_pnl(self) -> int:
-        """Get total realized P&L from closed positions.
+        """Get total realized P&L from positions closed today (IST).
+
+        Scoped to today's closes (rather than all closed positions ever,
+        which are never purged from `self._positions`) so this stays
+        consistent with `RiskManager.reset_daily()` zeroing realized P&L at
+        start-of-day. Without this scoping, the next sync would overwrite
+        the freshly-reset daily figure back to lifetime-cumulative P&L,
+        making the daily-loss limit effectively non-daily.
 
         Returns:
-            Total realized P&L in paisa
+            Total realized P&L in paisa for positions closed today.
         """
         with self._lock:
-            return sum(pos.total_realized_pnl for pos in self._positions.values() if pos.is_closed)
+            today = self._now().date()
+            return sum(
+                pos.total_realized_pnl for pos in self._positions.values()
+                if pos.is_closed and pos.exit_time is not None and pos.exit_time.date() == today
+            )
 
     def check_intraday_square_off(self) -> list[ManagedPosition]:
         """Check and execute intraday square-off for MIS positions.

@@ -1,0 +1,50 @@
+{
+  "run": "upstox_shaped_24mo_paper_pipeline_no_timeouts",
+  "workers": 1,
+  "results": [
+    {
+      "file": "config/strategies/rsi_divergence_mtf_banknifty.json",
+      "strategy_id": "RSI_Divergence_MTF_BankNifty",
+      "instrument_key": "NSE_INDEX|Nifty Bank",
+      "straddle_proxy": false,
+      "options_proxy": true,
+      "start_date": "2026-05-01",
+      "end_date": "2026-05-31",
+      "status": "OK",
+      "instrument": "BankNifty",
+      "data_file": "data/backtest/banknifty_1m_24mo.csv",
+      "bars": 7125,
+      "date_start": "2026-05-04 09:15:00+05:30",
+      "date_end": "2026-05-29 15:29:00+05:30",
+      "closed_positions": 0,
+      "broker_events": 0,
+      "open_positions_end": 0,
+      "metrics": {
+        "total_trades": 0,
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "net_pnl_rupees": 0.0,
+        "total_fees_rupees": 0.0,
+        "max_drawdown_rupees": 0.0,
+        "max_drawdown_pct": 0.0,
+        "return_pct": 0.0,
+        "sharpe_ratio": 0.0
+      },
+      "manual_error_count": 0,
+      "manual_errors": [],
+      "warning_count": 2,
+      "error_count": 0,
+      "top_log_signatures": [
+        [
+          "premium_pct=0.5% | delta=0.5 | first-day premium baseline \u2248 27468 paisa. This transforms index OHLCV into synthetic ATM premium scaling.",
+          1
+        ],
+        [
+          "ML validator running in fallback mode",
+          1
+        ]
+      ],
+      "elapsed_sec": 27.86
+    }
+  ]
+}

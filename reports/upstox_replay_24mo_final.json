@@ -1,0 +1,152 @@
+{
+  "run": "upstox_shaped_24mo_paper_pipeline_no_timeouts",
+  "workers": 2,
+  "results": [
+    {
+      "file": "config/strategies/expiry_straddle_sell_finnifty.json",
+      "strategy_id": "Expiry_Straddle_Sell_FinNifty",
+      "instrument_key": "NSE_INDEX|Nifty Fin Service",
+      "straddle_proxy": true,
+      "status": "OK",
+      "instrument": "FinNifty",
+      "data_file": "data/backtest/finnifty_1m_24mo.csv",
+      "bars": 184997,
+      "date_start": "2024-05-31 09:15:00+05:30",
+      "date_end": "2026-06-01 15:29:00+05:30",
+      "closed_positions": 101,
+      "broker_events": 259,
+      "open_positions_end": 0,
+      "metrics": {
+        "total_trades": 101,
+        "win_rate": 72.28,
+        "profit_factor": 2.25,
+        "net_pnl_rupees": 41633.94,
+        "total_fees_rupees": 6502.4,
+        "max_drawdown_rupees": 15493.99,
+        "max_drawdown_pct": 3.1,
+        "return_pct": 14.52,
+        "sharpe_ratio": 6.33
+      },
+      "manual_error_count": 0,
+      "manual_errors": [],
+      "warning_count": 639,
+      "error_count": 0,
+      "top_log_signatures": [
+        [
+          "No historical IV data for NSE_INDEX|Nifty Fin Service",
+          101
+        ],
+        [
+          "No option chain data for FINNIFTY",
+          101
+        ],
+        [
+          "[RESEARCH] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          101
+        ],
+        [
+          "[RESEARCH] Risk: pattern: Pattern: piercing_line, confirms: False, contradicts: True",
+          23
+        ],
+        [
+          "[RESEARCH] Risk: pattern: Pattern: inverted_hammer, confirms: False, contradicts: True",
+          13
+        ],
+        [
+          "[RESEARCH] Risk: pattern: Pattern: bullish_engulfing, confirms: False, contradicts: True",
+          11
+        ],
+        [
+          "[RESEARCH] Risk: candle_context: 1 confirming candles; bullish engulfing",
+          3
+        ],
+        [
+          "premium_pct=1.0 | anchor=10:00:00 | first-day combined premium \u2248 21673 paisa.",
+          1
+        ],
+        [
+          "ML validator running in fallback mode",
+          1
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 3",
+          1
+        ]
+      ],
+      "elapsed_sec": 252.7
+    },
+    {
+      "file": "config/strategies/expiry_straddle_sell_nifty50.json",
+      "strategy_id": "Expiry_Straddle_Sell_Nifty50",
+      "instrument_key": "NSE_INDEX|Nifty 50",
+      "straddle_proxy": true,
+      "status": "OK",
+      "instrument": "Nifty50",
+      "data_file": "data/backtest/nifty50_1m_24mo.csv",
+      "bars": 185001,
+      "date_start": "2024-05-31 09:15:00+05:30",
+      "date_end": "2026-06-01 15:29:00+05:30",
+      "closed_positions": 96,
+      "broker_events": 256,
+      "open_positions_end": 0,
+      "metrics": {
+        "total_trades": 96,
+        "win_rate": 82.29,
+        "profit_factor": 4.18,
+        "net_pnl_rupees": 67925.13,
+        "total_fees_rupees": 6428.02,
+        "max_drawdown_rupees": 11381.22,
+        "max_drawdown_pct": 2.28,
+        "return_pct": 25.05,
+        "sharpe_ratio": 11.72
+      },
+      "manual_error_count": 0,
+      "manual_errors": [],
+      "warning_count": 601,
+      "error_count": 0,
+      "top_log_signatures": [
+        [
+          "No historical IV data for NSE_INDEX|Nifty 50",
+          96
+        ],
+        [
+          "No option chain data for NIFTY",
+          96
+        ],
+        [
+          "[RESEARCH] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          96
+        ],
+        [
+          "[RESEARCH] Risk: pattern: Pattern: inverted_hammer, confirms: False, contradicts: True",
+          16
+        ],
+        [
+          "[RESEARCH] Risk: pattern: Pattern: piercing_line, confirms: False, contradicts: True",
+          16
+        ],
+        [
+          "[RESEARCH] Risk: pattern: Pattern: bullish_engulfing, confirms: False, contradicts: True",
+          8
+        ],
+        [
+          "premium_pct=1.0 | anchor=10:00:00 | first-day combined premium \u2248 22576 paisa.",
+          1
+        ],
+        [
+          "ML validator running in fallback mode",
+          1
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 5",
+          1
+        ],
+        [
+          "[ed1fe1a1] Risk: momentum: RSI: 24.9 (rising), MACD hist: -3490 (rising), Stoch: 1.6/1.1. ",
+          1
+        ]
+      ],
+      "elapsed_sec": 242.82
+    }
+  ]
+}

@@ -194,7 +194,22 @@
       "Bash(echo \"PID: $!\")",
       "Bash(curl -s http://127.0.0.1:8787/livez)",
       "Bash(curl -sv http://127.0.0.1:8787/livez)",
-      "Bash(curl -s http://127.0.0.1:8787/stats)"
+      "Bash(curl -s http://127.0.0.1:8787/stats)",
+      "Bash(tee /tmp/replay_24mo_postfix.log)",
+      "Bash(py-spy dump *)",
+      "Bash(sample 84694 2 -file /tmp/sample_84694.txt)",
+      "Bash(/usr/bin/sample 84694 2 -file /tmp/sample_84694.txt)",
+      "Bash(awk '/Call graph:/{f=1} f' /tmp/sample_84694.txt)",
+      "Bash(sudo py-spy dump --pid 84694)",
+      "Bash(awk '{print $2, $8, $10}')",
+      "Bash(kill -9 84658 84664 84693 84694 84695 84696)",
+      "Bash(disown)",
+      "Bash(echo \"launched pid $!\")",
+      "Bash(/usr/bin/sample 90507 3 -file /tmp/sample_90507.txt)",
+      "Bash(xargs -r kill -9)",
+      "Bash(sed -n '160,230p' src/strategy/conditions.py)",
+      "Bash(sed -n '260,400p' src/research/trade_analyzer.py)",
+      "Bash(sed -n '795,815p' src/research/market_regime.py)"
     ]
   },
   "enableAllProjectMcpServers": true,

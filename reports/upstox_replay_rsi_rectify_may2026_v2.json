@@ -1,0 +1,82 @@
+{
+  "run": "upstox_shaped_24mo_paper_pipeline_no_timeouts",
+  "workers": 1,
+  "results": [
+    {
+      "file": "config/strategies/rsi_divergence_mtf_banknifty.json",
+      "strategy_id": "RSI_Divergence_MTF_BankNifty",
+      "instrument_key": "NSE_INDEX|Nifty Bank",
+      "straddle_proxy": false,
+      "options_proxy": true,
+      "start_date": "2026-05-01",
+      "end_date": "2026-05-31",
+      "status": "OK",
+      "instrument": "BankNifty",
+      "data_file": "data/backtest/banknifty_1m_24mo.csv",
+      "bars": 7125,
+      "date_start": "2026-05-04 09:15:00+05:30",
+      "date_end": "2026-05-29 15:29:00+05:30",
+      "closed_positions": 6,
+      "broker_events": 12,
+      "open_positions_end": 0,
+      "metrics": {
+        "total_trades": 6,
+        "win_rate": 33.33,
+        "profit_factor": 0.53,
+        "net_pnl_rupees": -33.04,
+        "total_fees_rupees": 288.8,
+        "max_drawdown_rupees": 468.47,
+        "max_drawdown_pct": 0.09,
+        "return_pct": -0.09,
+        "sharpe_ratio": -3.48
+      },
+      "manual_error_count": 0,
+      "manual_errors": [],
+      "warning_count": 47,
+      "error_count": 0,
+      "top_log_signatures": [
+        [
+          "No historical IV data for NSE_INDEX|Nifty Bank",
+          6
+        ],
+        [
+          "No option chain data for BANKNIFTY",
+          6
+        ],
+        [
+          "[RESEARCH] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          6
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 9",
+          2
+        ],
+        [
+          "premium_pct=0.5% | delta=0.5 | first-day premium baseline \u2248 27468 paisa. This transforms index OHLCV into synthetic ATM premium scaling.",
+          1
+        ],
+        [
+          "ML validator running in fallback mode",
+          1
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 2",
+          1
+        ],
+        [
+          "[08ca639c] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          1
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 5",
+          1
+        ],
+        [
+          "[d756f409] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          1
+        ]
+      ],
+      "elapsed_sec": 28.89
+    }
+  ]
+}

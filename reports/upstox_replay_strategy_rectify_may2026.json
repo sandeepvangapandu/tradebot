@@ -1,0 +1,195 @@
+{
+  "run": "upstox_shaped_24mo_paper_pipeline_no_timeouts",
+  "workers": 3,
+  "results": [
+    {
+      "file": "config/strategies/macd_crossover.json",
+      "strategy_id": "MACD_Crossover_BankNifty",
+      "instrument_key": "NSE_INDEX|Nifty Bank",
+      "straddle_proxy": false,
+      "start_date": "2026-05-01",
+      "end_date": "2026-05-31",
+      "status": "OK",
+      "instrument": "BankNifty",
+      "data_file": "data/backtest/banknifty_1m_24mo.csv",
+      "bars": 7125,
+      "date_start": "2026-05-04 09:15:00+05:30",
+      "date_end": "2026-05-29 15:29:00+05:30",
+      "closed_positions": 0,
+      "broker_events": 0,
+      "open_positions_end": 0,
+      "metrics": {
+        "total_trades": 0,
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "net_pnl_rupees": 0.0,
+        "total_fees_rupees": 0.0,
+        "max_drawdown_rupees": 0.0,
+        "max_drawdown_pct": 0.0,
+        "return_pct": 0.0,
+        "sharpe_ratio": 0.0
+      },
+      "manual_error_count": 0,
+      "manual_errors": [],
+      "warning_count": 543,
+      "error_count": 0,
+      "top_log_signatures": [
+        [
+          "No historical IV data for NSE_INDEX|Nifty Bank",
+          57
+        ],
+        [
+          "No option chain data for BANKNIFTY",
+          57
+        ],
+        [
+          "[RESEARCH] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          57
+        ],
+        [
+          "[RESEARCH] Risk: pattern: Pattern: inverted_hammer, confirms: False, contradicts: True",
+          5
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 1",
+          3
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 2",
+          3
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 3",
+          3
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 4",
+          3
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 5",
+          3
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 6",
+          3
+        ]
+      ],
+      "elapsed_sec": 11.39
+    },
+    {
+      "file": "config/strategies/rsi_divergence_mtf_banknifty.json",
+      "strategy_id": "RSI_Divergence_MTF_BankNifty",
+      "instrument_key": "NSE_INDEX|Nifty Bank",
+      "straddle_proxy": false,
+      "start_date": "2026-05-01",
+      "end_date": "2026-05-31",
+      "status": "OK",
+      "instrument": "BankNifty",
+      "data_file": "data/backtest/banknifty_1m_24mo.csv",
+      "bars": 7125,
+      "date_start": "2026-05-04 09:15:00+05:30",
+      "date_end": "2026-05-29 15:29:00+05:30",
+      "closed_positions": 0,
+      "broker_events": 0,
+      "open_positions_end": 0,
+      "metrics": {
+        "total_trades": 0,
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "net_pnl_rupees": 0.0,
+        "total_fees_rupees": 0.0,
+        "max_drawdown_rupees": 0.0,
+        "max_drawdown_pct": 0.0,
+        "return_pct": 0.0,
+        "sharpe_ratio": 0.0
+      },
+      "manual_error_count": 0,
+      "manual_errors": [],
+      "warning_count": 1,
+      "error_count": 0,
+      "top_log_signatures": [
+        [
+          "ML validator running in fallback mode",
+          1
+        ]
+      ],
+      "elapsed_sec": 25.06
+    },
+    {
+      "file": "config/strategies/supertrend_ema_rsi.json",
+      "strategy_id": "Supertrend_EMA_RSI_BankNifty",
+      "instrument_key": "NSE_INDEX|Nifty Bank",
+      "straddle_proxy": false,
+      "start_date": "2026-05-01",
+      "end_date": "2026-05-31",
+      "status": "OK",
+      "instrument": "BankNifty",
+      "data_file": "data/backtest/banknifty_1m_24mo.csv",
+      "bars": 7125,
+      "date_start": "2026-05-04 09:15:00+05:30",
+      "date_end": "2026-05-29 15:29:00+05:30",
+      "closed_positions": 0,
+      "broker_events": 0,
+      "open_positions_end": 0,
+      "metrics": {
+        "total_trades": 0,
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "net_pnl_rupees": 0.0,
+        "total_fees_rupees": 0.0,
+        "max_drawdown_rupees": 0.0,
+        "max_drawdown_pct": 0.0,
+        "return_pct": 0.0,
+        "sharpe_ratio": 0.0
+      },
+      "manual_error_count": 0,
+      "manual_errors": [],
+      "warning_count": 28,
+      "error_count": 0,
+      "top_log_signatures": [
+        [
+          "No historical IV data for NSE_INDEX|Nifty Bank",
+          3
+        ],
+        [
+          "No option chain data for BANKNIFTY",
+          3
+        ],
+        [
+          "[RESEARCH] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          3
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 7",
+          2
+        ],
+        [
+          "ML validator running in fallback mode",
+          1
+        ],
+        [
+          "[f08743a6] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          1
+        ],
+        [
+          "Position size 96599520 paisa exceeds 80% of capital (40000000 paisa)",
+          1
+        ],
+        [
+          "Capital deployment limit breached: deployed=0 paisa + order=96599520 paisa = 96599520 paisa exceeds 95% of capital (47500000 paisa)",
+          1
+        ],
+        [
+          "Pre-trade check FAILED for NSE_INDEX|Nifty Bank (order_value=96599520 paisa): Position size 96599520 paisa exceeds 80% of capital (40000000 paisa)",
+          1
+        ],
+        [
+          "7a2fed7048bc4ff2 | Position size 96599520 paisa exceeds 80% of capital (40000000 paisa)",
+          1
+        ]
+      ],
+      "elapsed_sec": 22.46
+    }
+  ]
+}

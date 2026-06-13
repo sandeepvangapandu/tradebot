@@ -1,0 +1,806 @@
+{
+  "run": "upstox_shaped_24mo_paper_pipeline_no_timeouts",
+  "workers": 4,
+  "results": [
+    {
+      "file": "config/strategies/cpr_vwap_bounce_banknifty.json",
+      "strategy_id": "CPR_VWAP_Bounce_BankNifty",
+      "instrument_key": "NSE_INDEX|Nifty Bank",
+      "straddle_proxy": false,
+      "options_proxy": true,
+      "start_date": "2026-03-01",
+      "end_date": "2026-06-01",
+      "status": "OK",
+      "instrument": "BankNifty",
+      "data_file": "data/backtest/banknifty_1m_24mo.csv",
+      "bars": 22125,
+      "date_start": "2026-03-02 09:15:00+05:30",
+      "date_end": "2026-06-01 15:29:00+05:30",
+      "closed_positions": 12,
+      "broker_events": 24,
+      "open_positions_end": 0,
+      "metrics": {
+        "total_trades": 12,
+        "win_rate": 50.0,
+        "profit_factor": 0.87,
+        "net_pnl_rupees": -15.84,
+        "total_fees_rupees": 581.68,
+        "max_drawdown_rupees": 894.43,
+        "max_drawdown_pct": 0.18,
+        "return_pct": -0.18,
+        "sharpe_ratio": -1.19
+      },
+      "manual_error_count": 0,
+      "manual_errors": [],
+      "warning_count": 123,
+      "error_count": 0,
+      "top_log_signatures": [
+        [
+          "No historical IV data for NSE_INDEX|Nifty Bank",
+          12
+        ],
+        [
+          "No option chain data for BANKNIFTY",
+          12
+        ],
+        [
+          "[RESEARCH] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          12
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 2",
+          3
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 13",
+          3
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 14",
+          3
+        ],
+        [
+          "[RESEARCH] Risk: pattern: Pattern: inverted_hammer, confirms: False, contradicts: True",
+          2
+        ],
+        [
+          "premium_pct=0.5% | delta=0.5 | first-day premium baseline \u2248 29602 paisa. This transforms index OHLCV into synthetic ATM premium scaling.",
+          1
+        ],
+        [
+          "[4b22c6bb] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          1
+        ],
+        [
+          "[e1a92a78] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          1
+        ]
+      ],
+      "elapsed_sec": 36.05
+    },
+    {
+      "file": "config/strategies/expiry_straddle_sell_banknifty.json",
+      "strategy_id": "Expiry_Straddle_Sell_BankNifty",
+      "instrument_key": "NSE_INDEX|Nifty Bank",
+      "straddle_proxy": true,
+      "options_proxy": false,
+      "start_date": "2026-03-01",
+      "end_date": "2026-06-01",
+      "status": "OK",
+      "instrument": "BankNifty",
+      "data_file": "data/backtest/banknifty_1m_24mo.csv",
+      "bars": 22125,
+      "date_start": "2026-03-02 09:15:00+05:30",
+      "date_end": "2026-06-01 15:29:00+05:30",
+      "closed_positions": 13,
+      "broker_events": 26,
+      "open_positions_end": 0,
+      "metrics": {
+        "total_trades": 13,
+        "win_rate": 15.38,
+        "profit_factor": 0.17,
+        "net_pnl_rupees": -1757.33,
+        "total_fees_rupees": 623.54,
+        "max_drawdown_rupees": 5429.68,
+        "max_drawdown_pct": 1.09,
+        "return_pct": -0.89,
+        "sharpe_ratio": -15.11
+      },
+      "manual_error_count": 0,
+      "manual_errors": [],
+      "warning_count": 88,
+      "error_count": 0,
+      "top_log_signatures": [
+        [
+          "No historical IV data for NSE_INDEX|Nifty Bank",
+          13
+        ],
+        [
+          "No option chain data for BANKNIFTY",
+          13
+        ],
+        [
+          "[RESEARCH] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          13
+        ],
+        [
+          "[RESEARCH] Risk: pattern: Pattern: piercing_line, confirms: False, contradicts: True",
+          6
+        ],
+        [
+          "[RESEARCH] Risk: pattern: Pattern: inverted_hammer, confirms: False, contradicts: True",
+          2
+        ],
+        [
+          "premium_pct=1.0 | anchor=10:00:00 | first-day combined premium \u2248 60027 paisa.",
+          1
+        ],
+        [
+          "Proxy mode: disabled directional strategies (invalid with synthetic premium): ['Supertrend_Breakout_Equity', 'MACD_Crossover_BankNifty', 'PDH_PDL_Breakout_BankNifty', 'Supertrend_EMA_RSI_BankNifty', '",
+          1
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 2",
+          1
+        ],
+        [
+          "[f1859b10] Risk: pattern: Pattern: inverted_hammer, confirms: False, contradicts: True",
+          1
+        ],
+        [
+          "[f1859b10] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          1
+        ]
+      ],
+      "elapsed_sec": 6.37
+    },
+    {
+      "file": "config/strategies/expiry_straddle_sell_finnifty.json",
+      "strategy_id": "Expiry_Straddle_Sell_FinNifty",
+      "instrument_key": "NSE_INDEX|Nifty Fin Service",
+      "straddle_proxy": true,
+      "options_proxy": false,
+      "start_date": "2026-03-01",
+      "end_date": "2026-06-01",
+      "status": "OK",
+      "instrument": "FinNifty",
+      "data_file": "data/backtest/finnifty_1m_24mo.csv",
+      "bars": 22125,
+      "date_start": "2026-03-02 09:15:00+05:30",
+      "date_end": "2026-06-01 15:29:00+05:30",
+      "closed_positions": 10,
+      "broker_events": 20,
+      "open_positions_end": 0,
+      "metrics": {
+        "total_trades": 10,
+        "win_rate": 70.0,
+        "profit_factor": 1.19,
+        "net_pnl_rupees": 709.39,
+        "total_fees_rupees": 509.45,
+        "max_drawdown_rupees": 7413.36,
+        "max_drawdown_pct": 1.48,
+        "return_pct": 0.13,
+        "sharpe_ratio": 1.22
+      },
+      "manual_error_count": 0,
+      "manual_errors": [],
+      "warning_count": 65,
+      "error_count": 0,
+      "top_log_signatures": [
+        [
+          "No historical IV data for NSE_INDEX|Nifty Fin Service",
+          10
+        ],
+        [
+          "No option chain data for FINNIFTY",
+          10
+        ],
+        [
+          "[RESEARCH] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          10
+        ],
+        [
+          "[RESEARCH] Risk: pattern: Pattern: piercing_line, confirms: False, contradicts: True",
+          3
+        ],
+        [
+          "premium_pct=1.0 | anchor=10:00:00 | first-day combined premium \u2248 27601 paisa.",
+          1
+        ],
+        [
+          "Proxy mode: disabled directional strategies (invalid with synthetic premium): ['Supertrend_Breakout_Equity', 'MACD_Crossover_BankNifty', 'PDH_PDL_Breakout_BankNifty', 'Supertrend_EMA_RSI_BankNifty', '",
+          1
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 6",
+          1
+        ],
+        [
+          "[75e55875] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          1
+        ],
+        [
+          "[75e55875] Risk: trend_alignment: Trend alignment for SELL: 1min=weak_downtrend(13.8), 5min=weak_downtrend(15.9), 15min=uptrend(30.6),",
+          1
+        ],
+        [
+          "[RESEARCH] Risk: trend_alignment: Trend alignment for SELL: 1min=weak_downtrend(13.8), 5min=weak_downtrend(15.9), 15min=uptrend(30.6),",
+          1
+        ]
+      ],
+      "elapsed_sec": 5.67
+    },
+    {
+      "file": "config/strategies/expiry_straddle_sell_nifty50.json",
+      "strategy_id": "Expiry_Straddle_Sell_Nifty50",
+      "instrument_key": "NSE_INDEX|Nifty 50",
+      "straddle_proxy": true,
+      "options_proxy": false,
+      "start_date": "2026-03-01",
+      "end_date": "2026-06-01",
+      "status": "OK",
+      "instrument": "Nifty50",
+      "data_file": "data/backtest/nifty50_1m_24mo.csv",
+      "bars": 22125,
+      "date_start": "2026-03-02 09:15:00+05:30",
+      "date_end": "2026-06-01 15:29:00+05:30",
+      "closed_positions": 11,
+      "broker_events": 23,
+      "open_positions_end": 0,
+      "metrics": {
+        "total_trades": 11,
+        "win_rate": 81.82,
+        "profit_factor": 2.46,
+        "net_pnl_rupees": 4575.77,
+        "total_fees_rupees": 583.65,
+        "max_drawdown_rupees": 7759.67,
+        "max_drawdown_pct": 1.55,
+        "return_pct": 1.65,
+        "sharpe_ratio": 6.5
+      },
+      "manual_error_count": 0,
+      "manual_errors": [],
+      "warning_count": 77,
+      "error_count": 22,
+      "top_log_signatures": [
+        [
+          "No historical IV data for NSE_INDEX|Nifty 50",
+          11
+        ],
+        [
+          "No option chain data for NIFTY",
+          11
+        ],
+        [
+          "[RESEARCH] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          11
+        ],
+        [
+          "Failed to save strategy performance: (sqlite3.OperationalError) attempt to write a readonly database",
+          11
+        ],
+        [
+          "Error processing closed position for learning: (sqlite3.OperationalError) attempt to write a readonly database",
+          11
+        ],
+        [
+          "[RESEARCH] Risk: pattern: Pattern: inverted_hammer, confirms: False, contradicts: True",
+          3
+        ],
+        [
+          "[RESEARCH] Risk: pattern: Pattern: piercing_line, confirms: False, contradicts: True",
+          3
+        ],
+        [
+          "premium_pct=1.0 | anchor=10:00:00 | first-day combined premium \u2248 24946 paisa.",
+          1
+        ],
+        [
+          "Proxy mode: disabled directional strategies (invalid with synthetic premium): ['Supertrend_Breakout_Equity', 'MACD_Crossover_BankNifty', 'PDH_PDL_Breakout_BankNifty', 'Supertrend_EMA_RSI_BankNifty', '",
+          1
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 3",
+          1
+        ]
+      ],
+      "elapsed_sec": 5.53
+    },
+    {
+      "file": "config/strategies/gap_fade_banknifty.json",
+      "strategy_id": "Gap_Fade_BankNifty",
+      "instrument_key": "NSE_INDEX|Nifty Bank",
+      "straddle_proxy": false,
+      "options_proxy": true,
+      "start_date": "2026-03-01",
+      "end_date": "2026-06-01",
+      "status": "OK",
+      "instrument": "BankNifty",
+      "data_file": "data/backtest/banknifty_1m_24mo.csv",
+      "bars": 22125,
+      "date_start": "2026-03-02 09:15:00+05:30",
+      "date_end": "2026-06-01 15:29:00+05:30",
+      "closed_positions": 0,
+      "broker_events": 0,
+      "open_positions_end": 0,
+      "metrics": {
+        "total_trades": 0,
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "net_pnl_rupees": 0.0,
+        "total_fees_rupees": 0.0,
+        "max_drawdown_rupees": 0.0,
+        "max_drawdown_pct": 0.0,
+        "return_pct": 0.0,
+        "sharpe_ratio": 0.0
+      },
+      "manual_error_count": 0,
+      "manual_errors": [],
+      "warning_count": 1,
+      "error_count": 0,
+      "top_log_signatures": [
+        [
+          "premium_pct=0.5% | delta=0.5 | first-day premium baseline \u2248 29602 paisa. This transforms index OHLCV into synthetic ATM premium scaling.",
+          1
+        ]
+      ],
+      "elapsed_sec": 118.07
+    },
+    {
+      "file": "config/strategies/macd_crossover.json",
+      "strategy_id": "MACD_Crossover_BankNifty",
+      "instrument_key": "NSE_INDEX|Nifty Bank",
+      "straddle_proxy": false,
+      "options_proxy": true,
+      "start_date": "2026-03-01",
+      "end_date": "2026-06-01",
+      "status": "OK",
+      "instrument": "BankNifty",
+      "data_file": "data/backtest/banknifty_1m_24mo.csv",
+      "bars": 22125,
+      "date_start": "2026-03-02 09:15:00+05:30",
+      "date_end": "2026-06-01 15:29:00+05:30",
+      "closed_positions": 77,
+      "broker_events": 184,
+      "open_positions_end": 0,
+      "metrics": {
+        "total_trades": 77,
+        "win_rate": 63.64,
+        "profit_factor": 1.06,
+        "net_pnl_rupees": 3409.03,
+        "total_fees_rupees": 4784.79,
+        "max_drawdown_rupees": 45798.4,
+        "max_drawdown_pct": 9.16,
+        "return_pct": 1.49,
+        "sharpe_ratio": 0.44
+      },
+      "manual_error_count": 0,
+      "manual_errors": [],
+      "warning_count": 361,
+      "error_count": 154,
+      "top_log_signatures": [
+        [
+          "No historical IV data for NSE_INDEX|Nifty Bank",
+          77
+        ],
+        [
+          "No option chain data for BANKNIFTY",
+          77
+        ],
+        [
+          "[RESEARCH] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          77
+        ],
+        [
+          "Failed to save strategy performance: (sqlite3.OperationalError) attempt to write a readonly database",
+          77
+        ],
+        [
+          "Error processing closed position for learning: (sqlite3.OperationalError) attempt to write a readonly database",
+          77
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 5",
+          3
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 19",
+          3
+        ],
+        [
+          "[RESEARCH] Risk: candle_context: 2 confirming candles",
+          2
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 6",
+          2
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 9",
+          2
+        ]
+      ],
+      "elapsed_sec": 29.87
+    },
+    {
+      "file": "config/strategies/pdh_pdl_breakout_banknifty.json",
+      "strategy_id": "PDH_PDL_Breakout_BankNifty",
+      "instrument_key": "NSE_INDEX|Nifty Bank",
+      "straddle_proxy": false,
+      "options_proxy": true,
+      "start_date": "2026-03-01",
+      "end_date": "2026-06-01",
+      "status": "OK",
+      "instrument": "BankNifty",
+      "data_file": "data/backtest/banknifty_1m_24mo.csv",
+      "bars": 22125,
+      "date_start": "2026-03-02 09:15:00+05:30",
+      "date_end": "2026-06-01 15:29:00+05:30",
+      "closed_positions": 47,
+      "broker_events": 94,
+      "open_positions_end": 0,
+      "metrics": {
+        "total_trades": 47,
+        "win_rate": 61.7,
+        "profit_factor": 2.02,
+        "net_pnl_rupees": 189.98,
+        "total_fees_rupees": 2235.65,
+        "max_drawdown_rupees": 3411.79,
+        "max_drawdown_pct": 0.68,
+        "return_pct": -0.64,
+        "sharpe_ratio": 5.18
+      },
+      "manual_error_count": 0,
+      "manual_errors": [],
+      "warning_count": 220,
+      "error_count": 36,
+      "top_log_signatures": [
+        [
+          "No historical IV data for NSE_INDEX|Nifty Bank",
+          47
+        ],
+        [
+          "No option chain data for BANKNIFTY",
+          47
+        ],
+        [
+          "[RESEARCH] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          47
+        ],
+        [
+          "Failed to save strategy performance: (sqlite3.OperationalError) attempt to write a readonly database",
+          18
+        ],
+        [
+          "Error processing closed position for learning: (sqlite3.OperationalError) attempt to write a readonly database",
+          18
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 3",
+          2
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 8",
+          2
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 10",
+          2
+        ],
+        [
+          "premium_pct=0.5% | delta=0.5 | first-day premium baseline \u2248 29602 paisa. This transforms index OHLCV into synthetic ATM premium scaling.",
+          1
+        ],
+        [
+          "[f7579076] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          1
+        ]
+      ],
+      "elapsed_sec": 92.55
+    },
+    {
+      "file": "config/strategies/rsi_divergence_mtf_banknifty.json",
+      "strategy_id": "RSI_Divergence_MTF_BankNifty",
+      "instrument_key": "NSE_INDEX|Nifty Bank",
+      "straddle_proxy": false,
+      "options_proxy": true,
+      "start_date": "2026-03-01",
+      "end_date": "2026-06-01",
+      "status": "OK",
+      "instrument": "BankNifty",
+      "data_file": "data/backtest/banknifty_1m_24mo.csv",
+      "bars": 22125,
+      "date_start": "2026-03-02 09:15:00+05:30",
+      "date_end": "2026-06-01 15:29:00+05:30",
+      "closed_positions": 15,
+      "broker_events": 30,
+      "open_positions_end": 0,
+      "metrics": {
+        "total_trades": 15,
+        "win_rate": 40.0,
+        "profit_factor": 0.98,
+        "net_pnl_rupees": -2.74,
+        "total_fees_rupees": 721.11,
+        "max_drawdown_rupees": 1089.66,
+        "max_drawdown_pct": 0.22,
+        "return_pct": -0.22,
+        "sharpe_ratio": -0.14
+      },
+      "manual_error_count": 0,
+      "manual_errors": [],
+      "warning_count": 99,
+      "error_count": 30,
+      "top_log_signatures": [
+        [
+          "No historical IV data for NSE_INDEX|Nifty Bank",
+          15
+        ],
+        [
+          "No option chain data for BANKNIFTY",
+          15
+        ],
+        [
+          "[RESEARCH] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          15
+        ],
+        [
+          "Failed to save strategy performance: (sqlite3.OperationalError) attempt to write a readonly database",
+          15
+        ],
+        [
+          "Error processing closed position for learning: (sqlite3.OperationalError) attempt to write a readonly database",
+          15
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 18",
+          2
+        ],
+        [
+          "[RESEARCH] Risk: candle_context: 3 confirming candles",
+          2
+        ],
+        [
+          "premium_pct=0.5% | delta=0.5 | first-day premium baseline \u2248 29602 paisa. This transforms index OHLCV into synthetic ATM premium scaling.",
+          1
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 6",
+          1
+        ],
+        [
+          "[24aa3114] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          1
+        ]
+      ],
+      "elapsed_sec": 104.19
+    },
+    {
+      "file": "config/strategies/equity_supertrend_breakout.json",
+      "strategy_id": "Supertrend_Breakout_Equity",
+      "instrument_key": "NSE_EQ|ADANIENT",
+      "straddle_proxy": false,
+      "options_proxy": false,
+      "start_date": "2026-03-01",
+      "end_date": "2026-06-01",
+      "status": "OK",
+      "instrument": "ADANIENT",
+      "data_file": "data/backtest/equity/adanient_1m_24mo.csv",
+      "bars": 22125,
+      "date_start": "2026-03-02 09:15:00+05:30",
+      "date_end": "2026-06-01 15:29:00+05:30",
+      "closed_positions": 60,
+      "broker_events": 149,
+      "open_positions_end": 0,
+      "metrics": {
+        "total_trades": 60,
+        "win_rate": 45.0,
+        "profit_factor": 1.04,
+        "net_pnl_rupees": 2130.09,
+        "total_fees_rupees": 6622.88,
+        "max_drawdown_rupees": 185828.47,
+        "max_drawdown_pct": 37.17,
+        "return_pct": -4.16,
+        "sharpe_ratio": 0.26
+      },
+      "manual_error_count": 0,
+      "manual_errors": [],
+      "warning_count": 69,
+      "error_count": 207,
+      "top_log_signatures": [
+        [
+          "Daily loss limit breached: current P&L -1948016 paisa exceeds max allowed loss of -1877034 paisa",
+          10
+        ],
+        [
+          "Daily loss limit breached: current P&L -1887186 paisa exceeds max allowed loss of -1877034 paisa",
+          6
+        ],
+        [
+          "Daily loss limit breached: current P&L -1883336 paisa exceeds max allowed loss of -1877034 paisa",
+          6
+        ],
+        [
+          "Daily loss limit breached: current P&L -1881796 paisa exceeds max allowed loss of -1877034 paisa",
+          6
+        ],
+        [
+          "Daily loss limit breached: current P&L -1892576 paisa exceeds max allowed loss of -1877034 paisa",
+          6
+        ],
+        [
+          "Daily loss limit breached: current P&L -1928766 paisa exceeds max allowed loss of -1877034 paisa",
+          5
+        ],
+        [
+          "Daily loss limit breached: current P&L -1944166 paisa exceeds max allowed loss of -1877034 paisa",
+          5
+        ],
+        [
+          "Daily loss limit breached: current P&L -1913366 paisa exceeds max allowed loss of -1877034 paisa",
+          5
+        ],
+        [
+          "Daily loss limit breached: current P&L -1882566 paisa exceeds max allowed loss of -1877034 paisa",
+          5
+        ],
+        [
+          "Daily loss limit breached: current P&L -1877946 paisa exceeds max allowed loss of -1877034 paisa",
+          4
+        ]
+      ],
+      "elapsed_sec": 25.39
+    },
+    {
+      "file": "config/strategies/supertrend_ema_rsi.json",
+      "strategy_id": "Supertrend_EMA_RSI_BankNifty",
+      "instrument_key": "NSE_INDEX|Nifty Bank",
+      "straddle_proxy": false,
+      "options_proxy": true,
+      "start_date": "2026-03-01",
+      "end_date": "2026-06-01",
+      "status": "OK",
+      "instrument": "BankNifty",
+      "data_file": "data/backtest/banknifty_1m_24mo.csv",
+      "bars": 22125,
+      "date_start": "2026-03-02 09:15:00+05:30",
+      "date_end": "2026-06-01 15:29:00+05:30",
+      "closed_positions": 18,
+      "broker_events": 41,
+      "open_positions_end": 0,
+      "metrics": {
+        "total_trades": 18,
+        "win_rate": 72.22,
+        "profit_factor": 2.49,
+        "net_pnl_rupees": 10130.71,
+        "total_fees_rupees": 1098.01,
+        "max_drawdown_rupees": 9717.65,
+        "max_drawdown_pct": 1.94,
+        "return_pct": 2.2,
+        "sharpe_ratio": 6.47
+      },
+      "manual_error_count": 0,
+      "manual_errors": [],
+      "warning_count": 84,
+      "error_count": 36,
+      "top_log_signatures": [
+        [
+          "No historical IV data for NSE_INDEX|Nifty Bank",
+          18
+        ],
+        [
+          "No option chain data for BANKNIFTY",
+          18
+        ],
+        [
+          "[RESEARCH] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          18
+        ],
+        [
+          "Failed to save strategy performance: (sqlite3.OperationalError) attempt to write a readonly database",
+          18
+        ],
+        [
+          "Error processing closed position for learning: (sqlite3.OperationalError) attempt to write a readonly database",
+          18
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 5",
+          2
+        ],
+        [
+          "premium_pct=0.5% | delta=0.5 | first-day premium baseline \u2248 29602 paisa. This transforms index OHLCV into synthetic ATM premium scaling.",
+          1
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 1",
+          1
+        ],
+        [
+          "Insufficient data for feature extraction: 37 rows",
+          1
+        ],
+        [
+          "[7dceed6a] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          1
+        ]
+      ],
+      "elapsed_sec": 128.03
+    },
+    {
+      "file": "config/strategies/supertrend_ema_rsi_banknifty.json",
+      "strategy_id": "Supertrend_EMA_RSI_BankNifty_v2",
+      "instrument_key": "NSE_INDEX|Nifty Bank",
+      "straddle_proxy": false,
+      "options_proxy": true,
+      "start_date": "2026-03-01",
+      "end_date": "2026-06-01",
+      "status": "OK",
+      "instrument": "BankNifty",
+      "data_file": "data/backtest/banknifty_1m_24mo.csv",
+      "bars": 22125,
+      "date_start": "2026-03-02 09:15:00+05:30",
+      "date_end": "2026-06-01 15:29:00+05:30",
+      "closed_positions": 51,
+      "broker_events": 102,
+      "open_positions_end": 0,
+      "metrics": {
+        "total_trades": 51,
+        "win_rate": 56.86,
+        "profit_factor": 1.22,
+        "net_pnl_rupees": 54.49,
+        "total_fees_rupees": 2425.59,
+        "max_drawdown_rupees": 3990.27,
+        "max_drawdown_pct": 0.8,
+        "return_pct": -0.7,
+        "sharpe_ratio": 1.58
+      },
+      "manual_error_count": 0,
+      "manual_errors": [],
+      "warning_count": 304,
+      "error_count": 44,
+      "top_log_signatures": [
+        [
+          "No historical IV data for NSE_INDEX|Nifty Bank",
+          51
+        ],
+        [
+          "No option chain data for BANKNIFTY",
+          51
+        ],
+        [
+          "[RESEARCH] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          51
+        ],
+        [
+          "[RESEARCH] Risk: market_regime: Market regime: volatile; Volatility regime: extreme; ADX: 24.1 (falling); ATR percentile: 97.1%",
+          36
+        ],
+        [
+          "Failed to save strategy performance: (sqlite3.OperationalError) attempt to write a readonly database",
+          22
+        ],
+        [
+          "Error processing closed position for learning: (sqlite3.OperationalError) attempt to write a readonly database",
+          22
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 3",
+          2
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 5",
+          2
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 8",
+          2
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 14",
+          2
+        ]
+      ],
+      "elapsed_sec": 70.34
+    }
+  ]
+}

@@ -1,0 +1,202 @@
+{
+  "run": "upstox_shaped_24mo_paper_pipeline_no_timeouts",
+  "workers": 3,
+  "results": [
+    {
+      "file": "config/strategies/macd_crossover.json",
+      "strategy_id": "MACD_Crossover_BankNifty",
+      "instrument_key": "NSE_INDEX|Nifty Bank",
+      "straddle_proxy": false,
+      "options_proxy": true,
+      "start_date": "2026-05-01",
+      "end_date": "2026-05-31",
+      "status": "OK",
+      "instrument": "BankNifty",
+      "data_file": "data/backtest/banknifty_1m_24mo.csv",
+      "bars": 7125,
+      "date_start": "2026-05-04 09:15:00+05:30",
+      "date_end": "2026-05-29 15:29:00+05:30",
+      "closed_positions": 21,
+      "broker_events": 51,
+      "open_positions_end": 0,
+      "metrics": {
+        "total_trades": 21,
+        "win_rate": 76.19,
+        "profit_factor": 2.38,
+        "net_pnl_rupees": 13844.26,
+        "total_fees_rupees": 1332.03,
+        "max_drawdown_rupees": 20192.7,
+        "max_drawdown_pct": 4.04,
+        "return_pct": 4.38,
+        "sharpe_ratio": 6.01
+      },
+      "manual_error_count": 0,
+      "manual_errors": [],
+      "warning_count": 114,
+      "error_count": 0,
+      "top_log_signatures": [
+        [
+          "No historical IV data for NSE_INDEX|Nifty Bank",
+          21
+        ],
+        [
+          "No option chain data for BANKNIFTY",
+          21
+        ],
+        [
+          "[RESEARCH] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          21
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 8",
+          2
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 11",
+          2
+        ],
+        [
+          "premium_pct=0.5% | delta=0.5 | first-day premium baseline \u2248 27468 paisa. This transforms index OHLCV into synthetic ATM premium scaling.",
+          1
+        ],
+        [
+          "ML validator running in fallback mode",
+          1
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 1",
+          1
+        ],
+        [
+          "Insufficient data for feature extraction: 34 rows",
+          1
+        ],
+        [
+          "[a83bf27c] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          1
+        ]
+      ],
+      "elapsed_sec": 5.99
+    },
+    {
+      "file": "config/strategies/rsi_divergence_mtf_banknifty.json",
+      "strategy_id": "RSI_Divergence_MTF_BankNifty",
+      "instrument_key": "NSE_INDEX|Nifty Bank",
+      "straddle_proxy": false,
+      "options_proxy": true,
+      "start_date": "2026-05-01",
+      "end_date": "2026-05-31",
+      "status": "OK",
+      "instrument": "BankNifty",
+      "data_file": "data/backtest/banknifty_1m_24mo.csv",
+      "bars": 7125,
+      "date_start": "2026-05-04 09:15:00+05:30",
+      "date_end": "2026-05-29 15:29:00+05:30",
+      "closed_positions": 0,
+      "broker_events": 0,
+      "open_positions_end": 0,
+      "metrics": {
+        "total_trades": 0,
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "net_pnl_rupees": 0.0,
+        "total_fees_rupees": 0.0,
+        "max_drawdown_rupees": 0.0,
+        "max_drawdown_pct": 0.0,
+        "return_pct": 0.0,
+        "sharpe_ratio": 0.0
+      },
+      "manual_error_count": 0,
+      "manual_errors": [],
+      "warning_count": 2,
+      "error_count": 0,
+      "top_log_signatures": [
+        [
+          "premium_pct=0.5% | delta=0.5 | first-day premium baseline \u2248 27468 paisa. This transforms index OHLCV into synthetic ATM premium scaling.",
+          1
+        ],
+        [
+          "ML validator running in fallback mode",
+          1
+        ]
+      ],
+      "elapsed_sec": 25.85
+    },
+    {
+      "file": "config/strategies/supertrend_ema_rsi.json",
+      "strategy_id": "Supertrend_EMA_RSI_BankNifty",
+      "instrument_key": "NSE_INDEX|Nifty Bank",
+      "straddle_proxy": false,
+      "options_proxy": true,
+      "start_date": "2026-05-01",
+      "end_date": "2026-05-31",
+      "status": "OK",
+      "instrument": "BankNifty",
+      "data_file": "data/backtest/banknifty_1m_24mo.csv",
+      "bars": 7125,
+      "date_start": "2026-05-04 09:15:00+05:30",
+      "date_end": "2026-05-29 15:29:00+05:30",
+      "closed_positions": 5,
+      "broker_events": 12,
+      "open_positions_end": 0,
+      "metrics": {
+        "total_trades": 5,
+        "win_rate": 80.0,
+        "profit_factor": 2.37,
+        "net_pnl_rupees": 3273.98,
+        "total_fees_rupees": 331.88,
+        "max_drawdown_rupees": 3702.0,
+        "max_drawdown_pct": 0.74,
+        "return_pct": 0.55,
+        "sharpe_ratio": 5.33
+      },
+      "manual_error_count": 0,
+      "manual_errors": [],
+      "warning_count": 27,
+      "error_count": 0,
+      "top_log_signatures": [
+        [
+          "No historical IV data for NSE_INDEX|Nifty Bank",
+          5
+        ],
+        [
+          "No option chain data for BANKNIFTY",
+          5
+        ],
+        [
+          "[RESEARCH] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          5
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 8",
+          2
+        ],
+        [
+          "premium_pct=0.5% | delta=0.5 | first-day premium baseline \u2248 27468 paisa. This transforms index OHLCV into synthetic ATM premium scaling.",
+          1
+        ],
+        [
+          "ML validator running in fallback mode",
+          1
+        ],
+        [
+          "[27cc3d8b] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          1
+        ],
+        [
+          "[8c59eaef] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          1
+        ],
+        [
+          "MarketRegimeDetector.detect_regime failed: ValueError: Need at least 20 bars of daily data, got 13",
+          1
+        ],
+        [
+          "[fad07531] Risk: volume: Weak volume (0.00x average); Volume trend flat; OBV neutral",
+          1
+        ]
+      ],
+      "elapsed_sec": 23.29
+    }
+  ]
+}

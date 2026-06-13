@@ -245,6 +245,11 @@ class ManagedPosition:
     # Kelly sizing see net-of-fees P&L.
     fees_paisa: int = 0
 
+    # Broker order_ids of every fill belonging to THIS position (entry +
+    # each partial/tier/final exit). Used to attribute fees per-order so
+    # two overlapping positions on the same instrument don't cross-charge.
+    fill_order_ids: list[str] = field(default_factory=list)
+
     def __post_init__(self):
         """Initialize tracking variables."""
         if self.highest_price_since_entry is None:
@@ -793,6 +798,7 @@ class PositionManager:
         underlying_entry_price: Optional[int] = None,
         emergency_exit_move_pct: Optional[float] = None,
         enable_price_exits: bool = True,
+        entry_order_id: Optional[str] = None,
     ) -> ManagedPosition:
         """Add a new position to track.
 
@@ -893,6 +899,7 @@ class PositionManager:
                 price_exits_enabled=enable_price_exits,
                 original_quantity=quantity,
                 remaining_quantity=quantity,
+                fill_order_ids=[entry_order_id] if entry_order_id else [],
             )
 
             self._positions[position.position_id] = position
@@ -1482,6 +1489,8 @@ class PositionManager:
 
                 with self._lock:
                     position.partial_exits.append(partial_record)
+                    if getattr(response, "order_id", None):
+                        position.fill_order_ids.append(response.order_id)
                     position.remaining_quantity -= exit_qty
                     position.partial_booking_done = True
 
@@ -1575,6 +1584,8 @@ class PositionManager:
 
                 with self._lock:
                     position.partial_exits.append(partial_record)
+                    if getattr(response, "order_id", None):
+                        position.fill_order_ids.append(response.order_id)
                     position.remaining_quantity -= exit_qty
 
                 logger.info(
@@ -1594,8 +1605,9 @@ class PositionManager:
                         position.exit_time = self._now()
                         position.exit_price = fill_px
                         position.exit_reason = "ALL_TIERS_EXITED"
-                        if position.instrument_key in self._instrument_to_position:
-                            del self._instrument_to_position[position.instrument_key]
+                        # List-aware cleanup so a second concurrent position on
+                        # the same instrument is not orphaned (was dict-only).
+                        self._untrack_instrument(position)
                     logger.info(f"Position fully closed via tier exits: {position.position_id}")
 
                     # Position is closed and removed from active tracking — finalize
@@ -1938,6 +1950,27 @@ class PositionManager:
                 )
                 position.stop_loss_price = new_sl
 
+    def _untrack_instrument(self, position: ManagedPosition) -> None:
+        """Remove a position from the instrument→position index.
+
+        Handles both the single-position (str) and multiple-positions-per-
+        instrument (list) cases. Only the closing position's own id is
+        removed from a list, so a second concurrent position on the same
+        instrument keeps its lookup intact.
+
+        Caller MUST hold ``self._lock``.
+        """
+        existing = self._instrument_to_position.get(position.instrument_key)
+        if isinstance(existing, list):
+            try:
+                existing.remove(position.position_id)
+            except ValueError:
+                pass
+            if not existing:
+                del self._instrument_to_position[position.instrument_key]
+        elif position.instrument_key in self._instrument_to_position:
+            del self._instrument_to_position[position.instrument_key]
+
     def _close_position(self, position: ManagedPosition, exit_price: int, reason: str) -> bool:
         """Close a position by placing exit order.
 
@@ -1960,16 +1993,7 @@ class PositionManager:
                     position.exit_time = self._now()
                     position.exit_price = exit_price
                     position.exit_reason = reason
-                    existing = self._instrument_to_position.get(position.instrument_key)
-                    if isinstance(existing, list):
-                        try:
-                            existing.remove(position.position_id)
-                        except ValueError:
-                            pass
-                        if not existing:
-                            del self._instrument_to_position[position.instrument_key]
-                    elif position.instrument_key in self._instrument_to_position:
-                        del self._instrument_to_position[position.instrument_key]
+                    self._untrack_instrument(position)
 
                 # Position drained entirely by partial/tier exits — still finalize
                 # so DB logging, fee attribution, circuit breaker, and the
@@ -2007,18 +2031,11 @@ class PositionManager:
                     position.exit_price = fill_px
                     position.exit_reason = reason
                     position.realized_pnl += remaining_pnl
+                    if getattr(response, "order_id", None):
+                        position.fill_order_ids.append(response.order_id)
 
                     # Clean up tracking (handle list when multiple positions per instrument)
-                    existing = self._instrument_to_position.get(position.instrument_key)
-                    if isinstance(existing, list):
-                        try:
-                            existing.remove(position.position_id)
-                        except ValueError:
-                            pass
-                        if not existing:
-                            del self._instrument_to_position[position.instrument_key]
-                    elif position.instrument_key in self._instrument_to_position:
-                        del self._instrument_to_position[position.instrument_key]
+                    self._untrack_instrument(position)
 
                 self._finalize_close(position, fill_px, reason)
                 return True
@@ -2110,11 +2127,18 @@ class PositionManager:
                     strategy=position.strategy_id,
                 )
 
-                # Attribute fees (brokerage + STT + GST + exchange + SEBI)
-                # by summing charges from the broker's per-fill history
-                # for this instrument since position entry.
+                # Attribute fees (brokerage + STT + GST + exchange + SEBI).
+                # Prefer per-order attribution (entry + every exit fill belonging
+                # to THIS position) so two overlapping positions on the same
+                # instrument never cross-charge each other. Fall back to the
+                # instrument+time-window sum when order_ids aren't tracked
+                # (e.g. live fills not yet plumbed through fill_order_ids).
                 try:
-                    if hasattr(self._broker, "sum_fees_for_instrument"):
+                    if position.fill_order_ids and hasattr(self._broker, "sum_fees_for_orders"):
+                        fees_paisa = int(self._broker.sum_fees_for_orders(
+                            position.fill_order_ids
+                        ))
+                    elif hasattr(self._broker, "sum_fees_for_instrument"):
                         fees_paisa = int(self._broker.sum_fees_for_instrument(
                             position.instrument_key,
                             since=position.entry_time,

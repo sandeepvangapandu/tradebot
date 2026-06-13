@@ -712,6 +712,28 @@ class PaperBroker(BaseBroker):
                 total += int(rec.get("charges", {}).get("total", 0) or 0)
             return total
 
+    def sum_fees_for_orders(self, order_ids: list[str]) -> int:
+        """Sum total fees (brokerage + STT + GST + ...) for specific order_ids.
+
+        Per-order attribution avoids cross-charging fees between two
+        overlapping positions on the same instrument.
+
+        Args:
+            order_ids: Broker order_ids whose fills belong to one position.
+
+        Returns:
+            Total fees in paisa across the matching fills.
+        """
+        wanted = set(order_ids or [])
+        if not wanted:
+            return 0
+        with self._lock:
+            total = 0
+            for rec in self._trade_history:
+                if rec.get("order_id") in wanted:
+                    total += int(rec.get("charges", {}).get("total", 0) or 0)
+            return total
+
     def get_portfolio_value(self) -> int:
         """Get total portfolio value including positions.
 

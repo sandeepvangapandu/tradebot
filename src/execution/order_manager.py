@@ -1175,6 +1175,7 @@ class OrderManager:
                                     underlying_entry_price=int(underlying_entry) if underlying_entry else None,
                                     emergency_exit_move_pct=float(emergency_pct) if emergency_pct else None,
                                     enable_price_exits=False,
+                                    entry_order_id=getattr(resp, "order_id", None),
                                 )
                                 self._order_logger.info(
                                     f"POSITION_CREATED | {leg_order.instrument_key} | {side_str} "
@@ -1212,6 +1213,7 @@ class OrderManager:
                                 stop_loss_price=signal.stop_loss,
                                 target_price=signal.target,
                                 product_type=order.product_type,
+                                entry_order_id=getattr(response, "order_id", None),
                             )
                             self._order_logger.info(
                                 f"POSITION_CREATED | {instrument_key} | {order_side.value} "
@@ -1295,6 +1297,7 @@ class OrderManager:
                     stop_loss_price=signal.stop_loss,
                     target_price=signal.target,
                     product_type=product_type,
+                    entry_order_id=order_id,
                 )
                 self._order_logger.info(
                     f"ASYNC_POSITION_CREATED | {order.instrument_key} | {order.side} "

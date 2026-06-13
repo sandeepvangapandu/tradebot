@@ -82,9 +82,9 @@
     "min_quantity": 1
   },
   "risk_management": {
-    "max_open_positions": 2,
-    "max_trades_per_day": 2,
-    "max_position_size_pct": 50,
+    "max_open_positions": 1,
+    "max_trades_per_day": 1,
+    "max_position_size_pct": 25,
     "signal_cooldown_minutes": 30
   },
   "params": {

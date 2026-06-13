@@ -43,7 +43,7 @@
     }
   ],
   "exit_rules": {
-    "stop_loss_pct": 35.0,
+    "stop_loss_pct": 50.0,
     "target_pct": 80.0,
     "time_based_exit": "14:00:00",
     "max_holding_minutes": 240,

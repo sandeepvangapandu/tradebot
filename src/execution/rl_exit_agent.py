@@ -527,10 +527,11 @@ class RLExitAgent:
             cur.execute(
                 """
                 SELECT strategy, instrument_key, entry_price, exit_price, quantity,
-                       pnl_paisa, duration_seconds, stop_loss_price, target_price,
-                       closed_at
+                       realized_pnl AS pnl_paisa,
+                       holding_duration_seconds AS duration_seconds,
+                       exit_time AS closed_at
                 FROM trades
-                ORDER BY closed_at DESC
+                ORDER BY exit_time DESC
                 LIMIT ?
                 """,
                 (n_episodes,),
@@ -574,8 +575,6 @@ class RLExitAgent:
         exit_price: int = int(row["exit_price"] or 0)
         pnl_paisa: int = int(row["pnl_paisa"] or 0)
         duration_s: int = int(row["duration_seconds"] or 0)
-        sl_price: int = int(row["stop_loss_price"] or 0)
-        target_price: int = int(row["target_price"] or 0)
 
         if entry_price <= 0:
             return
